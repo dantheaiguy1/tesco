@@ -1,0 +1,19 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "tesco-image-generator",
+  "compatibility_date": "2025-11-24",
+  "pages_build_output_dir": "./dist",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "vars": {
+    "GEMINI_API_KEY": "AIzaSyCMeQ_ucLtF1_jCCdDPHnUg9UCrrfYS-Ck"
+  },
+  "d1_databases": [
+    {
+      "binding": "TESCO_DB",
+      "database_name": "tesco-image-db",
+      "database_id": "local-dev-db"
+    }
+  ]
+}
