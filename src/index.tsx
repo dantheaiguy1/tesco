@@ -10,6 +10,34 @@ const app = new Hono<{ Bindings: Bindings }>()
 
 app.use('*', cors())
 
+// Auto-migrate database on first request
+async function ensureDatabase(db: D1Database) {
+  try {
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS sessions (
+        id TEXT PRIMARY KEY,
+        product_name TEXT,
+        source_type TEXT NOT NULL CHECK (source_type IN ('upload', 'url')),
+        source_url TEXT,
+        original_image TEXT NOT NULL,
+        lifestyle_image TEXT,
+        ecommerce_image TEXT,
+        instagram_image TEXT,
+        macro_image TEXT,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'generating', 'completed', 'failed')),
+        error_message TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `).run()
+    
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_sessions_created_at ON sessions(created_at DESC)').run()
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status)').run()
+  } catch (err) {
+    console.log('Database already initialized or error:', err)
+  }
+}
+
 // Generate unique ID
 function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`
@@ -37,6 +65,7 @@ app.get('/results/:id', (c) => {
 app.get('/api/sessions', async (c) => {
   try {
     const db = c.env.TESCO_DB
+    await ensureDatabase(db)
     const result = await db.prepare(
       'SELECT * FROM sessions ORDER BY created_at DESC'
     ).all()
@@ -69,6 +98,9 @@ app.get('/api/sessions/:id', async (c) => {
 // API: Create session from upload
 app.post('/api/upload', async (c) => {
   try {
+    const db = c.env.TESCO_DB
+    await ensureDatabase(db)
+    
     const formData = await c.req.formData()
     const file = formData.get('image') as File
     
@@ -93,7 +125,6 @@ app.post('/api/upload', async (c) => {
     const dataUrl = `data:${file.type};base64,${base64}`
 
     // Create session
-    const db = c.env.TESCO_DB
     const sessionId = generateId()
     
     await db.prepare(`
@@ -111,6 +142,9 @@ app.post('/api/upload', async (c) => {
 // API: Scrape Tesco URL
 app.post('/api/scrape', async (c) => {
   try {
+    const db = c.env.TESCO_DB
+    await ensureDatabase(db)
+    
     const { url } = await c.req.json()
     
     if (!url) {
@@ -184,7 +218,6 @@ app.post('/api/scrape', async (c) => {
     const dataUrl = `data:${contentType};base64,${base64}`
 
     // Create session
-    const db = c.env.TESCO_DB
     const sessionId = generateId()
     
     await db.prepare(`
@@ -249,7 +282,7 @@ app.post('/api/generate/:id', async (c) => {
     for (const variation of variations) {
       try {
         const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${apiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp-image-generation:generateContent?key=${apiKey}`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -268,8 +301,7 @@ app.post('/api/generate/:id', async (c) => {
                 ]
               }],
               generationConfig: {
-                responseModalities: ["image", "text"],
-                responseMimeType: "image/jpeg"
+                responseModalities: ["IMAGE", "TEXT"]
               }
             })
           }

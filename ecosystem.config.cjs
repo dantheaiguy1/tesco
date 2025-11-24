@@ -3,7 +3,7 @@ module.exports = {
     {
       name: 'tesco-image-generator',
       script: 'npx',
-      args: 'wrangler pages dev dist --d1=TESCO_DB --local --ip 0.0.0.0 --port 3000',
+      args: 'wrangler pages dev dist --d1=TESCO_DB --local --persist-to=.wrangler/state --ip 0.0.0.0 --port 3000',
       env: {
         NODE_ENV: 'development',
         PORT: 3000
