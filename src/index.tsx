@@ -119,9 +119,16 @@ app.post('/api/upload', async (c) => {
       return c.json({ success: false, error: 'Invalid file type. Please upload JPG, PNG, or WebP.' }, 400)
     }
 
-    // Convert to base64 data URL
+    // Convert to base64 data URL (chunked to avoid stack overflow)
     const buffer = await file.arrayBuffer()
-    const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)))
+    const bytes = new Uint8Array(buffer)
+    let binary = ''
+    const chunkSize = 8192
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      const chunk = bytes.subarray(i, i + chunkSize)
+      binary += String.fromCharCode.apply(null, chunk as any)
+    }
+    const base64 = btoa(binary)
     const dataUrl = `data:${file.type};base64,${base64}`
 
     // Create session
@@ -213,7 +220,14 @@ app.post('/api/scrape', async (c) => {
     }
 
     const imageBuffer = await imageResponse.arrayBuffer()
-    const base64 = btoa(String.fromCharCode(...new Uint8Array(imageBuffer)))
+    const imgBytes = new Uint8Array(imageBuffer)
+    let imgBinary = ''
+    const imgChunkSize = 8192
+    for (let i = 0; i < imgBytes.length; i += imgChunkSize) {
+      const chunk = imgBytes.subarray(i, i + imgChunkSize)
+      imgBinary += String.fromCharCode.apply(null, chunk as any)
+    }
+    const base64 = btoa(imgBinary)
     const contentType = imageResponse.headers.get('content-type') || 'image/jpeg'
     const dataUrl = `data:${contentType};base64,${base64}`
 
@@ -329,26 +343,21 @@ app.post('/api/generate/:id', async (c) => {
       }
     }
 
-    // Update session with results
+    // Update session status only (don't store large base64 images in D1)
     await db.prepare(`
       UPDATE sessions 
-      SET lifestyle_image = ?,
-          ecommerce_image = ?,
-          instagram_image = ?,
-          macro_image = ?,
-          status = ?,
+      SET status = ?,
           updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
-    `).bind(
-      results.lifestyle_image || null,
-      results.ecommerce_image || null,
-      results.instagram_image || null,
-      results.macro_image || null,
-      'completed',
-      sessionId
-    ).run()
+    `).bind('completed', sessionId).run()
 
-    return c.json({ success: true, results })
+    // Return results directly - frontend will store in localStorage
+    return c.json({ 
+      success: true, 
+      results,
+      originalImage: session.original_image,
+      productName: session.product_name
+    })
   } catch (error) {
     console.error('Generation error:', error)
     
@@ -765,6 +774,12 @@ function getHomePage() {
         document.getElementById('progress-text').textContent = 'Complete!';
         
         if (data.success) {
+          // Store results in localStorage for the results page
+          localStorage.setItem('session_' + currentSessionId, JSON.stringify({
+            originalImage: data.originalImage,
+            productName: data.productName,
+            results: data.results
+          }));
           setTimeout(() => {
             window.location.href = '/results/' + currentSessionId;
           }, 500);
@@ -963,6 +978,28 @@ function getResultsPage(sessionId: string) {
     let sessionData = null;
 
     async function loadSession() {
+      // First try localStorage (for freshly generated results)
+      const stored = localStorage.getItem('session_' + sessionId);
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          sessionData = {
+            original_image: parsed.originalImage,
+            product_name: parsed.productName,
+            lifestyle_image: parsed.results?.lifestyle_image,
+            ecommerce_image: parsed.results?.ecommerce_image,
+            instagram_image: parsed.results?.instagram_image,
+            macro_image: parsed.results?.macro_image,
+            created_at: new Date().toISOString()
+          };
+          displayResults();
+          return;
+        } catch (e) {
+          console.error('Failed to parse stored session:', e);
+        }
+      }
+
+      // Fallback to API
       try {
         const response = await fetch('/api/sessions/' + sessionId);
         const data = await response.json();
