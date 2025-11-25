@@ -912,29 +912,6 @@ function getHomePage() {
             <span id="custom-count-badge" class="text-xs bg-brand-purple/10 text-brand-purple px-2 py-0.5 rounded-full">Custom Prompts</span>
           </button>
         </div>
-        
-        <!-- Advanced Mode Panel (Hidden by default) - Opens as modal overlay -->
-        <div id="advanced-panel" class="hidden fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-          <div class="bg-white rounded-2xl w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl">
-            <div class="flex items-center justify-between px-5 py-4 border-b border-slate-200">
-              <div>
-                <p class="text-base font-semibold text-brand-dark">Customize Generation Prompts</p>
-                <p class="text-xs text-brand-gray mt-0.5">Edit any prompt to customize that variation</p>
-              </div>
-              <button onclick="toggleAdvancedMode()" class="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-brand-gray hover:text-brand-dark transition">
-                <i class="fas fa-xmark"></i>
-              </button>
-            </div>
-            <div class="flex-1 overflow-y-auto divide-y divide-slate-100" id="prompt-list">
-              <!-- Prompts will be populated by JS -->
-            </div>
-            <div class="px-5 py-4 border-t border-slate-200 bg-slate-50 rounded-b-2xl">
-              <button onclick="toggleAdvancedMode()" class="w-full btn-primary py-3 rounded-xl text-white font-semibold">
-                <i class="fas fa-check mr-2"></i>Done - Apply Prompts
-              </button>
-            </div>
-          </div>
-        </div>
 
         <!-- Generate Button -->
         <div class="mt-5 text-center">
@@ -994,6 +971,29 @@ function getHomePage() {
       <button onclick="hideError()" class="text-white/50 hover:text-white transition">
         <i class="fas fa-xmark"></i>
       </button>
+    </div>
+  </div>
+
+  <!-- Advanced Mode Modal (moved outside all containers) -->
+  <div id="advanced-panel" class="hidden" style="position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;padding:16px;">
+    <div style="background:white;border-radius:16px;width:100%;max-width:640px;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 25px 50px -12px rgba(0,0,0,0.25);">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #e2e8f0;">
+        <div>
+          <p style="font-size:16px;font-weight:600;color:#1e293b;margin:0;">Customize Generation Prompts</p>
+          <p style="font-size:12px;color:#64748b;margin:4px 0 0 0;">Edit any prompt to customize that variation</p>
+        </div>
+        <button onclick="toggleAdvancedMode()" style="width:32px;height:32px;border-radius:50%;border:none;background:#f1f5f9;cursor:pointer;display:flex;align-items:center;justify-content:center;">
+          <i class="fas fa-xmark" style="color:#64748b;"></i>
+        </button>
+      </div>
+      <div id="prompt-list" style="flex:1;overflow-y:auto;padding:0;">
+        <!-- Prompts populated by JS -->
+      </div>
+      <div style="padding:16px 20px;border-top:1px solid #e2e8f0;background:#f8fafc;border-radius:0 0 16px 16px;">
+        <button onclick="toggleAdvancedMode()" class="btn-primary" style="width:100%;padding:12px;border-radius:12px;color:white;font-weight:600;border:none;cursor:pointer;">
+          <i class="fas fa-check" style="margin-right:8px;"></i>Done - Apply Prompts
+        </button>
+      </div>
     </div>
   </div>
 
@@ -1081,14 +1081,16 @@ function getHomePage() {
       const icon = document.getElementById('advanced-icon');
       
       if (advancedModeEnabled) {
+        panel.style.display = 'flex';
         panel.classList.remove('hidden');
-        icon.style.transform = 'rotate(90deg)';
-        document.body.style.overflow = 'hidden'; // Prevent background scroll
+        if (icon) icon.style.transform = 'rotate(90deg)';
+        document.body.style.overflow = 'hidden';
         populatePromptList();
       } else {
+        panel.style.display = 'none';
         panel.classList.add('hidden');
-        icon.style.transform = 'rotate(0deg)';
-        document.body.style.overflow = ''; // Restore scroll
+        if (icon) icon.style.transform = 'rotate(0deg)';
+        document.body.style.overflow = '';
       }
     }
     
@@ -1114,26 +1116,28 @@ function getHomePage() {
         const currentPrompt = customPrompts[i] || v.defaultPrompt;
         
         const item = document.createElement('div');
-        item.className = 'p-4 hover:bg-slate-50 transition';
+        item.style.cssText = 'padding:16px;border-bottom:1px solid #f1f5f9;';
         item.innerHTML = \`
-          <div class="flex items-center justify-between mb-2">
-            <div class="flex items-center gap-2">
-              <div class="w-7 h-7 rounded-lg bg-brand-purple/10 flex items-center justify-center">
-                <i class="\${v.icon} text-brand-purple text-xs"></i>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <div style="width:28px;height:28px;border-radius:8px;background:#f3e8ff;display:flex;align-items:center;justify-content:center;">
+                <i class="\${v.icon}" style="color:#9333ea;font-size:12px;"></i>
               </div>
-              <span class="text-sm font-medium text-brand-dark">\${v.label}</span>
-              <span id="item-badge-\${i}" class="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-medium \${isCustom ? '' : 'hidden'}">CUSTOM</span>
+              <span style="font-size:14px;font-weight:500;color:#1e293b;">\${v.label}</span>
+              <span id="item-badge-\${i}" style="font-size:10px;background:#fef3c7;color:#b45309;padding:2px 6px;border-radius:4px;font-weight:500;\${isCustom ? '' : 'display:none;'}">CUSTOM</span>
             </div>
-            <button onclick="resetPrompt(\${i})" class="text-xs text-brand-gray hover:text-red-500 transition \${isCustom ? '' : 'hidden'}" id="reset-btn-\${i}">
-              <i class="fas fa-undo mr-1"></i>Reset
+            <button onclick="resetPrompt(\${i})" style="font-size:12px;color:#64748b;background:none;border:none;cursor:pointer;\${isCustom ? '' : 'display:none;'}" id="reset-btn-\${i}">
+              <i class="fas fa-undo" style="margin-right:4px;"></i>Reset
             </button>
           </div>
           <textarea 
             id="prompt-\${i}" 
             rows="3" 
-            class="w-full text-sm text-brand-dark bg-slate-50 border border-slate-200 rounded-lg p-3 focus:border-brand-purple focus:ring-2 focus:ring-brand-purple/20 focus:bg-white outline-none resize-none transition"
+            style="width:100%;font-size:13px;color:#334155;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;outline:none;resize:none;font-family:inherit;"
             onchange="updateCustomPrompt(\${i}, this.value)"
             oninput="updateCustomPrompt(\${i}, this.value)"
+            onfocus="this.style.borderColor='#9333ea';this.style.background='white';"
+            onblur="this.style.borderColor='#e2e8f0';this.style.background='#f8fafc';"
             placeholder="Enter custom prompt..."
           >\${currentPrompt}</textarea>
         \`;
@@ -1150,13 +1154,10 @@ function getHomePage() {
       const resetBtn = document.getElementById('reset-btn-' + index);
       const itemBadge = document.getElementById('item-badge-' + index);
       if (resetBtn) {
-        if (isCustom) {
-          resetBtn.classList.remove('hidden');
-          if (itemBadge) itemBadge.classList.remove('hidden');
-        } else {
-          resetBtn.classList.add('hidden');
-          if (itemBadge) itemBadge.classList.add('hidden');
-        }
+        resetBtn.style.display = isCustom ? 'inline' : 'none';
+      }
+      if (itemBadge) {
+        itemBadge.style.display = isCustom ? 'inline' : 'none';
       }
       
       // Update main toggle badge
@@ -1189,10 +1190,10 @@ function getHomePage() {
       const resetBtn = document.getElementById('reset-btn-' + index);
       const itemBadge = document.getElementById('item-badge-' + index);
       if (resetBtn) {
-        resetBtn.classList.add('hidden');
+        resetBtn.style.display = 'none';
       }
       if (itemBadge) {
-        itemBadge.classList.add('hidden');
+        itemBadge.style.display = 'none';
       }
       
       // Update main toggle badge
