@@ -1077,20 +1077,15 @@ function getHomePage() {
       // Start progress animation - shows real elapsed time
       updateProgressState(cardIndex, 'connecting', 0);
       
-      // Track real elapsed time - shows actual seconds waiting
+      // Animate progress bar over 45 seconds (linear fill)
       let progressInterval = setInterval(() => {
         const elapsed = (Date.now() - requestStart) / 1000;
         const currentCard = document.getElementById('card-' + cardIndex);
         if (currentCard && !currentCard.dataset.complete) {
-          // Update elapsed time display
-          const timeEl = document.getElementById('time-' + cardIndex);
-          if (timeEl) timeEl.textContent = Math.round(elapsed) + 's';
-          
-          // Pulse the progress bar to show active connection
           const progressBar = document.getElementById('progress-' + cardIndex);
           if (progressBar) {
-            // Slow fill that never exceeds 85% until actual response
-            const fillPercent = Math.min(85, (1 - Math.exp(-elapsed / 12)) * 85);
+            // Linear fill: 0% at 0s, 95% at 45s
+            const fillPercent = Math.min(95, (elapsed / 45) * 95);
             progressBar.style.width = fillPercent + '%';
           }
         }
@@ -1150,31 +1145,21 @@ function getHomePage() {
     function updateProgressState(cardIndex, state, time) {
       const progressBar = document.getElementById('progress-' + cardIndex);
       const statusEl = document.getElementById('status-' + cardIndex);
-      const timeEl = document.getElementById('time-' + cardIndex);
       
       if (!progressBar) return;
       
-      // Remove previous state classes
-      progressBar.classList.remove('animate-pulse');
-      
       switch(state) {
         case 'connecting':
-          progressBar.style.width = '5%';
-          progressBar.classList.add('animate-pulse');
-          if (statusEl) statusEl.innerHTML = '<i class="fas fa-plug text-[10px] mr-1"></i>Connecting';
-          break;
-        case 'generating':
-          progressBar.classList.add('animate-pulse');
-          if (statusEl) statusEl.innerHTML = '<i class="fas fa-wand-magic-sparkles text-[10px] mr-1"></i>Generating';
+          if (statusEl) statusEl.innerHTML = '<i class="fas fa-circle-notch fa-spin text-[10px] mr-1"></i>Generating';
           break;
         case 'downloading':
-          progressBar.style.width = '92%';
-          if (statusEl) statusEl.innerHTML = '<i class="fas fa-download text-[10px] mr-1"></i>Downloading';
+          progressBar.style.width = '96%';
+          if (statusEl) statusEl.innerHTML = '<i class="fas fa-download text-[10px] mr-1"></i>Almost done';
           break;
         case 'complete':
           progressBar.style.width = '100%';
           progressBar.style.background = 'linear-gradient(90deg, #22c55e, #16a34a)';
-          if (statusEl) statusEl.innerHTML = '<i class="fas fa-check text-[10px] mr-1"></i>Done in ' + time + 's';
+          if (statusEl) statusEl.innerHTML = '<i class="fas fa-check text-[10px] mr-1"></i>Ready';
           break;
         case 'failed':
         case 'error':
@@ -1182,10 +1167,6 @@ function getHomePage() {
           progressBar.style.background = '#ef4444';
           if (statusEl) statusEl.innerHTML = '<i class="fas fa-times text-[10px] mr-1"></i>Failed';
           break;
-      }
-      
-      if (timeEl && time > 0) {
-        timeEl.textContent = time + 's';
       }
     }
     
@@ -1265,16 +1246,13 @@ function getHomePage() {
         card.classList.add('loading');
         card.innerHTML = \`
           <div class="aspect-square flex flex-col items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 p-4">
-            <div class="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-white/80 shadow-inner flex items-center justify-center mb-2">
-              <i class="\${varDef.icon} text-xl text-brand-purple/50"></i>
+            <div class="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-white/80 shadow-inner flex items-center justify-center mb-4">
+              <i class="\${varDef.icon} text-2xl text-brand-purple/60"></i>
             </div>
-            <div class="text-center mb-2">
-              <span id="time-\${index}" class="text-lg font-bold text-brand-dark">0s</span>
+            <div class="w-full max-w-[85%] bg-slate-300 rounded-full h-2.5 overflow-hidden shadow-inner">
+              <div id="progress-\${index}" class="h-full bg-gradient-to-r from-brand-blue to-brand-purple rounded-full transition-all duration-200 ease-linear" style="width: 0%"></div>
             </div>
-            <div class="w-full max-w-[85%] bg-slate-300 rounded-full h-2 overflow-hidden shadow-inner">
-              <div id="progress-\${index}" class="h-full bg-gradient-to-r from-brand-blue to-brand-purple rounded-full transition-all duration-200" style="width: 0%"></div>
-            </div>
-            <p id="status-\${index}" class="text-xs text-brand-muted mt-2 flex items-center"><i class="fas fa-circle-notch fa-spin text-[10px] mr-1"></i>Waiting</p>
+            <p id="status-\${index}" class="text-xs text-brand-muted mt-3 flex items-center"><i class="fas fa-circle-notch fa-spin text-[10px] mr-1"></i>Generating</p>
           </div>
           <div class="p-2 sm:p-3 text-center bg-slate-50 border-t border-slate-200">
             <p class="text-xs text-brand-muted truncate flex items-center justify-center gap-1.5">
