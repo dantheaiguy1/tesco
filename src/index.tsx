@@ -1530,15 +1530,12 @@ function getHomePage() {
         card.innerHTML = \`
           <div class="aspect-square overflow-hidden bg-slate-100 relative group/img">
             <img id="img-\${index}" src="\${imgSrc}" class="w-full h-full object-cover animate-scaleIn" loading="lazy">
-            <div class="absolute top-2 right-2 w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-green-500 flex items-center justify-center shadow-lg">
-              <i class="fas fa-check text-white text-xs"></i>
-            </div>
             <button onclick="event.stopPropagation(); regenerateVariation(\${index})" 
-                    class="absolute top-2 left-2 w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-white/90 shadow-lg flex items-center justify-center text-brand-gray hover:text-brand-purple hover:bg-white transition opacity-0 group-hover/img:opacity-100"
+                    class="absolute top-2 right-2 w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-white shadow-lg flex items-center justify-center text-brand-purple hover:bg-brand-purple hover:text-white transition-all border-2 border-brand-purple/30 hover:border-brand-purple"
                     title="Regenerate this image">
-              <i class="fas fa-rotate text-xs sm:text-sm"></i>
+              <i class="fas fa-arrows-rotate text-sm"></i>
             </button>
-            <div id="regen-loading-\${index}" class="hidden absolute inset-0 bg-white/90 flex flex-col items-center justify-center">
+            <div id="regen-loading-\${index}" class="hidden absolute inset-0 bg-white/90 flex flex-col items-center justify-center z-10">
               <div class="w-8 h-8 rounded-full border-3 border-brand-purple/30 border-t-brand-purple animate-spin mb-2"></div>
               <p class="text-xs text-brand-gray">Regenerating...</p>
             </div>
@@ -1557,17 +1554,17 @@ function getHomePage() {
       } else {
         card.classList.add('failed');
         card.innerHTML = \`
-          <div class="aspect-square flex items-center justify-center bg-red-50 relative group/img">
+          <div class="aspect-square flex items-center justify-center bg-red-50 relative">
             <div class="text-center text-red-400 p-2">
               <i class="fas fa-exclamation-triangle text-xl sm:text-2xl mb-1"></i>
               <p class="text-xs">Failed</p>
             </div>
             <button onclick="event.stopPropagation(); regenerateVariation(\${index})" 
-                    class="absolute top-2 left-2 w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-white/90 shadow-lg flex items-center justify-center text-red-400 hover:text-brand-purple hover:bg-white transition"
+                    class="absolute top-2 right-2 w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-white shadow-lg flex items-center justify-center text-red-500 hover:bg-red-500 hover:text-white transition-all border-2 border-red-300 hover:border-red-500"
                     title="Retry this image">
-              <i class="fas fa-rotate text-xs sm:text-sm"></i>
+              <i class="fas fa-arrows-rotate text-sm"></i>
             </button>
-            <div id="regen-loading-\${index}" class="hidden absolute inset-0 bg-white/90 flex flex-col items-center justify-center">
+            <div id="regen-loading-\${index}" class="hidden absolute inset-0 bg-white/90 flex flex-col items-center justify-center z-10">
               <div class="w-8 h-8 rounded-full border-3 border-brand-purple/30 border-t-brand-purple animate-spin mb-2"></div>
               <p class="text-xs text-brand-gray">Regenerating...</p>
             </div>
@@ -1576,6 +1573,7 @@ function getHomePage() {
             <p class="text-xs text-red-500 truncate flex items-center justify-center gap-1.5">
               <i class="\${varDef.icon} text-[10px]"></i>
               \${varDef.label}
+            </p>
           </div>
         \`;
       }
