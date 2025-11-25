@@ -131,13 +131,13 @@ app.post('/api/upload', async (c) => {
     const base64 = btoa(binary)
     const dataUrl = `data:${file.type};base64,${base64}`
 
-    // Create session
+    // Create session (store metadata only, not full image)
     const sessionId = generateId()
     
     await db.prepare(`
       INSERT INTO sessions (id, product_name, source_type, original_image, status)
-      VALUES (?, ?, 'upload', ?, 'pending')
-    `).bind(sessionId, file.name.replace(/\.[^.]+$/, ''), dataUrl).run()
+      VALUES (?, ?, 'upload', '', 'pending')
+    `).bind(sessionId, file.name.replace(/\.[^.]+$/, '')).run()
 
     return c.json({ success: true, sessionId, originalImage: dataUrl })
   } catch (error) {
@@ -231,13 +231,13 @@ app.post('/api/scrape', async (c) => {
     const contentType = imageResponse.headers.get('content-type') || 'image/jpeg'
     const dataUrl = `data:${contentType};base64,${base64}`
 
-    // Create session
+    // Create session (store metadata only, not full image)
     const sessionId = generateId()
     
     await db.prepare(`
       INSERT INTO sessions (id, product_name, source_type, source_url, original_image, status)
-      VALUES (?, ?, 'url', ?, ?, 'pending')
-    `).bind(sessionId, productName, url, dataUrl).run()
+      VALUES (?, ?, 'url', ?, '', 'pending')
+    `).bind(sessionId, productName, url).run()
 
     return c.json({ success: true, sessionId, originalImage: dataUrl, productName })
   } catch (error) {
