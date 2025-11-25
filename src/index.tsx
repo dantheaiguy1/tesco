@@ -122,6 +122,7 @@ app.post('/api/upload', async (c) => {
     
     const formData = await c.req.formData()
     const file = formData.get('image') as File
+    const thumbnail = formData.get('thumbnail') as string | null
     
     if (!file) {
       return c.json({ success: false, error: 'No image file provided' }, 400)
@@ -150,15 +151,16 @@ app.post('/api/upload', async (c) => {
     const base64 = btoa(binary)
     const dataUrl = `data:${file.type};base64,${base64}`
 
-    // Create session (store metadata only, not full image)
+    // Create session with thumbnail for History page
     const sessionId = generateId()
+    const productName = file.name.replace(/\.[^.]+$/, '')
     
-    // Store only metadata in D1 (base64 images are too large for D1's 1MB row limit)
-    // Full image is returned to client and kept in memory for generation
+    // Store thumbnail in D1 (small enough to fit in row limit)
+    // Thumbnail is ~20-40KB, well under D1's 1MB limit
     await db.prepare(`
       INSERT INTO sessions (id, product_name, source_type, original_image, status)
-      VALUES (?, ?, 'upload', '', 'pending')
-    `).bind(sessionId, file.name.replace(/\.[^.]+$/, '')).run()
+      VALUES (?, ?, 'upload', ?, 'pending')
+    `).bind(sessionId, productName, thumbnail || '').run()
 
     return c.json({ success: true, sessionId, originalImage: dataUrl })
   } catch (error) {
@@ -514,19 +516,29 @@ app.delete('/api/sessions', async (c) => {
   }
 })
 
-// API: Update session status
+// API: Update session (status or name)
 app.patch('/api/sessions/:id', async (c) => {
   try {
     const db = c.env.TESCO_DB
     const id = c.req.param('id')
-    const { status } = await c.req.json()
+    const body = await c.req.json()
+    const { status, product_name } = body
     
-    if (!['pending', 'generating', 'completed', 'failed'].includes(status)) {
-      return c.json({ success: false, error: 'Invalid status' }, 400)
+    // Update status if provided
+    if (status) {
+      if (!['pending', 'generating', 'completed', 'failed'].includes(status)) {
+        return c.json({ success: false, error: 'Invalid status' }, 400)
+      }
+      await db.prepare('UPDATE sessions SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+        .bind(status, id).run()
     }
     
-    await db.prepare('UPDATE sessions SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-      .bind(status, id).run()
+    // Update name if provided
+    if (product_name !== undefined) {
+      await db.prepare('UPDATE sessions SET product_name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+        .bind(product_name, id).run()
+    }
+    
     return c.json({ success: true })
   } catch (error) {
     console.error('Update error:', error)
@@ -913,6 +925,56 @@ function getHomePage() {
       { field: 'multi_angle', label: 'Multi-Angle', icon: 'fas fa-cube', filename: '10-multi-angle.jpg' }
     ];
 
+    // Session Name Editing
+    let currentSessionName = '';
+    
+    function startEditName() {
+      const display = document.getElementById('session-name-display');
+      const input = document.getElementById('session-name-input');
+      if (!display || !input) return;
+      
+      currentSessionName = display.textContent.trim();
+      input.value = currentSessionName;
+      display.classList.add('hidden');
+      input.classList.remove('hidden');
+      input.focus();
+      input.select();
+    }
+    
+    function cancelEditName() {
+      const display = document.getElementById('session-name-display');
+      const input = document.getElementById('session-name-input');
+      if (!display || !input) return;
+      
+      input.classList.add('hidden');
+      display.classList.remove('hidden');
+    }
+    
+    async function saveSessionName() {
+      const display = document.getElementById('session-name-display');
+      const input = document.getElementById('session-name-input');
+      if (!display || !input) return;
+      
+      const newName = input.value.trim() || currentSessionName;
+      display.textContent = newName;
+      input.classList.add('hidden');
+      display.classList.remove('hidden');
+      
+      // Save to database
+      if (currentSessionId && newName !== currentSessionName) {
+        try {
+          await fetch('/api/sessions/' + currentSessionId, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ product_name: newName })
+          });
+          currentSessionName = newName;
+        } catch (err) {
+          console.error('Failed to save session name:', err);
+        }
+      }
+    }
+
     // Drag & Drop Handlers
     function handleDragOver(e) {
       e.preventDefault();
@@ -948,6 +1010,30 @@ function getHomePage() {
       currentSessionId = null;
     }
 
+    // Create thumbnail for History page (150x150, JPEG, ~10-30KB)
+    function createThumbnail(file) {
+      return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const size = 150;
+          canvas.width = size;
+          canvas.height = size;
+          const ctx = canvas.getContext('2d');
+          
+          // Calculate crop to make square
+          const minDim = Math.min(img.width, img.height);
+          const sx = (img.width - minDim) / 2;
+          const sy = (img.height - minDim) / 2;
+          
+          ctx.drawImage(img, sx, sy, minDim, minDim, 0, 0, size, size);
+          resolve(canvas.toDataURL('image/jpeg', 0.7));
+        };
+        img.onerror = () => resolve('');
+        img.src = URL.createObjectURL(file);
+      });
+    }
+
     async function processFile(file) {
       const validTypes = ['image/jpeg', 'image/png', 'image/webp'];
       if (!validTypes.includes(file.type)) {
@@ -970,8 +1056,12 @@ function getHomePage() {
       };
       reader.readAsDataURL(file);
 
+      // Create thumbnail for History page
+      const thumbnail = await createThumbnail(file);
+
       const formData = new FormData();
       formData.append('image', file);
+      formData.append('thumbnail', thumbnail);
 
       try {
         const response = await fetch('/api/upload', { method: 'POST', body: formData });
@@ -1165,12 +1255,24 @@ function getHomePage() {
       section.classList.remove('hidden');
       section.innerHTML = '';
       
-      // Header
+      // Get initial product name from file
+      const initialName = selectedFile ? selectedFile.name.replace(/\\.[^.]+$/, '') : 'Product';
+      
+      // Header with editable name
       const header = document.createElement('div');
       header.className = 'flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4';
       header.innerHTML = \`
         <div>
-          <h2 class="text-2xl sm:text-3xl font-bold text-brand-dark">Your Product Shots</h2>
+          <div class="flex items-center gap-2 group">
+            <h2 id="session-name-display" class="text-2xl sm:text-3xl font-bold text-brand-dark cursor-pointer hover:text-brand-purple transition" onclick="startEditName()" title="Click to rename">
+              \${initialName}
+            </h2>
+            <button onclick="startEditName()" class="text-brand-gray hover:text-brand-purple transition opacity-0 group-hover:opacity-100">
+              <i class="fas fa-pencil text-sm"></i>
+            </button>
+          </div>
+          <input type="text" id="session-name-input" class="hidden text-2xl sm:text-3xl font-bold text-brand-dark bg-transparent border-b-2 border-brand-purple outline-none w-full max-w-md"
+                 onblur="saveSessionName()" onkeydown="if(event.key==='Enter')saveSessionName();if(event.key==='Escape')cancelEditName()">
           <p id="results-header-subtitle" class="text-brand-gray mt-1 text-sm">Generating 10 variations...</p>
         </div>
         <div class="flex items-center gap-3">
