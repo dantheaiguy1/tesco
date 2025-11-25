@@ -261,13 +261,20 @@ app.post('/api/generate/:id', async (c) => {
       return c.json({ success: false, error: 'Session not found' }, 404)
     }
 
+    // Get original image from request body (not from D1, since we don't store it there)
+    const body = await c.req.json().catch(() => ({}))
+    const originalImage = body.originalImage || session.original_image
+    
+    if (!originalImage) {
+      return c.json({ success: false, error: 'No original image provided' }, 400)
+    }
+
     // Update status to generating
     await db.prepare(
       'UPDATE sessions SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
     ).bind('generating', sessionId).run()
 
     const apiKey = c.env.GEMINI_API_KEY
-    const originalImage = session.original_image
     const productName = session.product_name || 'product'
 
     // Define the 4 variation prompts
@@ -615,6 +622,7 @@ function getHomePage() {
     let currentSessionId = null;
     let currentTab = 'upload';
     let selectedFile = null;
+    let currentOriginalImage = null;
 
     function switchTab(tab) {
       currentTab = tab;
@@ -698,6 +706,7 @@ function getHomePage() {
         
         if (data.success) {
           currentSessionId = data.sessionId;
+          currentOriginalImage = data.originalImage;
           document.getElementById('generate-btn').disabled = false;
         } else {
           showError(data.error || 'Upload failed');
@@ -724,6 +733,7 @@ function getHomePage() {
         
         if (data.success) {
           currentSessionId = data.sessionId;
+          currentOriginalImage = data.originalImage;
           document.getElementById('url-preview-image').src = data.originalImage;
           document.getElementById('url-preview-name').textContent = data.productName;
           document.getElementById('url-preview').classList.remove('hidden');
@@ -779,6 +789,8 @@ function getHomePage() {
         
         const response = await fetch('/api/generate/' + currentSessionId, {
           method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ originalImage: currentOriginalImage }),
           signal: controller.signal
         });
         clearTimeout(timeoutId);
