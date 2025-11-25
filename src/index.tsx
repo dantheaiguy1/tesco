@@ -676,6 +676,10 @@ function getHomePage() {
         if (data.success) {
           currentSessionId = data.sessionId;
           currentOriginalImage = data.originalImage;
+          console.log('✅ Upload complete!');
+          console.log('  Session ID:', currentSessionId);
+          console.log('  Original image size:', currentOriginalImage?.length || 0);
+          console.log('  First 100 chars:', currentOriginalImage?.substring(0, 100));
           document.getElementById('generate-btn').disabled = false;
         } else {
           showError(data.error || 'Upload failed');
@@ -728,6 +732,13 @@ function getHomePage() {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 180000); // 3 minute timeout
         
+        console.log('📤 Sending to API:');
+        console.log('  Session:', currentSessionId);
+        console.log('  Image size:', currentOriginalImage?.length || 0);
+        console.log('  Image type:', typeof currentOriginalImage);
+        console.log('  Is null?', currentOriginalImage === null);
+        console.log('  Is undefined?', currentOriginalImage === undefined);
+        
         const response = await fetch('/api/generate/' + currentSessionId, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -739,6 +750,7 @@ function getHomePage() {
         console.log('Response received, status:', response.status);
         const data = await response.json();
         console.log('Data parsed, success:', data.success);
+        console.log('🔍 Full response:', JSON.stringify(data, null, 2));
         
         clearInterval(progressInterval);
         clearInterval(timerInterval);
