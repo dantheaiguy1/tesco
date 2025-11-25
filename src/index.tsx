@@ -269,18 +269,46 @@ app.post('/api/scrape', async (c) => {
 })
 
 // Variation definitions (shared between API and frontend)
+// 5 CLOSE-UP PRODUCT SHOTS (1-5) + 5 LIFESTYLE/CONTEXT SHOTS (6-10)
 const variationDefinitions = [
-  { field: 'lifestyle_kitchen', label: '1. Lifestyle Kitchen' },
-  { field: 'ecommerce_white', label: '2. E-commerce Hero' },
-  { field: 'instagram_flatlay', label: '3. Flat-Lay' },
-  { field: 'macro_detail', label: '4. Macro Detail' },
-  { field: 'lifestyle_living', label: '5. Living Room' },
-  { field: 'outdoor_natural', label: '6. Outdoor Natural' },
-  { field: 'minimalist_grey', label: '7. Minimalist Studio' },
-  { field: 'action_inuse', label: '8. In-Use Action' },
-  { field: 'grouped_arrangement', label: '9. Product Group' },
-  { field: 'packaging_focus', label: '10. Packaging Focus' }
+  { field: 'hero_white', label: '1. Hero (White BG)' },
+  { field: 'hero_grey', label: '2. Hero (Grey BG)' },
+  { field: 'macro_texture', label: '3. Macro Texture' },
+  { field: 'angle_detail', label: '4. Angle Detail' },
+  { field: 'packaging_closeup', label: '5. Packaging Close-up' },
+  { field: 'lifestyle_kitchen', label: '6. Kitchen Scene' },
+  { field: 'lifestyle_table', label: '7. Table Setting' },
+  { field: 'hand_holding', label: '8. Hand Holding' },
+  { field: 'shopping_bag', label: '9. Shopping Context' },
+  { field: 'social_flatlay', label: '10. Social Flat-Lay' }
 ]
+
+// Shared prompt generator function
+function getPrompts(productName: string): Record<string, string> {
+  return {
+    // === CLOSE-UP PRODUCT SHOTS (1-5) - Retail-focused, high detail ===
+    'hero_white': `Professional e-commerce product photography of this ${productName}. Pure white seamless background, centered product filling 70% of frame, perfect studio lighting with soft diffused shadows, razor-sharp focus on product details, clean commercial style suitable for Amazon/Tesco online listings. Product must be clearly visible with all branding/labels readable. High resolution 2k, professional retouching quality.`,
+    
+    'hero_grey': `Premium studio product shot of this ${productName}. Neutral grey gradient background, product centered and prominent, sophisticated lighting with subtle rim light highlighting edges, elegant commercial photography style. Clean negative space around product, sharp focus throughout, high-end catalog quality suitable for premium retail. High resolution 2k.`,
+    
+    'macro_texture': `Extreme macro close-up of this ${productName} showing surface texture and quality details. Fill the frame with the product, dramatic shallow depth of field with creamy bokeh, emphasize material quality and craftsmanship. Show the fine details customers want to see - textures, colors, quality indicators. Professional macro lens photography, high resolution 2k.`,
+    
+    'angle_detail': `Dynamic 45-degree angle shot of this ${productName}. Three-quarter view showing depth and dimension, professional studio lighting with key light and fill, product dominates frame at 80%, subtle shadow for grounding. Sharp focus on front label/branding, slight blur on back edge. Commercial product photography style, high resolution 2k.`,
+    
+    'packaging_closeup': `Close-up product photography focusing on this ${productName} packaging and branding. Slight angle to show box/container dimension, crystal clear focus on logo and text, professional lighting making colors pop. Retail-ready shot showing exactly what customers will receive. Clean background, product fills 75% of frame, high resolution 2k.`,
+    
+    // === LIFESTYLE/CONTEXT SHOTS (6-10) - Aspirational, social media worthy ===
+    'lifestyle_kitchen': `Lifestyle photography of this ${productName} in a warm kitchen setting. Product placed naturally on wooden countertop or cutting board, soft morning window light, cozy atmosphere with subtle props (fresh ingredients, kitchen items). Product is hero but feels at home. Shallow depth of field, aspirational but authentic feel, high resolution 2k.`,
+    
+    'lifestyle_table': `Beautiful table setting featuring this ${productName}. Styled on elegant dining surface with complementary items (plates, napkins, cutlery), natural daylight, sophisticated food/lifestyle photography style. Product prominently displayed but integrated into an aspirational meal moment. High resolution 2k, magazine editorial quality.`,
+    
+    'hand_holding': `Authentic lifestyle shot showing human hand holding or interacting with this ${productName}. Natural skin tones, casual grip showing product scale and usability, soft natural lighting, clean simple background. Relatable and trustworthy feel - shows real person using product. Candid documentary style, high resolution 2k.`,
+    
+    'shopping_bag': `Lifestyle shot of this ${productName} emerging from or placed next to a shopping bag. Fresh-from-the-store feeling, clean bright setting, suggests quality grocery shopping experience. Product clearly visible with shopping context (bag, other groceries glimpsed). Aspirational retail lifestyle, high resolution 2k.`,
+    
+    'social_flatlay': `Instagram-worthy flat-lay composition with this ${productName} as hero. Overhead bird's eye view, styled on marble or light wood surface, complementary props arranged aesthetically (fresh herbs, linens, small accessories). Modern social media aesthetic, beautiful natural lighting, Pinterest-worthy styling. Product is star of composition, high resolution 2k.`
+  }
+}
 
 // API: Generate a single variation (called individually for each)
 app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
@@ -302,19 +330,8 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
       return c.json({ success: false, error: 'API key not configured', field: variationDefinitions[variationIndex]?.field }, 500)
     }
 
-    // Define all 10 variation prompts
-    const prompts: Record<string, string> = {
-      'lifestyle_kitchen': `Create a warm, inviting lifestyle kitchen scene featuring this ${productName}. Place the product naturally on a kitchen counter or table with soft morning light, cozy ambient lighting, wooden surfaces, fresh ingredients nearby, and a homey atmosphere. The product should be the hero but feel integrated into a real family kitchen moment. Professional food photography style with shallow depth of field, high resolution 2k.`,
-      'ecommerce_white': `Create a professional e-commerce hero shot of this ${productName}. Pure clean white background, perfect studio lighting with soft shadows, product centered and perfectly lit, crisp sharp focus, professional commercial product photography. The image should look like it belongs on a premium retail website. No distracting elements, just the product presented beautifully, high resolution 2k.`,
-      'instagram_flatlay': `Create a trendy Instagram flat-lay composition featuring this ${productName}. Overhead bird's eye view, styled on a marble or wooden surface with complementary props like fresh herbs, linens, artisanal items, and lifestyle accessories. Modern social media aesthetic with beautiful natural lighting, Pinterest-worthy styling. The product should be the star but surrounded by aesthetically pleasing complementary items, high resolution 2k.`,
-      'macro_detail': `Create a dramatic macro close-up detail shot of this ${productName}. Extreme close-up showing texture, quality, and craftsmanship. Emphasize premium quality through sharp detail photography - show the fine details, surface textures, colors, and quality indicators. Professional macro photography with precise focus and beautiful bokeh background. Make viewers feel they can almost touch the product, high resolution 2k.`,
-      'lifestyle_living': `Create a lifestyle scene featuring this ${productName} styled in contemporary living room environment, afternoon natural light from large windows, placed on modern coffee table with design magazine and potted succulent nearby, aspirational lifestyle photography, neutral color palette with warm accents, shallow depth of field, interior design magazine style, high resolution 2k, professional product placement.`,
-      'outdoor_natural': `Create a photograph of this ${productName} in outdoor natural environment, soft golden hour lighting, placed on weathered wood surface with green foliage in background, fresh air and nature aesthetic, dappled sunlight, organic lifestyle photography, earthy tones, eco-friendly sustainable vibe, high resolution 2k, authentic outdoor feel.`,
-      'minimalist_grey': `Create minimalist product photography of this ${productName} on neutral grey seamless background, clean modern aesthetic, professional studio lighting with subtle gradients, product centered with generous negative space, contemporary design-forward style, sophisticated color grading, high-end catalog photography, high resolution 2k, editorial quality.`,
-      'action_inuse': `Create a photograph of this ${productName} being actively used in real-world scenario, dynamic composition showing human hands interacting with product, natural authentic moment captured, lifestyle photography showing practical application, relatable everyday setting, genuine user experience photography, high resolution 2k, candid documentary style.`,
-      'grouped_arrangement': `Create a photograph showing multiple units of this ${productName} arranged in appealing composition, styled as product family or bundle display, professional commercial photography showing scale and variety, clean organized presentation, soft shadows for depth, ecommerce bundle photography style, high resolution 2k, attractive merchandising layout.`,
-      'packaging_focus': `Create a photograph with this ${productName} packaging as hero element, professional studio photography highlighting branding and label details, slight angle showing box dimensionality, premium unboxing aesthetic, sharp typography visible, commercial packaging photography, high resolution 2k, brand-forward presentation.`
-    }
+    // 5 CLOSE-UP PRODUCT SHOTS + 5 LIFESTYLE SHOTS
+    const prompts: Record<string, string> = getPrompts(productName)
     
     const variation = variationDefinitions[variationIndex]
     if (!variation) {
@@ -422,19 +439,8 @@ app.post('/api/generate/:id', async (c) => {
     
     const productName = session.product_name || 'product'
 
-    // Define all 10 variation prompts
-    const prompts: Record<string, string> = {
-      'lifestyle_kitchen': `Create a warm, inviting lifestyle kitchen scene featuring this ${productName}. Place the product naturally on a kitchen counter or table with soft morning light, cozy ambient lighting, wooden surfaces, fresh ingredients nearby, and a homey atmosphere. The product should be the hero but feel integrated into a real family kitchen moment. Professional food photography style with shallow depth of field, high resolution 2k.`,
-      'ecommerce_white': `Create a professional e-commerce hero shot of this ${productName}. Pure clean white background, perfect studio lighting with soft shadows, product centered and perfectly lit, crisp sharp focus, professional commercial product photography. The image should look like it belongs on a premium retail website. No distracting elements, just the product presented beautifully, high resolution 2k.`,
-      'instagram_flatlay': `Create a trendy Instagram flat-lay composition featuring this ${productName}. Overhead bird's eye view, styled on a marble or wooden surface with complementary props like fresh herbs, linens, artisanal items, and lifestyle accessories. Modern social media aesthetic with beautiful natural lighting, Pinterest-worthy styling. The product should be the star but surrounded by aesthetically pleasing complementary items, high resolution 2k.`,
-      'macro_detail': `Create a dramatic macro close-up detail shot of this ${productName}. Extreme close-up showing texture, quality, and craftsmanship. Emphasize premium quality through sharp detail photography - show the fine details, surface textures, colors, and quality indicators. Professional macro photography with precise focus and beautiful bokeh background. Make viewers feel they can almost touch the product, high resolution 2k.`,
-      'lifestyle_living': `Create a lifestyle scene featuring this ${productName} styled in contemporary living room environment, afternoon natural light from large windows, placed on modern coffee table with design magazine and potted succulent nearby, aspirational lifestyle photography, neutral color palette with warm accents, shallow depth of field, interior design magazine style, high resolution 2k, professional product placement.`,
-      'outdoor_natural': `Create a photograph of this ${productName} in outdoor natural environment, soft golden hour lighting, placed on weathered wood surface with green foliage in background, fresh air and nature aesthetic, dappled sunlight, organic lifestyle photography, earthy tones, eco-friendly sustainable vibe, high resolution 2k, authentic outdoor feel.`,
-      'minimalist_grey': `Create minimalist product photography of this ${productName} on neutral grey seamless background, clean modern aesthetic, professional studio lighting with subtle gradients, product centered with generous negative space, contemporary design-forward style, sophisticated color grading, high-end catalog photography, high resolution 2k, editorial quality.`,
-      'action_inuse': `Create a photograph of this ${productName} being actively used in real-world scenario, dynamic composition showing human hands interacting with product, natural authentic moment captured, lifestyle photography showing practical application, relatable everyday setting, genuine user experience photography, high resolution 2k, candid documentary style.`,
-      'grouped_arrangement': `Create a photograph showing multiple units of this ${productName} arranged in appealing composition, styled as product family or bundle display, professional commercial photography showing scale and variety, clean organized presentation, soft shadows for depth, ecommerce bundle photography style, high resolution 2k, attractive merchandising layout.`,
-      'packaging_focus': `Create a photograph with this ${productName} packaging as hero element, professional studio photography highlighting branding and label details, slight angle showing box dimensionality, premium unboxing aesthetic, sharp typography visible, commercial packaging photography, high resolution 2k, brand-forward presentation.`
-    }
+    // 5 CLOSE-UP PRODUCT SHOTS + 5 LIFESTYLE SHOTS
+    const prompts: Record<string, string> = getPrompts(productName)
 
     const results: Record<string, string> = {}
     const errors: string[] = []
@@ -971,18 +977,21 @@ function getHomePage() {
     }
     
     // All 10 variation definitions for the frontend
+    // 5 CLOSE-UP SHOTS (1-5) + 5 LIFESTYLE SHOTS (6-10)
     const variationDefs = [
-      { field: 'lifestyle_kitchen', label: 'Original', icon: 'fas fa-image', filename: 'original.jpg', isOriginal: true },
-      { field: 'lifestyle_kitchen', label: '1. Lifestyle Kitchen', icon: 'fas fa-utensils', filename: '01-lifestyle-kitchen.jpg' },
-      { field: 'ecommerce_white', label: '2. E-commerce Hero', icon: 'fas fa-shopping-cart', filename: '02-ecommerce-hero.jpg' },
-      { field: 'instagram_flatlay', label: '3. Flat-Lay', icon: 'fab fa-instagram', filename: '03-flatlay.jpg' },
-      { field: 'macro_detail', label: '4. Macro Detail', icon: 'fas fa-search-plus', filename: '04-macro-detail.jpg' },
-      { field: 'lifestyle_living', label: '5. Living Room', icon: 'fas fa-couch', filename: '05-living-room.jpg' },
-      { field: 'outdoor_natural', label: '6. Outdoor Natural', icon: 'fas fa-tree', filename: '06-outdoor-natural.jpg' },
-      { field: 'minimalist_grey', label: '7. Minimalist Studio', icon: 'fas fa-square', filename: '07-minimalist-studio.jpg' },
-      { field: 'action_inuse', label: '8. In-Use Action', icon: 'fas fa-hand-pointer', filename: '08-action-inuse.jpg' },
-      { field: 'grouped_arrangement', label: '9. Product Group', icon: 'fas fa-layer-group', filename: '09-product-group.jpg' },
-      { field: 'packaging_focus', label: '10. Packaging Focus', icon: 'fas fa-box', filename: '10-packaging-focus.jpg' }
+      { field: 'original', label: 'Original', icon: 'fas fa-image', filename: '00-original.jpg', isOriginal: true },
+      // Close-up product shots
+      { field: 'hero_white', label: '1. Hero (White)', icon: 'fas fa-square', filename: '01-hero-white.jpg' },
+      { field: 'hero_grey', label: '2. Hero (Grey)', icon: 'fas fa-square-full', filename: '02-hero-grey.jpg' },
+      { field: 'macro_texture', label: '3. Macro Detail', icon: 'fas fa-search-plus', filename: '03-macro-texture.jpg' },
+      { field: 'angle_detail', label: '4. Angle Shot', icon: 'fas fa-cube', filename: '04-angle-detail.jpg' },
+      { field: 'packaging_closeup', label: '5. Packaging', icon: 'fas fa-box', filename: '05-packaging-closeup.jpg' },
+      // Lifestyle shots
+      { field: 'lifestyle_kitchen', label: '6. Kitchen', icon: 'fas fa-utensils', filename: '06-kitchen-scene.jpg' },
+      { field: 'lifestyle_table', label: '7. Table Setting', icon: 'fas fa-chair', filename: '07-table-setting.jpg' },
+      { field: 'hand_holding', label: '8. Hand Holding', icon: 'fas fa-hand-holding', filename: '08-hand-holding.jpg' },
+      { field: 'shopping_bag', label: '9. Shopping', icon: 'fas fa-shopping-bag', filename: '09-shopping-bag.jpg' },
+      { field: 'social_flatlay', label: '10. Flat-Lay', icon: 'fab fa-instagram', filename: '10-social-flatlay.jpg' }
     ];
     
     let currentLightboxIndex = 0;
@@ -1201,17 +1210,17 @@ function getHomePage() {
       // Add original
       zip.file('00-original.jpg', base64ToBlob(data.originalImage));
       
-      // Add all 10 variations
-      if (data.results.lifestyle_kitchen) zip.file('01-lifestyle-kitchen.jpg', base64ToBlob(data.results.lifestyle_kitchen));
-      if (data.results.ecommerce_white) zip.file('02-ecommerce-hero.jpg', base64ToBlob(data.results.ecommerce_white));
-      if (data.results.instagram_flatlay) zip.file('03-flatlay.jpg', base64ToBlob(data.results.instagram_flatlay));
-      if (data.results.macro_detail) zip.file('04-macro-detail.jpg', base64ToBlob(data.results.macro_detail));
-      if (data.results.lifestyle_living) zip.file('05-living-room.jpg', base64ToBlob(data.results.lifestyle_living));
-      if (data.results.outdoor_natural) zip.file('06-outdoor-natural.jpg', base64ToBlob(data.results.outdoor_natural));
-      if (data.results.minimalist_grey) zip.file('07-minimalist-studio.jpg', base64ToBlob(data.results.minimalist_grey));
-      if (data.results.action_inuse) zip.file('08-action-inuse.jpg', base64ToBlob(data.results.action_inuse));
-      if (data.results.grouped_arrangement) zip.file('09-product-group.jpg', base64ToBlob(data.results.grouped_arrangement));
-      if (data.results.packaging_focus) zip.file('10-packaging-focus.jpg', base64ToBlob(data.results.packaging_focus));
+      // Add all 10 variations (5 close-ups + 5 lifestyle)
+      if (data.results.hero_white) zip.file('01-hero-white.jpg', base64ToBlob(data.results.hero_white));
+      if (data.results.hero_grey) zip.file('02-hero-grey.jpg', base64ToBlob(data.results.hero_grey));
+      if (data.results.macro_texture) zip.file('03-macro-texture.jpg', base64ToBlob(data.results.macro_texture));
+      if (data.results.angle_detail) zip.file('04-angle-detail.jpg', base64ToBlob(data.results.angle_detail));
+      if (data.results.packaging_closeup) zip.file('05-packaging-closeup.jpg', base64ToBlob(data.results.packaging_closeup));
+      if (data.results.lifestyle_kitchen) zip.file('06-kitchen-scene.jpg', base64ToBlob(data.results.lifestyle_kitchen));
+      if (data.results.lifestyle_table) zip.file('07-table-setting.jpg', base64ToBlob(data.results.lifestyle_table));
+      if (data.results.hand_holding) zip.file('08-hand-holding.jpg', base64ToBlob(data.results.hand_holding));
+      if (data.results.shopping_bag) zip.file('09-shopping-bag.jpg', base64ToBlob(data.results.shopping_bag));
+      if (data.results.social_flatlay) zip.file('10-social-flatlay.jpg', base64ToBlob(data.results.social_flatlay));
       
       const blob = await zip.generateAsync({ type: 'blob' });
       const link = document.createElement('a');
