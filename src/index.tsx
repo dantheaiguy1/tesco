@@ -764,35 +764,69 @@ function getHomePage() {
       }, 2000);
 
       try {
+        console.log('Starting generation for session:', currentSessionId);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 180000); // 3 minute timeout
+        
         const response = await fetch('/api/generate/' + currentSessionId, {
-          method: 'POST'
+          method: 'POST',
+          signal: controller.signal
         });
+        clearTimeout(timeoutId);
+        
+        console.log('Response received, status:', response.status);
         const data = await response.json();
+        console.log('Data parsed, success:', data.success);
         
         clearInterval(progressInterval);
         document.getElementById('progress-bar').style.width = '100%';
         document.getElementById('progress-text').textContent = 'Complete!';
         
         if (data.success) {
-          // Store results in localStorage for the results page
-          localStorage.setItem('session_' + currentSessionId, JSON.stringify({
-            originalImage: data.originalImage,
-            productName: data.productName,
-            results: data.results
-          }));
+          console.log('✅ SUCCESS! Results received:', {
+            originalImage: data.originalImage ? 'YES' : 'NO',
+            lifestyle: data.results?.lifestyle_image ? 'YES' : 'NO',
+            ecommerce: data.results?.ecommerce_image ? 'YES' : 'NO',
+            instagram: data.results?.instagram_image ? 'YES' : 'NO',
+            macro: data.results?.macro_image ? 'YES' : 'NO'
+          });
+          
+          // Store in sessionStorage (survives page navigation)
+          try {
+            sessionStorage.setItem('tesco_session_' + currentSessionId, JSON.stringify({
+              sessionId: currentSessionId,
+              originalImage: data.originalImage,
+              productName: data.productName,
+              results: data.results,
+              timestamp: Date.now()
+            }));
+            console.log('✅ Stored in sessionStorage, navigating...');
+          } catch (e) {
+            console.error('⚠️ sessionStorage failed (images too large), using memory fallback:', e);
+            window.generatedResults = {
+              sessionId: currentSessionId,
+              originalImage: data.originalImage,
+              productName: data.productName,
+              results: data.results
+            };
+          }
+          
           setTimeout(() => {
+            console.log('Navigating to /results/' + currentSessionId);
             window.location.href = '/results/' + currentSessionId;
           }, 500);
         } else {
+          console.error('Generation failed:', data.error);
           document.getElementById('loading-modal').classList.add('hidden');
           document.getElementById('generate-btn').disabled = false;
           showError(data.error || 'Generation failed');
         }
       } catch (error) {
+        console.error('Fetch error:', error);
         clearInterval(progressInterval);
         document.getElementById('loading-modal').classList.add('hidden');
         document.getElementById('generate-btn').disabled = false;
-        showError('Generation failed. Please try again.');
+        showError('Generation failed: ' + (error.name === 'AbortError' ? 'Request timed out' : 'Please try again.'));
       }
     }
 
@@ -978,41 +1012,84 @@ function getResultsPage(sessionId: string) {
     let sessionData = null;
 
     async function loadSession() {
-      // First try localStorage (for freshly generated results)
-      const stored = localStorage.getItem('session_' + sessionId);
-      if (stored) {
-        try {
-          const parsed = JSON.parse(stored);
+      // First check if we have fresh results from generation (in window.opener)
+      if (window.opener && window.opener.generatedResults) {
+        const data = window.opener.generatedResults;
+        if (data.sessionId === sessionId) {
+          console.log('Loading from window.opener.generatedResults');
           sessionData = {
-            original_image: parsed.originalImage,
-            product_name: parsed.productName,
-            lifestyle_image: parsed.results?.lifestyle_image,
-            ecommerce_image: parsed.results?.ecommerce_image,
-            instagram_image: parsed.results?.instagram_image,
-            macro_image: parsed.results?.macro_image,
+            original_image: data.originalImage,
+            product_name: data.productName,
+            lifestyle_image: data.results?.lifestyle_image,
+            ecommerce_image: data.results?.ecommerce_image,
+            instagram_image: data.results?.instagram_image,
+            macro_image: data.results?.macro_image,
             created_at: new Date().toISOString()
           };
           displayResults();
           return;
-        } catch (e) {
-          console.error('Failed to parse stored session:', e);
         }
       }
 
-      // Fallback to API
-      try {
-        const response = await fetch('/api/sessions/' + sessionId);
-        const data = await response.json();
-        
-        if (data.success && data.session) {
-          sessionData = data.session;
+      // Check sessionStorage first (survives page reload)
+      const cachedKey = 'tesco_session_' + sessionId;
+      const cached = sessionStorage.getItem(cachedKey);
+      console.log('Checking sessionStorage for:', cachedKey, cached ? 'FOUND' : 'MISSING');
+      
+      if (cached) {
+        try {
+          const data = JSON.parse(cached);
+          console.log('✅ Loading from sessionStorage for session:', sessionId);
+          sessionData = {
+            original_image: data.originalImage,
+            product_name: data.productName,
+            lifestyle_image: data.results?.lifestyle_image,
+            ecommerce_image: data.results?.ecommerce_image,
+            instagram_image: data.results?.instagram_image,
+            macro_image: data.results?.macro_image,
+            created_at: new Date(data.timestamp || Date.now()).toISOString()
+          };
           displayResults();
-        } else {
-          showError();
+          return;
+        } catch (e) {
+          console.error('Failed to parse sessionStorage:', e);
         }
-      } catch (error) {
-        showError();
       }
+      
+      // Fallback: Check global variable (in case sessionStorage failed)
+      console.log('Checking window.generatedResults:', window.generatedResults ? 'EXISTS' : 'MISSING');
+      if (window.generatedResults && window.generatedResults.sessionId === sessionId) {
+        console.log('✅ Loading from window.generatedResults for session:', sessionId);
+        const data = window.generatedResults;
+        sessionData = {
+          original_image: data.originalImage,
+          product_name: data.productName,
+          lifestyle_image: data.results?.lifestyle_image,
+          ecommerce_image: data.results?.ecommerce_image,
+          instagram_image: data.results?.instagram_image,
+          macro_image: data.results?.macro_image,
+          created_at: new Date().toISOString()
+        };
+        displayResults();
+        // Clean up
+        delete window.generatedResults;
+        return;
+      }
+
+      // Fallback: show message that images aren't persisted
+      console.log('No cached results, showing limited view');
+      document.getElementById('loading').classList.add('hidden');
+      document.getElementById('error').classList.remove('hidden');
+      document.getElementById('error').innerHTML = \`
+        <div class="text-center py-20">
+          <i class="fas fa-info-circle text-6xl text-blue-400 mb-4"></i>
+          <h3 class="text-2xl font-bold text-gray-800 mb-2">Session Expired</h3>
+          <p class="text-gray-600 mb-6">Generated images are only available immediately after creation.<br>Please generate again to view results.</p>
+          <a href="/" class="px-6 py-3 bg-tesco-blue text-white rounded-lg font-semibold hover:bg-blue-700 transition">
+            <i class="fas fa-plus mr-2"></i>Generate New Images
+          </a>
+        </div>
+      \`;
     }
 
     function displayResults() {
