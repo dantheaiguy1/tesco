@@ -43,9 +43,6 @@ function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`
 }
 
-// Store images in base64 in D1 (for simplicity in demo - production would use R2)
-// But we'll use external URLs from Gemini API responses
-
 // Homepage
 app.get('/', (c) => {
   return c.html(getHomePage())
@@ -168,7 +165,7 @@ app.post('/api/upload', async (c) => {
   }
 })
 
-// API: Scrape Tesco URL
+// API: Scrape URL
 app.post('/api/scrape', async (c) => {
   try {
     const db = c.env.TESCO_DB
@@ -180,11 +177,6 @@ app.post('/api/scrape', async (c) => {
       return c.json({ success: false, error: 'No URL provided' }, 400)
     }
 
-    // Validate Tesco URL
-    if (!url.includes('tesco.com')) {
-      return c.json({ success: false, error: 'Please provide a valid Tesco product URL' }, 400)
-    }
-
     // Fetch the page
     const response = await fetch(url, {
       headers: {
@@ -193,14 +185,14 @@ app.post('/api/scrape', async (c) => {
     })
 
     if (!response.ok) {
-      return c.json({ success: false, error: 'Failed to fetch Tesco page. Please check the URL.' }, 400)
+      return c.json({ success: false, error: 'Failed to fetch page. Please check the URL.' }, 400)
     }
 
     const html = await response.text()
     
     // Extract product image - try multiple patterns
     let imageUrl = null
-    let productName = 'Tesco Product'
+    let productName = 'Product'
 
     // Try og:image meta tag first
     const ogImageMatch = html.match(/<meta[^>]*property="og:image"[^>]*content="([^"]+)"/i)
@@ -211,9 +203,8 @@ app.post('/api/scrape', async (c) => {
     // Try product image patterns
     if (!imageUrl) {
       const imgPatterns = [
-        /src="(https:\/\/digitalcontent\.api\.tesco\.com[^"]+)"/i,
-        /src="(https:\/\/img\.tesco\.com[^"]+)"/i,
-        /data-src="(https:\/\/digitalcontent\.api\.tesco\.com[^"]+)"/i
+        /src="(https:\/\/[^"]+\.(jpg|jpeg|png|webp)[^"]*)"/i,
+        /data-src="(https:\/\/[^"]+\.(jpg|jpeg|png|webp)[^"]*)"/i
       ]
       for (const pattern of imgPatterns) {
         const match = html.match(pattern)
@@ -228,7 +219,7 @@ app.post('/api/scrape', async (c) => {
     const titleMatch = html.match(/<meta[^>]*property="og:title"[^>]*content="([^"]+)"/i) ||
                        html.match(/<title>([^<]+)<\/title>/i)
     if (titleMatch) {
-      productName = titleMatch[1].replace(/ - Tesco.*$/i, '').trim()
+      productName = titleMatch[1].trim().substring(0, 100)
     }
 
     if (!imageUrl) {
@@ -253,7 +244,7 @@ app.post('/api/scrape', async (c) => {
     const contentType = imageResponse.headers.get('content-type') || 'image/jpeg'
     const dataUrl = `data:${contentType};base64,${base64}`
 
-    // Create session (store metadata only, not full image)
+    // Create session
     const sessionId = generateId()
     
     await db.prepare(`
@@ -264,7 +255,7 @@ app.post('/api/scrape', async (c) => {
     return c.json({ success: true, sessionId, originalImage: dataUrl, productName })
   } catch (error) {
     console.error('Scrape error:', error)
-    return c.json({ success: false, error: 'Failed to scrape Tesco URL' }, 500)
+    return c.json({ success: false, error: 'Failed to scrape URL' }, 500)
   }
 })
 
@@ -285,7 +276,6 @@ const variationDefinitions = [
 ]
 
 // Shared prompt generator function - Strategic ecommerce prompts
-// 5 DETAIL shots (reduce returns) + 5 CONTEXT shots (increase conversion)
 function getPrompts(productName: string): Record<string, string> {
   return {
     // === DETAIL/CLOSE-UP SHOTS (1-5) - Trust-building, return-reducing ===
@@ -334,7 +324,6 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
       return c.json({ success: false, error: 'API key not configured', field: variationDefinitions[variationIndex]?.field }, 500)
     }
 
-    // 5 CLOSE-UP PRODUCT SHOTS + 5 LIFESTYLE SHOTS
     const prompts: Record<string, string> = getPrompts(productName)
     
     const variation = variationDefinitions[variationIndex]
@@ -343,7 +332,7 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
     }
     
     const prompt = prompts[variation.field]
-    console.log(`🎨 [${variation.field}] Generating...`)
+    console.log(`[${variation.field}] Generating...`)
     
     const startTime = Date.now()
     const response = await fetch(
@@ -371,11 +360,11 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
     )
     
     const elapsed = Date.now() - startTime
-    console.log(`⏱️  [${variation.field}] Response in ${elapsed}ms, status: ${response.status}`)
+    console.log(`[${variation.field}] Response in ${elapsed}ms, status: ${response.status}`)
     
     if (!response.ok) {
       const errorText = await response.text()
-      console.error(`❌ [${variation.field}] API error:`, errorText.substring(0, 200))
+      console.error(`[${variation.field}] API error:`, errorText.substring(0, 200))
       return c.json({ success: false, error: 'API error', field: variation.field }, 500)
     }
     
@@ -387,7 +376,7 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
         if (part.inlineData?.data) {
           const mimeType = part.inlineData.mimeType || 'image/png'
           const imageData = `data:${mimeType};base64,${part.inlineData.data}`
-          console.log(`✅ [${variation.field}] Success!`)
+          console.log(`[${variation.field}] Success!`)
           return c.json({ 
             success: true, 
             field: variation.field, 
@@ -399,7 +388,7 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
       }
     }
     
-    console.error(`❌ [${variation.field}] No image in response`)
+    console.error(`[${variation.field}] No image in response`)
     return c.json({ success: false, error: 'No image generated', field: variation.field }, 500)
     
   } catch (err) {
@@ -414,21 +403,17 @@ app.post('/api/generate/:id', async (c) => {
   const sessionId = c.req.param('id')
   const db = c.env.TESCO_DB
   
-  console.log('🚀 Generate endpoint called for session:', sessionId)
+  console.log('Generate endpoint called for session:', sessionId)
   
   try {
-    // Get session
     const session = await db.prepare(
       'SELECT * FROM sessions WHERE id = ?'
     ).bind(sessionId).first() as any
-    
-    console.log('📝 Session found:', !!session)
     
     if (!session) {
       return c.json({ success: false, error: 'Session not found' }, 404)
     }
 
-    // Get original image from request body (not from D1, since we don't store it there)
     const body = await c.req.json().catch(() => ({}))
     const originalImage = body.originalImage || session.original_image
     
@@ -442,14 +427,10 @@ app.post('/api/generate/:id', async (c) => {
     }
     
     const productName = session.product_name || 'product'
-
-    // 5 CLOSE-UP PRODUCT SHOTS + 5 LIFESTYLE SHOTS
     const prompts: Record<string, string> = getPrompts(productName)
-
     const results: Record<string, string> = {}
     const errors: string[] = []
 
-    // Generate each variation
     for (const variation of variationDefinitions) {
       try {
         const response = await fetch(
@@ -518,228 +499,403 @@ app.delete('/api/sessions/:id', async (c) => {
   }
 })
 
-// HTML Templates
+// HTML Templates - ShopShot Branded
 function getHomePage() {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Product Image Generator - Tesco Merchandising</title>
+  <title>ShopShot - Transform Product Photos into Professional Shots</title>
+  <meta name="description" content="Transform one product photo into 10 professional ecommerce shots in 90 seconds. Reduce returns, increase conversions.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'><stop offset='0%25' style='stop-color:%233B82F6'/><stop offset='100%25' style='stop-color:%238B5CF6'/></linearGradient></defs><rect width='100' height='100' rx='22' fill='url(%23g)'/><circle cx='50' cy='50' r='28' fill='none' stroke='white' stroke-width='6'/><circle cx='50' cy='50' r='12' fill='white'/><rect x='70' y='25' width='12' height='8' rx='2' fill='white'/></svg>">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script>
     tailwind.config = {
       theme: {
         extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+          },
           colors: {
-            'tesco-blue': '#00539F',
-            'tesco-red': '#EE1C2E',
-            'tesco-dark': '#1a1a2e',
+            'brand': {
+              'blue': '#3B82F6',
+              'purple': '#8B5CF6',
+              'indigo': '#6366F1',
+              'dark': '#0F172A',
+              'gray': '#64748B',
+              'light': '#F8FAFC',
+              'muted': '#94A3B8',
+            }
           }
         }
       }
     }
   </script>
   <style>
+    * { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+    
+    /* Gradient Utilities */
+    .gradient-text {
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 50%, #EC4899 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .gradient-bg {
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+    }
+    .gradient-bg-vibrant {
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 50%, #EC4899 100%);
+    }
+    
+    /* Hero Background */
+    .hero-bg {
+      background: 
+        radial-gradient(ellipse 80% 50% at 50% -20%, rgba(120, 119, 198, 0.15) 0%, transparent 50%),
+        radial-gradient(ellipse 60% 40% at 80% 50%, rgba(59, 130, 246, 0.1) 0%, transparent 40%),
+        radial-gradient(ellipse 60% 40% at 20% 80%, rgba(139, 92, 246, 0.1) 0%, transparent 40%),
+        #F8FAFC;
+    }
+    
+    /* Glassmorphism */
+    .glass {
+      background: rgba(255, 255, 255, 0.7);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.3);
+    }
+    .glass-dark {
+      background: rgba(15, 23, 42, 0.8);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+    }
+    
+    /* Cards */
+    .card-3d {
+      background: white;
+      box-shadow: 
+        0 0 0 1px rgba(0,0,0,0.03),
+        0 2px 4px rgba(0,0,0,0.03),
+        0 12px 24px rgba(0,0,0,0.06);
+      transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .card-3d:hover {
+      transform: translateY(-8px) scale(1.02);
+      box-shadow: 
+        0 0 0 1px rgba(0,0,0,0.03),
+        0 8px 16px rgba(0,0,0,0.08),
+        0 24px 48px rgba(0,0,0,0.12);
+    }
+    
+    /* Upload Zone */
     .upload-zone {
-      border: 3px dashed #00539F;
-      transition: all 0.3s ease;
+      border: 2px dashed #CBD5E1;
+      background: linear-gradient(180deg, rgba(248,250,252,0.8) 0%, rgba(241,245,249,0.5) 100%);
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     }
     .upload-zone:hover, .upload-zone.dragover {
-      border-color: #EE1C2E;
-      background-color: rgba(238, 28, 46, 0.05);
+      border-color: #8B5CF6;
+      background: linear-gradient(180deg, rgba(139,92,246,0.05) 0%, rgba(59,130,246,0.05) 100%);
+      transform: scale(1.01);
     }
-    .tab-active {
-      border-bottom: 3px solid #00539F;
-      color: #00539F;
+    
+    /* Buttons */
+    .btn-primary {
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      box-shadow: 0 4px 14px 0 rgba(59, 130, 246, 0.4);
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     }
-    .pulse-loader {
-      animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    .btn-primary:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px 0 rgba(59, 130, 246, 0.5);
     }
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.5; }
+    .btn-primary:active:not(:disabled) {
+      transform: translateY(0);
     }
-    @keyframes fadeIn {
-      from { opacity: 0; transform: scale(0.95); }
+    .btn-secondary {
+      background: white;
+      border: 1px solid #E2E8F0;
+      transition: all 0.2s ease;
+    }
+    .btn-secondary:hover {
+      border-color: #8B5CF6;
+      background: rgba(139,92,246,0.05);
+    }
+    
+    /* Animations */
+    @keyframes float {
+      0%, 100% { transform: translateY(0px) rotate(-6deg); }
+      50% { transform: translateY(-12px) rotate(-6deg); }
+    }
+    @keyframes float-slow {
+      0%, 100% { transform: translateY(0px); }
+      50% { transform: translateY(-8px); }
+    }
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(30px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes scaleIn {
+      from { opacity: 0; transform: scale(0.9); }
       to { opacity: 1; transform: scale(1); }
     }
-    .animate-fadeIn {
-      animation: fadeIn 0.3s ease-out forwards;
+    @keyframes shimmer {
+      0% { background-position: -200% 0; }
+      100% { background-position: 200% 0; }
     }
     @keyframes spin {
       from { transform: rotate(0deg); }
       to { transform: rotate(360deg); }
     }
-    .animate-spin {
-      animation: spin 1s linear infinite;
+    @keyframes pulse-ring {
+      0% { transform: scale(0.8); opacity: 0.8; }
+      50% { transform: scale(1); opacity: 0.4; }
+      100% { transform: scale(0.8); opacity: 0.8; }
+    }
+    
+    .animate-float { animation: float 4s ease-in-out infinite; }
+    .animate-float-slow { animation: float-slow 5s ease-in-out infinite; }
+    .animate-fadeInUp { animation: fadeInUp 0.6s ease-out forwards; }
+    .animate-scaleIn { animation: scaleIn 0.4s ease-out forwards; }
+    .animate-spin { animation: spin 1s linear infinite; }
+    .animate-pulse-ring { animation: pulse-ring 2s ease-in-out infinite; }
+    
+    .shimmer {
+      background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.5s infinite;
+    }
+    
+    /* Thumbnail Grid */
+    .thumb-card {
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .thumb-card:hover {
+      transform: translateY(-4px) scale(1.03);
+      box-shadow: 0 12px 24px rgba(0,0,0,0.15);
+    }
+    .thumb-card.loading {
+      background: linear-gradient(135deg, #F1F5F9 0%, #E2E8F0 100%);
+    }
+    .thumb-card.success {
+      border: 2px solid #10B981;
+    }
+    .thumb-card.failed {
+      border: 2px solid #EF4444;
+      opacity: 0.7;
+    }
+    
+    /* Lightbox */
+    .lightbox-backdrop {
+      background: rgba(15, 23, 42, 0.95);
+      backdrop-filter: blur(8px);
+    }
+    
+    /* Responsive */
+    @media (max-width: 768px) {
+      .hero-title { font-size: 2.5rem !important; }
+      .hero-icon { width: 80px !important; height: 80px !important; }
     }
   </style>
 </head>
-<body class="bg-gray-50 min-h-screen">
+<body class="hero-bg min-h-screen">
   <!-- Header -->
-  <header class="bg-tesco-blue text-white shadow-lg">
-    <div class="max-w-7xl mx-auto px-6 py-4">
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-4">
-          <div class="w-12 h-12 bg-white rounded-lg flex items-center justify-center">
-            <span class="text-tesco-blue font-bold text-xl">T</span>
+  <header class="glass sticky top-0 z-40 border-b border-white/20">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="h-16 flex items-center justify-between">
+        <a href="/" class="flex items-center gap-3 group">
+          <div class="w-10 h-10 gradient-bg rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-xl transition-shadow">
+            <svg class="w-6 h-6 text-white" viewBox="0 0 24 24" fill="currentColor">
+              <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/>
+              <circle cx="12" cy="12" r="4" fill="currentColor"/>
+              <rect x="18" y="6" width="4" height="3" rx="1" fill="currentColor"/>
+            </svg>
           </div>
-          <div>
-            <h1 class="text-2xl font-bold">Product Image Generator</h1>
-            <p class="text-blue-200 text-sm">Merchandising Team Tool</p>
-          </div>
-        </div>
-        <nav class="flex items-center gap-6">
-          <a href="/" class="flex items-center gap-2 px-4 py-2 bg-white/10 rounded-lg hover:bg-white/20 transition">
-            <i class="fas fa-home"></i>
-            <span>Home</span>
+          <span class="text-xl font-bold text-brand-dark">ShopShot</span>
+        </a>
+        
+        <nav class="flex items-center gap-1 sm:gap-2">
+          <a href="/" class="px-3 sm:px-4 py-2 rounded-lg text-sm font-medium text-brand-dark hover:bg-brand-purple/10 transition flex items-center gap-2">
+            <i class="fas fa-sparkles text-brand-purple"></i>
+            <span class="hidden sm:inline">New</span>
           </a>
-          <a href="/history" class="flex items-center gap-2 px-4 py-2 hover:bg-white/10 rounded-lg transition">
-            <i class="fas fa-history"></i>
-            <span>History</span>
+          <a href="/history" class="px-3 sm:px-4 py-2 rounded-lg text-sm font-medium text-brand-gray hover:bg-brand-purple/10 transition flex items-center gap-2">
+            <i class="fas fa-clock-rotate-left"></i>
+            <span class="hidden sm:inline">History</span>
           </a>
         </nav>
       </div>
     </div>
   </header>
 
-  <main class="max-w-5xl mx-auto px-6 py-10">
+  <main class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 lg:py-16">
     <!-- Hero Section -->
-    <div class="text-center mb-10">
-      <h2 class="text-3xl font-bold text-gray-800 mb-3">Transform Product Images</h2>
-      <p class="text-gray-600 text-lg">Upload a product image or paste a Tesco URL to generate 10 professional variations</p>
+    <div id="hero-section" class="text-center mb-8 sm:mb-12 animate-fadeInUp">
+      <!-- 3D Floating Icon -->
+      <div class="mb-6 sm:mb-8 relative">
+        <div class="inline-block animate-float">
+          <div class="hero-icon w-20 h-20 sm:w-24 sm:h-24 gradient-bg-vibrant rounded-3xl flex items-center justify-center shadow-2xl transform -rotate-6">
+            <i class="fas fa-camera text-white text-3xl sm:text-4xl"></i>
+          </div>
+        </div>
+        <!-- Floating decorations -->
+        <div class="absolute -top-4 -right-4 w-8 h-8 bg-yellow-400 rounded-full animate-float-slow opacity-80 hidden sm:block" style="animation-delay: 0.5s"></div>
+        <div class="absolute -bottom-2 -left-6 w-6 h-6 bg-pink-400 rounded-lg animate-float-slow opacity-80 hidden sm:block" style="animation-delay: 1s"></div>
+      </div>
+      
+      <h1 class="hero-title text-4xl sm:text-5xl lg:text-6xl font-extrabold mb-4 sm:mb-6 tracking-tight">
+        <span class="gradient-text">ShopShot</span>
+      </h1>
+      <p class="text-lg sm:text-xl text-brand-gray max-w-lg mx-auto leading-relaxed px-4">
+        Transform one product photo into<br class="hidden sm:block">
+        <span class="font-semibold text-brand-dark">10 professional shots</span> in 90 seconds
+      </p>
     </div>
 
-    <!-- Main Card -->
-    <div class="bg-white rounded-2xl shadow-xl overflow-hidden">
-      <!-- Header -->
-      <div class="border-b bg-tesco-blue/5">
-        <div class="py-4 px-6">
-          <h3 class="font-semibold text-tesco-blue text-lg">
-            <i class="fas fa-upload mr-2"></i>
-            Upload Product Image
-          </h3>
-        </div>
-      </div>
-
-      <div class="p-8">
-        <!-- Upload Panel -->
-        <div id="panel-upload">
-          <div id="upload-zone" class="upload-zone rounded-xl p-12 text-center cursor-pointer bg-gray-50"
-               ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)"
-               onclick="document.getElementById('file-input').click()">
-            <input type="file" id="file-input" accept="image/jpeg,image/png,image/webp" class="hidden" onchange="handleFileSelect(event)">
-            <div id="upload-prompt">
-              <i class="fas fa-cloud-upload-alt text-6xl text-tesco-blue mb-4"></i>
-              <p class="text-xl font-semibold text-gray-700 mb-2">Drag & drop your image here</p>
-              <p class="text-gray-500 mb-4">or click to browse</p>
-              <div class="inline-flex items-center gap-2 text-sm text-gray-400 bg-gray-100 px-4 py-2 rounded-full">
-                <i class="fas fa-info-circle"></i>
-                JPG, PNG, or WebP - Max 10MB
-              </div>
+    <!-- Upload Card -->
+    <div id="upload-section" class="card-3d rounded-3xl overflow-hidden animate-fadeInUp mb-8 sm:mb-12" style="animation-delay: 0.15s">
+      <div class="p-6 sm:p-8 lg:p-12">
+        <!-- Upload Zone -->
+        <div id="upload-zone" class="upload-zone rounded-2xl p-8 sm:p-12 text-center cursor-pointer"
+             ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)"
+             onclick="document.getElementById('file-input').click()">
+          <input type="file" id="file-input" accept="image/jpeg,image/png,image/webp" class="hidden" onchange="handleFileSelect(event)">
+          
+          <div id="upload-prompt">
+            <div class="w-16 h-16 sm:w-20 sm:h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-brand-blue/10 to-brand-purple/10 flex items-center justify-center">
+              <i class="fas fa-cloud-arrow-up text-3xl sm:text-4xl gradient-text"></i>
             </div>
-            <div id="upload-preview" class="hidden">
-              <img id="preview-image" class="max-h-64 mx-auto rounded-lg shadow-md mb-4">
-              <p id="preview-filename" class="text-gray-700 font-medium"></p>
+            <p class="text-lg sm:text-xl font-semibold text-brand-dark mb-2">Drop your product image here</p>
+            <p class="text-brand-gray mb-6">or click to browse files</p>
+            <div class="inline-flex items-center gap-2 text-sm text-brand-muted bg-brand-light px-4 py-2 rounded-full border border-slate-200">
+              <i class="fas fa-image text-brand-purple"></i>
+              JPG, PNG, WebP up to 10MB
             </div>
+          </div>
+          
+          <div id="upload-preview" class="hidden">
+            <img id="preview-image" class="max-h-64 sm:max-h-72 mx-auto rounded-2xl shadow-lg mb-4 border border-slate-200">
+            <p id="preview-filename" class="text-brand-dark font-medium mb-2"></p>
+            <button onclick="event.stopPropagation(); resetUpload()" class="text-sm text-brand-gray hover:text-brand-purple transition">
+              <i class="fas fa-xmark mr-1"></i> Choose different image
+            </button>
           </div>
         </div>
 
-
-
         <!-- Generate Button -->
-        <div class="mt-8 text-center">
+        <div class="mt-6 sm:mt-8 text-center">
           <button id="generate-btn" onclick="generateVariations()" disabled
-                  class="px-10 py-4 bg-tesco-red text-white rounded-xl font-bold text-lg hover:bg-red-600 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-lg">
-            <i class="fas fa-magic mr-2"></i>Generate 4 Variations
+                  class="btn-primary w-full sm:w-auto px-8 sm:px-10 py-4 text-white rounded-xl font-semibold text-base sm:text-lg disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none disabled:transform-none">
+            <i class="fas fa-sparkles mr-2"></i>
+            Generate 10 Professional Shots
           </button>
-          <p class="text-sm text-gray-500 mt-3">
-            <i class="fas fa-clock mr-1"></i>
-            Generation takes 30-90 seconds
+          <p class="text-sm text-brand-muted mt-4 flex items-center justify-center gap-2">
+            <i class="fas fa-bolt text-amber-500"></i>
+            Takes about 60-90 seconds
           </p>
         </div>
       </div>
     </div>
 
-    <!-- Info Cards -->
-    <div class="grid md:grid-cols-4 gap-4 mt-10">
-      <div class="bg-white rounded-xl p-5 shadow-md text-center">
-        <div class="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-3">
-          <i class="fas fa-home text-amber-600 text-xl"></i>
+    <!-- Features Grid -->
+    <div id="features-section" class="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 animate-fadeInUp" style="animation-delay: 0.3s">
+      <div class="card-3d rounded-2xl p-6 text-center">
+        <div class="w-12 h-12 mx-auto mb-4 rounded-xl bg-blue-50 flex items-center justify-center">
+          <i class="fas fa-search-plus text-xl text-brand-blue"></i>
         </div>
-        <h3 class="font-semibold text-gray-800 mb-1">Lifestyle Scene</h3>
-        <p class="text-sm text-gray-500">Warm kitchen setting</p>
+        <h3 class="font-semibold text-brand-dark mb-1">5 Detail Shots</h3>
+        <p class="text-sm text-brand-gray">Texture, branding, construction close-ups</p>
       </div>
-      <div class="bg-white rounded-xl p-5 shadow-md text-center">
-        <div class="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
-          <i class="fas fa-shopping-cart text-blue-600 text-xl"></i>
+      <div class="card-3d rounded-2xl p-6 text-center">
+        <div class="w-12 h-12 mx-auto mb-4 rounded-xl bg-purple-50 flex items-center justify-center">
+          <i class="fas fa-image text-xl text-brand-purple"></i>
         </div>
-        <h3 class="font-semibold text-gray-800 mb-1">E-commerce Hero</h3>
-        <p class="text-sm text-gray-500">Clean white background</p>
+        <h3 class="font-semibold text-brand-dark mb-1">5 Lifestyle Shots</h3>
+        <p class="text-sm text-brand-gray">Hero, action, flat-lay, environment</p>
       </div>
-      <div class="bg-white rounded-xl p-5 shadow-md text-center">
-        <div class="w-12 h-12 bg-pink-100 rounded-full flex items-center justify-center mx-auto mb-3">
-          <i class="fab fa-instagram text-pink-600 text-xl"></i>
+      <div class="card-3d rounded-2xl p-6 text-center">
+        <div class="w-12 h-12 mx-auto mb-4 rounded-xl bg-green-50 flex items-center justify-center">
+          <i class="fas fa-download text-xl text-green-600"></i>
         </div>
-        <h3 class="font-semibold text-gray-800 mb-1">Instagram Flat-lay</h3>
-        <p class="text-sm text-gray-500">Social media aesthetic</p>
-      </div>
-      <div class="bg-white rounded-xl p-5 shadow-md text-center">
-        <div class="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
-          <i class="fas fa-search-plus text-green-600 text-xl"></i>
-        </div>
-        <h3 class="font-semibold text-gray-800 mb-1">Macro Detail</h3>
-        <p class="text-sm text-gray-500">Texture close-up</p>
+        <h3 class="font-semibold text-brand-dark mb-1">Instant Download</h3>
+        <p class="text-sm text-brand-gray">ZIP with all 10 high-res images</p>
       </div>
     </div>
+
+    <!-- Results Section (Initially Hidden) -->
+    <div id="results-section" class="hidden"></div>
   </main>
 
-  <!-- Loading Modal -->
-  <div id="loading-modal" class="hidden fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
-    <div class="bg-white rounded-2xl p-10 max-w-md w-full mx-4 text-center shadow-2xl">
-      <div class="mb-6">
-        <div class="w-20 h-20 mx-auto bg-tesco-blue rounded-full flex items-center justify-center pulse-loader">
-          <i class="fas fa-wand-magic-sparkles text-white text-3xl"></i>
-        </div>
-      </div>
-      <h3 class="text-2xl font-bold text-gray-800 mb-3">Generating Variations</h3>
-      <p class="text-gray-600 mb-6">AI is creating 4 professional product images</p>
-      <div class="bg-gray-100 rounded-full h-3 mb-4 overflow-hidden">
-        <div id="progress-bar" class="bg-gradient-to-r from-tesco-blue to-tesco-red h-full rounded-full transition-all duration-500" style="width: 0%"></div>
-      </div>
-      <p class="text-sm text-gray-500">
-        <i class="fas fa-clock mr-1"></i>
-        <span id="progress-text">Starting generation...</span>
-        <br>
-        <span id="timer-text" class="text-xs text-gray-400 mt-1 inline-block">Elapsed: 0s</span>
-      </p>
+  <!-- Lightbox Modal -->
+  <div id="lightbox" class="hidden fixed inset-0 lightbox-backdrop z-50 flex flex-col items-center justify-center p-4">
+    <button onclick="closeLightbox()" class="absolute top-4 right-4 sm:top-6 sm:right-6 w-10 h-10 sm:w-12 sm:h-12 rounded-full glass flex items-center justify-center text-white hover:bg-white/20 transition z-10">
+      <i class="fas fa-xmark text-xl"></i>
+    </button>
+    
+    <h3 id="lightbox-title" class="text-white text-lg sm:text-xl font-semibold mb-4"></h3>
+    
+    <div class="relative flex-1 flex items-center justify-center w-full max-w-5xl">
+      <!-- Nav Arrows -->
+      <button onclick="navigateLightbox(-1)" class="absolute left-2 sm:left-4 w-10 h-10 sm:w-12 sm:h-12 rounded-full glass flex items-center justify-center text-white hover:bg-white/20 transition z-10">
+        <i class="fas fa-chevron-left text-xl"></i>
+      </button>
+      <button onclick="navigateLightbox(1)" class="absolute right-2 sm:right-4 w-10 h-10 sm:w-12 sm:h-12 rounded-full glass flex items-center justify-center text-white hover:bg-white/20 transition z-10">
+        <i class="fas fa-chevron-right text-xl"></i>
+      </button>
+      
+      <img id="lightbox-image" class="max-w-full max-h-[60vh] sm:max-h-[70vh] rounded-2xl shadow-2xl object-contain animate-scaleIn">
     </div>
+    
+    <button id="lightbox-download" onclick="downloadCurrentImage()" class="mt-4 sm:mt-6 btn-primary px-6 sm:px-8 py-3 rounded-xl text-white font-semibold flex items-center gap-2">
+      <i class="fas fa-download"></i>
+      <span>Download Image</span>
+    </button>
   </div>
 
   <!-- Error Toast -->
-  <div id="error-toast" class="hidden fixed bottom-6 right-6 bg-red-600 text-white px-6 py-4 rounded-xl shadow-2xl max-w-md z-50">
+  <div id="error-toast" class="hidden fixed bottom-4 sm:bottom-6 right-4 sm:right-6 glass-dark text-white px-6 py-4 rounded-2xl shadow-2xl max-w-sm z-50 animate-scaleIn">
     <div class="flex items-start gap-3">
-      <i class="fas fa-exclamation-circle text-xl mt-0.5"></i>
-      <div>
-        <p class="font-semibold">Error</p>
-        <p id="error-message" class="text-sm opacity-90"></p>
+      <div class="w-8 h-8 rounded-full bg-red-500/20 flex items-center justify-center flex-shrink-0">
+        <i class="fas fa-exclamation text-red-400"></i>
       </div>
-      <button onclick="hideError()" class="ml-4 hover:opacity-70">
-        <i class="fas fa-times"></i>
+      <div class="flex-1">
+        <p class="font-semibold text-sm">Something went wrong</p>
+        <p id="error-message" class="text-sm text-white/70 mt-1"></p>
+      </div>
+      <button onclick="hideError()" class="text-white/50 hover:text-white transition">
+        <i class="fas fa-xmark"></i>
       </button>
     </div>
   </div>
 
   <script>
+    // State
     let currentSessionId = null;
-    let currentTab = 'upload';
     let selectedFile = null;
     let currentOriginalImage = null;
+    let currentLightboxIndex = 0;
+    let lightboxImages = [];
+    
+    // Variation Definitions
+    const variationDefs = [
+      { field: 'original', label: 'Original', icon: 'fas fa-image', filename: '00-original.jpg', isOriginal: true },
+      { field: 'macro_texture', label: 'Texture Detail', icon: 'fas fa-search-plus', filename: '01-texture-detail.jpg' },
+      { field: 'label_branding', label: 'Label & Branding', icon: 'fas fa-tag', filename: '02-label-branding.jpg' },
+      { field: 'construction_detail', label: 'Construction', icon: 'fas fa-tools', filename: '03-construction.jpg' },
+      { field: 'color_finish', label: 'Color & Finish', icon: 'fas fa-palette', filename: '04-color-finish.jpg' },
+      { field: 'scale_reference', label: 'Size Reference', icon: 'fas fa-ruler', filename: '05-size-reference.jpg' },
+      { field: 'hero_white', label: 'Hero (White BG)', icon: 'fas fa-square', filename: '06-hero-white.jpg' },
+      { field: 'inuse_action', label: 'In-Use Action', icon: 'fas fa-hand-pointer', filename: '07-in-use.jpg' },
+      { field: 'flatlay_styled', label: 'Flat-Lay', icon: 'fab fa-instagram', filename: '08-flat-lay.jpg' },
+      { field: 'environment_context', label: 'Environment', icon: 'fas fa-tree', filename: '09-environment.jpg' },
+      { field: 'multi_angle', label: 'Multi-Angle', icon: 'fas fa-cube', filename: '10-multi-angle.jpg' }
+    ];
 
-
-
+    // Drag & Drop Handlers
     function handleDragOver(e) {
       e.preventDefault();
       document.getElementById('upload-zone').classList.add('dragover');
@@ -753,28 +909,33 @@ function getHomePage() {
     function handleDrop(e) {
       e.preventDefault();
       document.getElementById('upload-zone').classList.remove('dragover');
-      const files = e.dataTransfer.files;
-      if (files.length > 0) {
-        processFile(files[0]);
+      if (e.dataTransfer.files.length > 0) {
+        processFile(e.dataTransfer.files[0]);
       }
     }
 
     function handleFileSelect(e) {
-      const files = e.target.files;
-      if (files.length > 0) {
-        processFile(files[0]);
+      if (e.target.files.length > 0) {
+        processFile(e.target.files[0]);
       }
     }
 
+    function resetUpload() {
+      document.getElementById('file-input').value = '';
+      document.getElementById('upload-prompt').classList.remove('hidden');
+      document.getElementById('upload-preview').classList.add('hidden');
+      document.getElementById('generate-btn').disabled = true;
+      selectedFile = null;
+      currentOriginalImage = null;
+      currentSessionId = null;
+    }
+
     async function processFile(file) {
-      // Validate file type
       const validTypes = ['image/jpeg', 'image/png', 'image/webp'];
       if (!validTypes.includes(file.type)) {
         showError('Invalid file type. Please upload JPG, PNG, or WebP.');
         return;
       }
-
-      // Validate file size (10MB)
       if (file.size > 10 * 1024 * 1024) {
         showError('File too large. Maximum size is 10MB.');
         return;
@@ -782,7 +943,6 @@ function getHomePage() {
 
       selectedFile = file;
 
-      // Show preview
       const reader = new FileReader();
       reader.onload = (e) => {
         document.getElementById('preview-image').src = e.target.result;
@@ -792,24 +952,16 @@ function getHomePage() {
       };
       reader.readAsDataURL(file);
 
-      // Upload file
       const formData = new FormData();
       formData.append('image', file);
 
       try {
-        const response = await fetch('/api/upload', {
-          method: 'POST',
-          body: formData
-        });
+        const response = await fetch('/api/upload', { method: 'POST', body: formData });
         const data = await response.json();
         
         if (data.success) {
           currentSessionId = data.sessionId;
           currentOriginalImage = data.originalImage;
-          console.log('✅ Upload complete!');
-          console.log('  Session ID:', currentSessionId);
-          console.log('  Original image size:', currentOriginalImage?.length || 0);
-          console.log('  First 100 chars:', currentOriginalImage?.substring(0, 100));
           document.getElementById('generate-btn').disabled = false;
         } else {
           showError(data.error || 'Upload failed');
@@ -819,59 +971,49 @@ function getHomePage() {
       }
     }
 
-
-
     async function generateVariations() {
       if (!currentSessionId) {
         showError('Please upload an image first');
         return;
       }
 
-      // Hide upload section and show results grid immediately
-      document.querySelector('main > .text-center').classList.add('hidden');
-      document.querySelector('main > .bg-white').classList.add('hidden');
-      document.getElementById('generate-btn').disabled = true;
+      // Hide upload UI, show results grid
+      document.getElementById('hero-section').classList.add('hidden');
+      document.getElementById('upload-section').classList.add('hidden');
+      document.getElementById('features-section').classList.add('hidden');
       
-      // Initialize results storage
+      // Store results
       window.currentResults = {
         originalImage: currentOriginalImage,
         productName: 'Product',
         results: {}
       };
       
-      // Show results grid with loading placeholders
+      // Build and show results grid
       showProgressiveResults();
       
-      // Start generating all 10 variations in parallel
+      // Start all 10 generations in parallel
       const startTime = Date.now();
-      console.log('🚀 Starting parallel generation for all 10 variations...');
-      
-      // Launch all 10 requests simultaneously
       const promises = [];
       for (let i = 0; i < 10; i++) {
         promises.push(generateSingleVariation(i, startTime));
       }
       
-      // Wait for all to complete
       await Promise.allSettled(promises);
       
-      const totalTime = Math.floor((Date.now() - startTime) / 1000);
-      console.log('✅ All generations complete in ' + totalTime + 's');
-      
       // Update header with completion time
-      const header = document.querySelector('#results-section h2');
-      if (header) {
-        header.parentElement.querySelector('p').textContent = 'Generated ' + new Date().toLocaleString() + ' in ' + totalTime + 's';
+      const totalTime = Math.floor((Date.now() - startTime) / 1000);
+      const subtitle = document.querySelector('#results-header-subtitle');
+      if (subtitle) {
+        subtitle.textContent = 'Completed in ' + totalTime + 's - ' + lightboxImages.length + ' images ready';
       }
     }
     
     async function generateSingleVariation(index, startTime) {
-      const field = variationDefs[index + 1]?.field; // +1 because index 0 is original
+      const field = variationDefs[index + 1]?.field;
       if (!field) return;
       
       try {
-        console.log('🎨 [' + index + '] Starting ' + field + '...');
-        
         const response = await fetch('/api/generate-single/' + currentSessionId + '/' + index, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -884,66 +1026,97 @@ function getHomePage() {
         const data = await response.json();
         
         if (data.success && data.image) {
-          console.log('✅ [' + index + '] ' + field + ' complete in ' + data.elapsed + 'ms');
           window.currentResults.results[field] = data.image;
-          updateThumbnail(index + 1, data.image, true); // +1 for grid position
+          updateThumbnail(index + 1, data.image, true);
         } else {
-          console.error('❌ [' + index + '] ' + field + ' failed:', data.error);
           updateThumbnail(index + 1, null, false);
         }
       } catch (err) {
-        console.error('❌ [' + index + '] ' + field + ' error:', err);
         updateThumbnail(index + 1, null, false);
       }
     }
     
     function showProgressiveResults() {
-      // Create results section
-      const resultsSection = document.createElement('div');
-      resultsSection.id = 'results-section';
-      resultsSection.className = 'animate-fadeIn';
+      const section = document.getElementById('results-section');
+      section.classList.remove('hidden');
+      section.innerHTML = '';
       
       // Header
       const header = document.createElement('div');
-      header.className = 'flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4';
-      header.innerHTML = '<div><h2 class="text-2xl md:text-3xl font-bold text-gray-800">Product Variations</h2><p class="text-gray-500 mt-1 text-sm">Generating 10 images...</p></div><div class="flex items-center gap-3 flex-wrap"><button onclick="window.location.reload()" class="px-4 py-2 border-2 border-tesco-blue text-tesco-blue rounded-lg font-semibold hover:bg-tesco-blue hover:text-white transition text-sm"><i class="fas fa-plus mr-2"></i>New</button><button onclick="downloadAllInline()" class="px-4 py-2 bg-tesco-red text-white rounded-lg font-semibold hover:bg-red-600 transition text-sm"><i class="fas fa-download mr-2"></i>Download All (ZIP)</button></div>';
-      resultsSection.appendChild(header);
+      header.className = 'flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4';
+      header.innerHTML = \`
+        <div>
+          <h2 class="text-2xl sm:text-3xl font-bold text-brand-dark">Your Product Shots</h2>
+          <p id="results-header-subtitle" class="text-brand-gray mt-1 text-sm">Generating 10 variations...</p>
+        </div>
+        <div class="flex items-center gap-3">
+          <button onclick="window.location.reload()" class="btn-secondary px-4 py-2.5 rounded-xl font-medium text-brand-dark flex items-center gap-2 text-sm">
+            <i class="fas fa-plus"></i>
+            <span>New</span>
+          </button>
+          <button onclick="downloadAllImages()" class="btn-primary px-4 py-2.5 rounded-xl font-medium text-white flex items-center gap-2 text-sm">
+            <i class="fas fa-download"></i>
+            <span>Download All</span>
+          </button>
+        </div>
+      \`;
+      section.appendChild(header);
       
-      // Thumbnail Grid
+      // Thumbnail Grid - 5 cols desktop, 4 tablet, 2 mobile
       const grid = document.createElement('div');
       grid.id = 'results-grid';
-      grid.className = 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4';
+      grid.className = 'grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4';
       
-      // Add original image first (already loaded)
-      const originalCard = createProgressCard(0, currentOriginalImage, true, variationDefs[0]);
+      // Original image (already loaded)
+      const originalCard = createThumbCard(0, currentOriginalImage, true, variationDefs[0]);
       grid.appendChild(originalCard);
       
-      // Add 10 loading placeholders
+      // 10 loading placeholders
       for (let i = 1; i <= 10; i++) {
-        const card = createProgressCard(i, null, false, variationDefs[i]);
+        const card = createThumbCard(i, null, false, variationDefs[i]);
         grid.appendChild(card);
       }
       
-      resultsSection.appendChild(grid);
-      document.querySelector('main').appendChild(resultsSection);
+      section.appendChild(grid);
       
-      // Build lightbox images array with original
+      // Initialize lightbox images with original
       lightboxImages = [{ src: currentOriginalImage, label: 'Original', filename: '00-original.jpg' }];
     }
     
-    function createProgressCard(index, imgSrc, isLoaded, varDef) {
+    function createThumbCard(index, imgSrc, isLoaded, varDef) {
       const card = document.createElement('div');
       card.id = 'card-' + index;
-      card.className = 'bg-white rounded-xl shadow-md overflow-hidden transition-all duration-300';
+      card.className = 'thumb-card card-3d rounded-xl sm:rounded-2xl overflow-hidden cursor-pointer';
       
       if (isLoaded && imgSrc) {
-        // Loaded state
-        card.className += ' hover:shadow-xl hover:scale-105 cursor-pointer';
-        card.innerHTML = '<div class="aspect-square overflow-hidden bg-gray-100"><img src="' + imgSrc + '" class="w-full h-full object-cover" loading="lazy"></div><div class="p-2 text-center border-t"><p class="text-xs text-gray-700 truncate font-medium"><i class="' + varDef.icon + ' text-tesco-blue mr-1"></i>' + varDef.label + '</p></div>';
-        card.onclick = function() { openLightbox(index); };
+        card.innerHTML = \`
+          <div class="aspect-square overflow-hidden bg-slate-100">
+            <img src="\${imgSrc}" class="w-full h-full object-cover" loading="lazy">
+          </div>
+          <div class="p-2 sm:p-3 text-center bg-white border-t border-slate-100">
+            <p class="text-xs text-brand-dark truncate font-medium flex items-center justify-center gap-1.5">
+              <i class="\${varDef.icon} text-brand-purple text-[10px]"></i>
+              \${varDef.label}
+            </p>
+          </div>
+        \`;
+        card.onclick = () => openLightbox(index);
       } else {
-        // Loading state with spinner
-        card.innerHTML = '<div class="aspect-square bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center"><div class="text-center"><div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-tesco-blue border-t-transparent mb-2"></div><p class="text-xs text-gray-500">Generating...</p></div></div><div class="p-2 text-center border-t"><p class="text-xs text-gray-500 truncate"><i class="' + varDef.icon + ' mr-1"></i>' + varDef.label + '</p></div>';
+        card.classList.add('loading');
+        card.innerHTML = \`
+          <div class="aspect-square flex items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200">
+            <div class="text-center">
+              <div class="w-8 h-8 sm:w-10 sm:h-10 rounded-full border-3 border-brand-purple/30 border-t-brand-purple animate-spin mx-auto mb-2"></div>
+              <p class="text-xs text-brand-muted">Generating...</p>
+            </div>
+          </div>
+          <div class="p-2 sm:p-3 text-center bg-slate-50 border-t border-slate-200">
+            <p class="text-xs text-brand-muted truncate flex items-center justify-center gap-1.5">
+              <i class="\${varDef.icon} text-[10px]"></i>
+              \${varDef.label}
+            </p>
+          </div>
+        \`;
       }
       
       return card;
@@ -954,211 +1127,82 @@ function getHomePage() {
       if (!card) return;
       
       const varDef = variationDefs[index];
+      card.classList.remove('loading');
       
       if (success && imgSrc) {
-        // Update to loaded state with animation
-        card.className = 'bg-white rounded-xl shadow-md overflow-hidden transition-all duration-300 hover:shadow-xl hover:scale-105 cursor-pointer';
-        card.innerHTML = '<div class="aspect-square overflow-hidden bg-gray-100"><img src="' + imgSrc + '" class="w-full h-full object-cover animate-fadeIn" loading="lazy"></div><div class="p-2 text-center border-t bg-green-50"><p class="text-xs text-gray-700 truncate font-medium"><i class="' + varDef.icon + ' text-green-600 mr-1"></i><i class="fas fa-check text-green-600 mr-1"></i>' + varDef.label + '</p></div>';
-        card.onclick = function() { openLightbox(index); };
+        card.classList.add('success');
+        card.innerHTML = \`
+          <div class="aspect-square overflow-hidden bg-slate-100 relative">
+            <img src="\${imgSrc}" class="w-full h-full object-cover animate-scaleIn" loading="lazy">
+            <div class="absolute top-2 right-2 w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-green-500 flex items-center justify-center shadow-lg">
+              <i class="fas fa-check text-white text-xs"></i>
+            </div>
+          </div>
+          <div class="p-2 sm:p-3 text-center bg-green-50 border-t border-green-100">
+            <p class="text-xs text-brand-dark truncate font-medium flex items-center justify-center gap-1.5">
+              <i class="\${varDef.icon} text-green-600 text-[10px]"></i>
+              \${varDef.label}
+            </p>
+          </div>
+        \`;
+        card.onclick = () => openLightbox(index);
         
         // Add to lightbox array
         lightboxImages.push({ src: imgSrc, label: varDef.label, filename: varDef.filename });
       } else {
-        // Failed state
-        card.className = 'bg-white rounded-xl shadow-md overflow-hidden opacity-60';
-        card.innerHTML = '<div class="aspect-square bg-red-50 flex items-center justify-center"><div class="text-center text-red-400 p-4"><i class="fas fa-exclamation-triangle text-2xl mb-2"></i><p class="text-xs">Failed</p></div></div><div class="p-2 text-center border-t bg-red-50"><p class="text-xs text-red-500 truncate"><i class="' + varDef.icon + ' mr-1"></i>' + varDef.label + '</p></div>';
+        card.classList.add('failed');
+        card.innerHTML = \`
+          <div class="aspect-square flex items-center justify-center bg-red-50">
+            <div class="text-center text-red-400 p-2">
+              <i class="fas fa-exclamation-triangle text-xl sm:text-2xl mb-1"></i>
+              <p class="text-xs">Failed</p>
+            </div>
+          </div>
+          <div class="p-2 sm:p-3 text-center bg-red-50 border-t border-red-100">
+            <p class="text-xs text-red-500 truncate flex items-center justify-center gap-1.5">
+              <i class="\${varDef.icon} text-[10px]"></i>
+              \${varDef.label}
+            </p>
+          </div>
+        \`;
       }
     }
 
-    function showError(message) {
-      document.getElementById('error-message').textContent = message;
-      document.getElementById('error-toast').classList.remove('hidden');
-      setTimeout(hideError, 5000);
-    }
-
-    function hideError() {
-      document.getElementById('error-toast').classList.add('hidden');
-    }
-    
-    // All 10 variation definitions for the frontend
-    // 5 DETAIL SHOTS (trust-building) + 5 CONTEXT SHOTS (conversion)
-    const variationDefs = [
-      { field: 'original', label: 'Original', icon: 'fas fa-image', filename: '00-original.jpg', isOriginal: true },
-      // Detail/Close-up shots (1-5) - Reduce returns
-      { field: 'macro_texture', label: '1. Texture Detail', icon: 'fas fa-search-plus', filename: '01-texture-detail.jpg' },
-      { field: 'label_branding', label: '2. Label & Branding', icon: 'fas fa-tag', filename: '02-label-branding.jpg' },
-      { field: 'construction_detail', label: '3. Construction', icon: 'fas fa-tools', filename: '03-construction-detail.jpg' },
-      { field: 'color_finish', label: '4. Color & Finish', icon: 'fas fa-palette', filename: '04-color-finish.jpg' },
-      { field: 'scale_reference', label: '5. Size Reference', icon: 'fas fa-ruler', filename: '05-size-reference.jpg' },
-      // Context/Lifestyle shots (6-10) - Drive conversion
-      { field: 'hero_white', label: '6. Hero (White BG)', icon: 'fas fa-square', filename: '06-hero-white.jpg' },
-      { field: 'inuse_action', label: '7. In-Use Action', icon: 'fas fa-hand-pointer', filename: '07-inuse-action.jpg' },
-      { field: 'flatlay_styled', label: '8. Flat-Lay Styled', icon: 'fab fa-instagram', filename: '08-flatlay-styled.jpg' },
-      { field: 'environment_context', label: '9. Environment', icon: 'fas fa-tree', filename: '09-environment-context.jpg' },
-      { field: 'multi_angle', label: '10. Multi-Angle', icon: 'fas fa-cube', filename: '10-multi-angle.jpg' }
-    ];
-    
-    let currentLightboxIndex = 0;
-    let lightboxImages = [];
-
-    function displayResultsInline(data) {
-      // Hide upload section, show results
-      document.querySelector('main > .text-center').classList.add('hidden');
-      document.querySelector('main > .bg-white').classList.add('hidden');
-      
-      // Store images globally for download
-      window.currentResults = data;
-      
-      // Build lightbox images array
-      lightboxImages = [];
-      variationDefs.forEach(v => {
-        const src = v.isOriginal ? data.originalImage : data.results[v.field];
-        if (src && src !== 'undefined') {
-          lightboxImages.push({ src, label: v.label, filename: v.filename });
-        }
-      });
-      
-      // Create results section
-      const resultsSection = document.createElement('div');
-      resultsSection.id = 'results-section';
-      resultsSection.className = 'animate-fadeIn';
-      
-      // Header with buttons
-      const header = document.createElement('div');
-      header.className = 'flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4';
-      header.innerHTML = '<div><h2 class="text-2xl md:text-3xl font-bold text-gray-800">' + (data.productName || 'Product Variations') + '</h2><p class="text-gray-500 mt-1 text-sm">Generated ' + new Date().toLocaleString() + ' - ' + lightboxImages.length + ' images</p></div><div class="flex items-center gap-3 flex-wrap"><button onclick="window.location.reload()" class="px-4 py-2 border-2 border-tesco-blue text-tesco-blue rounded-lg font-semibold hover:bg-tesco-blue hover:text-white transition text-sm"><i class="fas fa-plus mr-2"></i>New</button><button onclick="downloadAllInline()" class="px-4 py-2 bg-tesco-red text-white rounded-lg font-semibold hover:bg-red-600 transition text-sm"><i class="fas fa-download mr-2"></i>Download All (ZIP)</button></div>';
-      resultsSection.appendChild(header);
-      
-      // Thumbnail Grid - 4 columns desktop, 3 tablet, 2 mobile
-      const grid = document.createElement('div');
-      grid.className = 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4';
-      
-      variationDefs.forEach((v, index) => {
-        const imgSrc = v.isOriginal ? data.originalImage : data.results[v.field];
-        const card = createThumbnailCard(imgSrc, v.label, v.icon, index);
-        grid.appendChild(card);
-      });
-      
-      resultsSection.appendChild(grid);
-      document.querySelector('main').appendChild(resultsSection);
-    }
-    
-    function createThumbnailCard(imgSrc, label, icon, index) {
-      const card = document.createElement('div');
-      card.className = 'bg-white rounded-xl shadow-md overflow-hidden transition-all duration-200 hover:shadow-xl hover:scale-105 cursor-pointer';
-      
-      if (!imgSrc || imgSrc === 'undefined' || imgSrc === undefined) {
-        // Failed generation placeholder
-        card.className += ' opacity-50';
-        card.innerHTML = '<div class="aspect-square bg-gray-200 flex items-center justify-center"><div class="text-center text-gray-400 p-4"><i class="fas fa-exclamation-triangle text-2xl mb-2"></i><p class="text-xs">Failed</p></div></div><div class="p-2 text-center"><p class="text-xs text-gray-500 truncate"><i class="' + icon + ' mr-1"></i>' + label + '</p></div>';
-        return card;
-      }
-      
-      // Thumbnail with click to open lightbox
-      const imgWrapper = document.createElement('div');
-      imgWrapper.className = 'aspect-square overflow-hidden bg-gray-100';
-      
-      const img = document.createElement('img');
-      img.src = imgSrc;
-      img.className = 'w-full h-full object-cover';
-      img.loading = 'lazy';
-      img.onclick = function() { openLightbox(index); };
-      imgWrapper.appendChild(img);
-      card.appendChild(imgWrapper);
-      
-      // Label
-      const labelDiv = document.createElement('div');
-      labelDiv.className = 'p-2 text-center border-t';
-      labelDiv.innerHTML = '<p class="text-xs text-gray-700 truncate font-medium"><i class="' + icon + ' text-tesco-blue mr-1"></i>' + label + '</p>';
-      card.appendChild(labelDiv);
-      
-      card.onclick = function() { openLightbox(index); };
-      
-      return card;
-    }
-    
+    // Lightbox Functions
     function openLightbox(index) {
-      // Find actual index in lightboxImages (skips failed ones)
+      // Map grid index to lightbox index (accounting for failed images)
       let actualIndex = 0;
-      let count = 0;
-      for (let i = 0; i < variationDefs.length; i++) {
+      for (let i = 0; i < variationDefs.length && i <= index; i++) {
         const v = variationDefs[i];
-        const src = v.isOriginal ? window.currentResults.originalImage : window.currentResults.results[v.field];
-        if (src && src !== 'undefined') {
-          if (i === index) {
-            actualIndex = count;
-            break;
-          }
-          count++;
+        const src = v.isOriginal ? window.currentResults?.originalImage : window.currentResults?.results?.[v.field];
+        if (src && i < index) actualIndex++;
+        if (i === index && src) {
+          currentLightboxIndex = actualIndex;
+          break;
         }
       }
-      currentLightboxIndex = actualIndex;
       renderLightbox();
     }
     
     function renderLightbox() {
-      // Remove existing
-      const existing = document.getElementById('lightbox-modal');
-      if (existing) existing.remove();
-      
       if (lightboxImages.length === 0) return;
       
       const img = lightboxImages[currentLightboxIndex];
+      document.getElementById('lightbox-title').textContent = img.label + ' (' + (currentLightboxIndex + 1) + '/' + lightboxImages.length + ')';
+      document.getElementById('lightbox-image').src = img.src;
+      document.getElementById('lightbox').classList.remove('hidden');
       
-      const modal = document.createElement('div');
-      modal.id = 'lightbox-modal';
-      modal.className = 'fixed inset-0 bg-black/90 flex flex-col items-center justify-center z-50 p-4';
-      modal.onclick = function(e) { if (e.target === modal) closeLightbox(); };
-      
-      // Close button
-      const closeBtn = document.createElement('button');
-      closeBtn.className = 'absolute top-4 right-4 text-white text-3xl hover:text-gray-300 transition z-50';
-      closeBtn.innerHTML = '<i class="fas fa-times"></i>';
-      closeBtn.onclick = closeLightbox;
-      modal.appendChild(closeBtn);
-      
-      // Title
-      const title = document.createElement('h3');
-      title.className = 'text-white text-lg font-bold mb-4';
-      title.textContent = img.label + ' (' + (currentLightboxIndex + 1) + '/' + lightboxImages.length + ')';
-      modal.appendChild(title);
-      
-      // Image container
-      const imgContainer = document.createElement('div');
-      imgContainer.className = 'relative flex items-center justify-center flex-1 w-full max-h-[70vh]';
-      
-      // Nav arrows
-      if (lightboxImages.length > 1) {
-        const prevBtn = document.createElement('button');
-        prevBtn.className = 'absolute left-2 md:left-8 text-white text-4xl hover:text-tesco-blue transition z-10';
-        prevBtn.innerHTML = '<i class="fas fa-chevron-left"></i>';
-        prevBtn.onclick = function(e) { e.stopPropagation(); navigateLightbox(-1); };
-        imgContainer.appendChild(prevBtn);
-        
-        const nextBtn = document.createElement('button');
-        nextBtn.className = 'absolute right-2 md:right-8 text-white text-4xl hover:text-tesco-blue transition z-10';
-        nextBtn.innerHTML = '<i class="fas fa-chevron-right"></i>';
-        nextBtn.onclick = function(e) { e.stopPropagation(); navigateLightbox(1); };
-        imgContainer.appendChild(nextBtn);
-      }
-      
-      const imgEl = document.createElement('img');
-      imgEl.src = img.src;
-      imgEl.className = 'max-w-full max-h-[70vh] rounded-lg shadow-2xl object-contain';
-      imgContainer.appendChild(imgEl);
-      modal.appendChild(imgContainer);
-      
-      // Download button
-      const downloadBtn = document.createElement('button');
-      downloadBtn.className = 'mt-4 px-6 py-3 bg-tesco-blue text-white rounded-lg font-semibold hover:bg-blue-700 transition';
-      downloadBtn.innerHTML = '<i class="fas fa-download mr-2"></i>Download Image';
-      downloadBtn.onclick = function() { downloadImageInline(img.src, img.filename); };
-      modal.appendChild(downloadBtn);
-      
-      document.body.appendChild(modal);
-      
-      // Keyboard navigation
       document.addEventListener('keydown', lightboxKeyHandler);
+    }
+    
+    function closeLightbox() {
+      document.getElementById('lightbox').classList.add('hidden');
+      document.removeEventListener('keydown', lightboxKeyHandler);
+    }
+    
+    function navigateLightbox(direction) {
+      currentLightboxIndex = (currentLightboxIndex + direction + lightboxImages.length) % lightboxImages.length;
+      renderLightbox();
     }
     
     function lightboxKeyHandler(e) {
@@ -1167,33 +1211,20 @@ function getHomePage() {
       if (e.key === 'ArrowRight') navigateLightbox(1);
     }
     
-    function navigateLightbox(direction) {
-      currentLightboxIndex += direction;
-      if (currentLightboxIndex < 0) currentLightboxIndex = lightboxImages.length - 1;
-      if (currentLightboxIndex >= lightboxImages.length) currentLightboxIndex = 0;
-      renderLightbox();
-    }
-    
-    function closeLightbox() {
-      const modal = document.getElementById('lightbox-modal');
-      if (modal) modal.remove();
-      document.removeEventListener('keydown', lightboxKeyHandler);
-    }
-    
-    function downloadImageInline(dataUrl, filename) {
+    function downloadCurrentImage() {
+      const img = lightboxImages[currentLightboxIndex];
       const link = document.createElement('a');
-      link.href = dataUrl;
-      link.download = filename;
+      link.href = img.src;
+      link.download = 'shopshot-' + img.filename;
       link.click();
     }
     
-    async function downloadAllInline() {
+    async function downloadAllImages() {
       if (!window.JSZip || !window.currentResults) return;
       
       const zip = new JSZip();
       const data = window.currentResults;
       
-      // Convert base64 to blob
       function base64ToBlob(base64) {
         if (!base64) return null;
         try {
@@ -1211,28 +1242,35 @@ function getHomePage() {
         }
       }
       
-      // Add original
-      zip.file('00-original.jpg', base64ToBlob(data.originalImage));
-      
-      // Add all 10 variations (5 detail + 5 context)
-      // Detail shots (1-5)
+      // Add all images
+      if (data.originalImage) zip.file('00-original.jpg', base64ToBlob(data.originalImage));
       if (data.results.macro_texture) zip.file('01-texture-detail.jpg', base64ToBlob(data.results.macro_texture));
       if (data.results.label_branding) zip.file('02-label-branding.jpg', base64ToBlob(data.results.label_branding));
-      if (data.results.construction_detail) zip.file('03-construction-detail.jpg', base64ToBlob(data.results.construction_detail));
+      if (data.results.construction_detail) zip.file('03-construction.jpg', base64ToBlob(data.results.construction_detail));
       if (data.results.color_finish) zip.file('04-color-finish.jpg', base64ToBlob(data.results.color_finish));
       if (data.results.scale_reference) zip.file('05-size-reference.jpg', base64ToBlob(data.results.scale_reference));
-      // Context shots (6-10)
       if (data.results.hero_white) zip.file('06-hero-white.jpg', base64ToBlob(data.results.hero_white));
-      if (data.results.inuse_action) zip.file('07-inuse-action.jpg', base64ToBlob(data.results.inuse_action));
-      if (data.results.flatlay_styled) zip.file('08-flatlay-styled.jpg', base64ToBlob(data.results.flatlay_styled));
-      if (data.results.environment_context) zip.file('09-environment-context.jpg', base64ToBlob(data.results.environment_context));
+      if (data.results.inuse_action) zip.file('07-in-use.jpg', base64ToBlob(data.results.inuse_action));
+      if (data.results.flatlay_styled) zip.file('08-flat-lay.jpg', base64ToBlob(data.results.flatlay_styled));
+      if (data.results.environment_context) zip.file('09-environment.jpg', base64ToBlob(data.results.environment_context));
       if (data.results.multi_angle) zip.file('10-multi-angle.jpg', base64ToBlob(data.results.multi_angle));
       
       const blob = await zip.generateAsync({ type: 'blob' });
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
-      link.download = 'tesco-images-' + Date.now() + '.zip';
+      link.download = 'shopshot-images-' + Date.now() + '.zip';
       link.click();
+    }
+
+    // Error Handling
+    function showError(message) {
+      document.getElementById('error-message').textContent = message;
+      document.getElementById('error-toast').classList.remove('hidden');
+      setTimeout(hideError, 5000);
+    }
+
+    function hideError() {
+      document.getElementById('error-toast').classList.add('hidden');
     }
   </script>
 </body>
@@ -1245,348 +1283,86 @@ function getResultsPage(sessionId: string) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Results - Tesco Image Generator</title>
+  <title>Results - ShopShot</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'><stop offset='0%25' style='stop-color:%233B82F6'/><stop offset='100%25' style='stop-color:%238B5CF6'/></linearGradient></defs><rect width='100' height='100' rx='22' fill='url(%23g)'/><circle cx='50' cy='50' r='28' fill='none' stroke='white' stroke-width='6'/><circle cx='50' cy='50' r='12' fill='white'/><rect x='70' y='25' width='12' height='8' rx='2' fill='white'/></svg>">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script>
     tailwind.config = {
       theme: {
         extend: {
+          fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
           colors: {
-            'tesco-blue': '#00539F',
-            'tesco-red': '#EE1C2E',
+            'brand': { 'blue': '#3B82F6', 'purple': '#8B5CF6', 'dark': '#0F172A', 'gray': '#64748B' }
           }
         }
       }
     }
   </script>
+  <style>
+    * { font-family: 'Inter', system-ui, sans-serif; }
+    .gradient-bg { background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%); }
+  </style>
 </head>
-<body class="bg-gray-50 min-h-screen">
-  <!-- Header -->
-  <header class="bg-tesco-blue text-white shadow-lg">
-    <div class="max-w-7xl mx-auto px-6 py-4">
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-4">
-          <div class="w-12 h-12 bg-white rounded-lg flex items-center justify-center">
-            <span class="text-tesco-blue font-bold text-xl">T</span>
-          </div>
-          <div>
-            <h1 class="text-2xl font-bold">Product Image Generator</h1>
-            <p class="text-blue-200 text-sm">Merchandising Team Tool</p>
-          </div>
+<body class="bg-slate-50 min-h-screen">
+  <header class="bg-white border-b border-slate-200">
+    <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+      <a href="/" class="flex items-center gap-3">
+        <div class="w-10 h-10 gradient-bg rounded-xl flex items-center justify-center">
+          <svg class="w-6 h-6 text-white" viewBox="0 0 24 24" fill="currentColor">
+            <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/>
+            <circle cx="12" cy="12" r="4" fill="currentColor"/>
+          </svg>
         </div>
-        <nav class="flex items-center gap-6">
-          <a href="/" class="flex items-center gap-2 px-4 py-2 hover:bg-white/10 rounded-lg transition">
-            <i class="fas fa-home"></i>
-            <span>Home</span>
-          </a>
-          <a href="/history" class="flex items-center gap-2 px-4 py-2 hover:bg-white/10 rounded-lg transition">
-            <i class="fas fa-history"></i>
-            <span>History</span>
-          </a>
-        </nav>
-      </div>
+        <span class="text-xl font-bold text-brand-dark">ShopShot</span>
+      </a>
+      <nav class="flex items-center gap-4">
+        <a href="/" class="px-4 py-2 rounded-lg text-sm font-medium text-brand-dark hover:bg-slate-100 transition">
+          <i class="fas fa-plus mr-2"></i>New
+        </a>
+        <a href="/history" class="px-4 py-2 rounded-lg text-sm font-medium text-brand-gray hover:bg-slate-100 transition">
+          <i class="fas fa-clock-rotate-left mr-2"></i>History
+        </a>
+      </nav>
     </div>
   </header>
 
   <main class="max-w-7xl mx-auto px-6 py-10">
     <div id="loading" class="text-center py-20">
-      <i class="fas fa-spinner fa-spin text-4xl text-tesco-blue mb-4"></i>
-      <p class="text-gray-600">Loading results...</p>
-    </div>
-
-    <div id="content" class="hidden">
-      <!-- Header -->
-      <div class="flex items-center justify-between mb-8">
-        <div>
-          <h2 id="product-name" class="text-3xl font-bold text-gray-800">Product Variations</h2>
-          <p id="session-date" class="text-gray-500 mt-1"></p>
-        </div>
-        <div class="flex items-center gap-4">
-          <a href="/" class="px-5 py-2.5 border-2 border-tesco-blue text-tesco-blue rounded-lg font-semibold hover:bg-tesco-blue hover:text-white transition">
-            <i class="fas fa-plus mr-2"></i>New Generation
-          </a>
-          <button onclick="downloadAll()" class="px-5 py-2.5 bg-tesco-red text-white rounded-lg font-semibold hover:bg-red-600 transition">
-            <i class="fas fa-download mr-2"></i>Download All (ZIP)
-          </button>
-        </div>
-      </div>
-
-      <!-- Image Grid -->
-      <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
-        <!-- Original -->
-        <div class="bg-white rounded-xl shadow-lg overflow-hidden">
-          <div class="bg-gray-800 text-white px-4 py-2 text-center font-semibold">
-            <i class="fas fa-image mr-2"></i>Original
-          </div>
-          <div class="p-4">
-            <img id="img-original" class="w-full h-48 object-contain bg-gray-100 rounded-lg mb-3">
-            <button onclick="downloadImage('original')" class="w-full py-2 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition">
-              <i class="fas fa-download mr-2"></i>Download
-            </button>
-          </div>
-        </div>
-
-        <!-- Lifestyle -->
-        <div class="bg-white rounded-xl shadow-lg overflow-hidden">
-          <div class="bg-amber-500 text-white px-4 py-2 text-center font-semibold">
-            <i class="fas fa-home mr-2"></i>Lifestyle
-          </div>
-          <div class="p-4">
-            <img id="img-lifestyle" class="w-full h-48 object-contain bg-gray-100 rounded-lg mb-3">
-            <button onclick="downloadImage('lifestyle')" class="w-full py-2 bg-amber-100 text-amber-700 rounded-lg font-medium hover:bg-amber-200 transition">
-              <i class="fas fa-download mr-2"></i>Download
-            </button>
-          </div>
-        </div>
-
-        <!-- E-commerce -->
-        <div class="bg-white rounded-xl shadow-lg overflow-hidden">
-          <div class="bg-blue-500 text-white px-4 py-2 text-center font-semibold">
-            <i class="fas fa-shopping-cart mr-2"></i>E-commerce
-          </div>
-          <div class="p-4">
-            <img id="img-ecommerce" class="w-full h-48 object-contain bg-gray-100 rounded-lg mb-3">
-            <button onclick="downloadImage('ecommerce')" class="w-full py-2 bg-blue-100 text-blue-700 rounded-lg font-medium hover:bg-blue-200 transition">
-              <i class="fas fa-download mr-2"></i>Download
-            </button>
-          </div>
-        </div>
-
-        <!-- Instagram -->
-        <div class="bg-white rounded-xl shadow-lg overflow-hidden">
-          <div class="bg-pink-500 text-white px-4 py-2 text-center font-semibold">
-            <i class="fab fa-instagram mr-2"></i>Instagram
-          </div>
-          <div class="p-4">
-            <img id="img-instagram" class="w-full h-48 object-contain bg-gray-100 rounded-lg mb-3">
-            <button onclick="downloadImage('instagram')" class="w-full py-2 bg-pink-100 text-pink-700 rounded-lg font-medium hover:bg-pink-200 transition">
-              <i class="fas fa-download mr-2"></i>Download
-            </button>
-          </div>
-        </div>
-
-        <!-- Macro -->
-        <div class="bg-white rounded-xl shadow-lg overflow-hidden">
-          <div class="bg-green-500 text-white px-4 py-2 text-center font-semibold">
-            <i class="fas fa-search-plus mr-2"></i>Macro
-          </div>
-          <div class="p-4">
-            <img id="img-macro" class="w-full h-48 object-contain bg-gray-100 rounded-lg mb-3">
-            <button onclick="downloadImage('macro')" class="w-full py-2 bg-green-100 text-green-700 rounded-lg font-medium hover:bg-green-200 transition">
-              <i class="fas fa-download mr-2"></i>Download
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Full Size Preview Modal -->
-      <div id="preview-modal" class="hidden fixed inset-0 bg-black/80 flex items-center justify-center z-50" onclick="closePreview()">
-        <div class="max-w-4xl max-h-[90vh] p-4">
-          <img id="preview-img" class="max-w-full max-h-full rounded-lg shadow-2xl">
-        </div>
-        <button class="absolute top-6 right-6 text-white text-3xl hover:opacity-70">
-          <i class="fas fa-times"></i>
-        </button>
-      </div>
+      <div class="w-12 h-12 rounded-full border-4 border-brand-purple/30 border-t-brand-purple animate-spin mx-auto mb-4"></div>
+      <p class="text-brand-gray">Loading results...</p>
     </div>
 
     <div id="error" class="hidden text-center py-20">
-      <i class="fas fa-exclamation-circle text-6xl text-red-400 mb-4"></i>
-      <h3 class="text-2xl font-bold text-gray-800 mb-2">Session Not Found</h3>
-      <p class="text-gray-600 mb-6">This session may have expired or doesn't exist.</p>
-      <a href="/" class="px-6 py-3 bg-tesco-blue text-white rounded-lg font-semibold hover:bg-blue-700 transition">
-        <i class="fas fa-plus mr-2"></i>Create New
+      <div class="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
+        <i class="fas fa-exclamation-triangle text-3xl text-red-500"></i>
+      </div>
+      <h3 class="text-2xl font-bold text-brand-dark mb-2">Session Expired</h3>
+      <p class="text-brand-gray mb-6">Generated images are only available immediately after creation.</p>
+      <a href="/" class="inline-block gradient-bg px-6 py-3 text-white rounded-xl font-semibold">
+        <i class="fas fa-plus mr-2"></i>Generate New Images
       </a>
     </div>
   </main>
 
   <script>
     const sessionId = '${sessionId}';
-    let sessionData = null;
-
+    
     async function loadSession() {
-      // First check if we have fresh results from generation (in window.opener)
-      if (window.opener && window.opener.generatedResults) {
-        const data = window.opener.generatedResults;
-        if (data.sessionId === sessionId) {
-          console.log('Loading from window.opener.generatedResults');
-          sessionData = {
-            original_image: data.originalImage,
-            product_name: data.productName,
-            lifestyle_image: data.results?.lifestyle_image,
-            ecommerce_image: data.results?.ecommerce_image,
-            instagram_image: data.results?.instagram_image,
-            macro_image: data.results?.macro_image,
-            created_at: new Date().toISOString()
-          };
-          displayResults();
-          return;
-        }
-      }
-
-      // Check sessionStorage first (survives page reload)
-      const cachedKey = 'tesco_session_' + sessionId;
+      const cachedKey = 'shopshot_session_' + sessionId;
       const cached = sessionStorage.getItem(cachedKey);
-      console.log('Checking sessionStorage for:', cachedKey, cached ? 'FOUND' : 'MISSING');
       
-      if (cached) {
-        try {
-          const data = JSON.parse(cached);
-          console.log('✅ Loading from sessionStorage for session:', sessionId);
-          sessionData = {
-            original_image: data.originalImage,
-            product_name: data.productName,
-            lifestyle_image: data.results?.lifestyle_image,
-            ecommerce_image: data.results?.ecommerce_image,
-            instagram_image: data.results?.instagram_image,
-            macro_image: data.results?.macro_image,
-            created_at: new Date(data.timestamp || Date.now()).toISOString()
-          };
-          displayResults();
-          return;
-        } catch (e) {
-          console.error('Failed to parse sessionStorage:', e);
-        }
-      }
-      
-      // Fallback: Check global variable (in case sessionStorage failed)
-      console.log('Checking window.generatedResults:', window.generatedResults ? 'EXISTS' : 'MISSING');
-      if (window.generatedResults && window.generatedResults.sessionId === sessionId) {
-        console.log('✅ Loading from window.generatedResults for session:', sessionId);
-        const data = window.generatedResults;
-        sessionData = {
-          original_image: data.originalImage,
-          product_name: data.productName,
-          lifestyle_image: data.results?.lifestyle_image,
-          ecommerce_image: data.results?.ecommerce_image,
-          instagram_image: data.results?.instagram_image,
-          macro_image: data.results?.macro_image,
-          created_at: new Date().toISOString()
-        };
-        displayResults();
-        // Clean up
-        delete window.generatedResults;
+      if (!cached) {
+        document.getElementById('loading').classList.add('hidden');
+        document.getElementById('error').classList.remove('hidden');
         return;
       }
-
-      // Fallback: show message that images aren't persisted
-      console.log('No cached results, showing limited view');
-      document.getElementById('loading').classList.add('hidden');
-      document.getElementById('error').classList.remove('hidden');
-      document.getElementById('error').innerHTML = \`
-        <div class="text-center py-20">
-          <i class="fas fa-info-circle text-6xl text-blue-400 mb-4"></i>
-          <h3 class="text-2xl font-bold text-gray-800 mb-2">Session Expired</h3>
-          <p class="text-gray-600 mb-6">Generated images are only available immediately after creation.<br>Please generate again to view results.</p>
-          <a href="/" class="px-6 py-3 bg-tesco-blue text-white rounded-lg font-semibold hover:bg-blue-700 transition">
-            <i class="fas fa-plus mr-2"></i>Generate New Images
-          </a>
-        </div>
-      \`;
-    }
-
-    function displayResults() {
-      document.getElementById('loading').classList.add('hidden');
-      document.getElementById('content').classList.remove('hidden');
-
-      document.getElementById('product-name').textContent = sessionData.product_name || 'Product Variations';
-      document.getElementById('session-date').textContent = 'Generated on ' + new Date(sessionData.created_at).toLocaleString();
-
-      // Set images
-      document.getElementById('img-original').src = sessionData.original_image || '';
-      document.getElementById('img-lifestyle').src = sessionData.lifestyle_image || '';
-      document.getElementById('img-ecommerce').src = sessionData.ecommerce_image || '';
-      document.getElementById('img-instagram').src = sessionData.instagram_image || '';
-      document.getElementById('img-macro').src = sessionData.macro_image || '';
-
-      // Add click handlers for preview
-      document.querySelectorAll('[id^="img-"]').forEach(img => {
-        img.style.cursor = 'pointer';
-        img.onclick = (e) => {
-          e.stopPropagation();
-          openPreview(img.src);
-        };
-      });
-    }
-
-    function showError() {
-      document.getElementById('loading').classList.add('hidden');
-      document.getElementById('error').classList.remove('hidden');
-    }
-
-    function openPreview(src) {
-      document.getElementById('preview-img').src = src;
-      document.getElementById('preview-modal').classList.remove('hidden');
-    }
-
-    function closePreview() {
-      document.getElementById('preview-modal').classList.add('hidden');
-    }
-
-    function downloadImage(type) {
-      let dataUrl;
-      let filename;
       
-      switch(type) {
-        case 'original':
-          dataUrl = sessionData.original_image;
-          filename = 'original.jpg';
-          break;
-        case 'lifestyle':
-          dataUrl = sessionData.lifestyle_image;
-          filename = 'lifestyle.jpg';
-          break;
-        case 'ecommerce':
-          dataUrl = sessionData.ecommerce_image;
-          filename = 'ecommerce.jpg';
-          break;
-        case 'instagram':
-          dataUrl = sessionData.instagram_image;
-          filename = 'instagram.jpg';
-          break;
-        case 'macro':
-          dataUrl = sessionData.macro_image;
-          filename = 'macro.jpg';
-          break;
-      }
-
-      if (!dataUrl) return;
-
-      const link = document.createElement('a');
-      link.href = dataUrl;
-      link.download = (sessionData.product_name || 'product').replace(/[^a-z0-9]/gi, '_') + '_' + filename;
-      link.click();
+      // Redirect to home with cached data
+      window.location.href = '/';
     }
-
-    async function downloadAll() {
-      const zip = new JSZip();
-      const productName = (sessionData.product_name || 'product').replace(/[^a-z0-9]/gi, '_');
-      
-      const images = [
-        { name: 'original.jpg', data: sessionData.original_image },
-        { name: 'lifestyle.jpg', data: sessionData.lifestyle_image },
-        { name: 'ecommerce.jpg', data: sessionData.ecommerce_image },
-        { name: 'instagram.jpg', data: sessionData.instagram_image },
-        { name: 'macro.jpg', data: sessionData.macro_image }
-      ];
-
-      for (const img of images) {
-        if (img.data) {
-          const base64Data = img.data.split(',')[1];
-          zip.file(productName + '_' + img.name, base64Data, { base64: true });
-        }
-      }
-
-      const content = await zip.generateAsync({ type: 'blob' });
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(content);
-      link.download = productName + '_all_variations.zip';
-      link.click();
-    }
-
-    // Load on page load
+    
     loadSession();
   </script>
 </body>
@@ -1599,74 +1375,78 @@ function getHistoryPage() {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>History - Tesco Image Generator</title>
+  <title>History - ShopShot</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'><stop offset='0%25' style='stop-color:%233B82F6'/><stop offset='100%25' style='stop-color:%238B5CF6'/></linearGradient></defs><rect width='100' height='100' rx='22' fill='url(%23g)'/><circle cx='50' cy='50' r='28' fill='none' stroke='white' stroke-width='6'/><circle cx='50' cy='50' r='12' fill='white'/><rect x='70' y='25' width='12' height='8' rx='2' fill='white'/></svg>">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
   <script>
     tailwind.config = {
       theme: {
         extend: {
+          fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
           colors: {
-            'tesco-blue': '#00539F',
-            'tesco-red': '#EE1C2E',
+            'brand': { 'blue': '#3B82F6', 'purple': '#8B5CF6', 'dark': '#0F172A', 'gray': '#64748B', 'light': '#F8FAFC' }
           }
         }
       }
     }
   </script>
+  <style>
+    * { font-family: 'Inter', system-ui, sans-serif; }
+    .gradient-bg { background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%); }
+    .glass { background: rgba(255, 255, 255, 0.8); backdrop-filter: blur(12px); }
+    .card-hover { transition: all 0.3s ease; }
+    .card-hover:hover { transform: translateY(-4px); box-shadow: 0 12px 24px rgba(0,0,0,0.12); }
+  </style>
 </head>
-<body class="bg-gray-50 min-h-screen">
-  <!-- Header -->
-  <header class="bg-tesco-blue text-white shadow-lg">
-    <div class="max-w-7xl mx-auto px-6 py-4">
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-4">
-          <div class="w-12 h-12 bg-white rounded-lg flex items-center justify-center">
-            <span class="text-tesco-blue font-bold text-xl">T</span>
-          </div>
-          <div>
-            <h1 class="text-2xl font-bold">Product Image Generator</h1>
-            <p class="text-blue-200 text-sm">Merchandising Team Tool</p>
-          </div>
+<body class="bg-brand-light min-h-screen">
+  <header class="glass sticky top-0 z-40 border-b border-white/20">
+    <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+      <a href="/" class="flex items-center gap-3">
+        <div class="w-10 h-10 gradient-bg rounded-xl flex items-center justify-center shadow-lg">
+          <svg class="w-6 h-6 text-white" viewBox="0 0 24 24" fill="currentColor">
+            <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/>
+            <circle cx="12" cy="12" r="4" fill="currentColor"/>
+          </svg>
         </div>
-        <nav class="flex items-center gap-6">
-          <a href="/" class="flex items-center gap-2 px-4 py-2 hover:bg-white/10 rounded-lg transition">
-            <i class="fas fa-home"></i>
-            <span>Home</span>
-          </a>
-          <a href="/history" class="flex items-center gap-2 px-4 py-2 bg-white/10 rounded-lg hover:bg-white/20 transition">
-            <i class="fas fa-history"></i>
-            <span>History</span>
-          </a>
-        </nav>
-      </div>
+        <span class="text-xl font-bold text-brand-dark">ShopShot</span>
+      </a>
+      <nav class="flex items-center gap-4">
+        <a href="/" class="px-4 py-2 rounded-lg text-sm font-medium text-brand-dark hover:bg-brand-purple/10 transition">
+          <i class="fas fa-sparkles mr-2 text-brand-purple"></i>New
+        </a>
+        <a href="/history" class="px-4 py-2 rounded-lg text-sm font-medium text-brand-purple bg-brand-purple/10">
+          <i class="fas fa-clock-rotate-left mr-2"></i>History
+        </a>
+      </nav>
     </div>
   </header>
 
   <main class="max-w-7xl mx-auto px-6 py-10">
     <div class="flex items-center justify-between mb-8">
       <div>
-        <h2 class="text-3xl font-bold text-gray-800">Generation History</h2>
-        <p class="text-gray-600 mt-1">View and download your previous image generations</p>
+        <h2 class="text-3xl font-bold text-brand-dark">Generation History</h2>
+        <p class="text-brand-gray mt-1">View and manage your previous generations</p>
       </div>
-      <a href="/" class="px-5 py-2.5 bg-tesco-blue text-white rounded-lg font-semibold hover:bg-blue-700 transition">
+      <a href="/" class="gradient-bg px-5 py-2.5 text-white rounded-xl font-semibold shadow-lg hover:shadow-xl transition">
         <i class="fas fa-plus mr-2"></i>New Generation
       </a>
     </div>
 
     <div id="loading" class="text-center py-20">
-      <i class="fas fa-spinner fa-spin text-4xl text-tesco-blue mb-4"></i>
-      <p class="text-gray-600">Loading history...</p>
+      <div class="w-12 h-12 rounded-full border-4 border-brand-purple/30 border-t-brand-purple animate-spin mx-auto mb-4"></div>
+      <p class="text-brand-gray">Loading history...</p>
     </div>
 
     <div id="empty" class="hidden text-center py-20">
-      <div class="w-24 h-24 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-6">
-        <i class="fas fa-history text-4xl text-gray-400"></i>
+      <div class="w-24 h-24 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-6">
+        <i class="fas fa-clock-rotate-left text-4xl text-slate-300"></i>
       </div>
-      <h3 class="text-2xl font-bold text-gray-800 mb-2">No History Yet</h3>
-      <p class="text-gray-600 mb-6">Generate your first product variations to see them here</p>
-      <a href="/" class="inline-block px-6 py-3 bg-tesco-blue text-white rounded-lg font-semibold hover:bg-blue-700 transition">
-        <i class="fas fa-magic mr-2"></i>Create First Generation
+      <h3 class="text-2xl font-bold text-brand-dark mb-2">No History Yet</h3>
+      <p class="text-brand-gray mb-6">Generate your first product shots to see them here</p>
+      <a href="/" class="inline-block gradient-bg px-6 py-3 text-white rounded-xl font-semibold shadow-lg">
+        <i class="fas fa-sparkles mr-2"></i>Create First Generation
       </a>
     </div>
 
@@ -1698,40 +1478,36 @@ function getHistoryPage() {
       
       container.innerHTML = sessions.map(session => {
         const date = new Date(session.created_at).toLocaleDateString('en-GB', {
-          day: 'numeric',
-          month: 'short',
-          year: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit'
+          day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
         });
         
         const statusBadge = session.status === 'completed' 
-          ? '<span class="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full"><i class="fas fa-check mr-1"></i>Completed</span>'
+          ? '<span class="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full"><i class="fas fa-check mr-1"></i>Done</span>'
           : session.status === 'generating'
-          ? '<span class="px-2 py-1 bg-yellow-100 text-yellow-700 text-xs rounded-full"><i class="fas fa-spinner fa-spin mr-1"></i>Generating</span>'
+          ? '<span class="px-2 py-1 bg-amber-100 text-amber-700 text-xs rounded-full"><i class="fas fa-spinner fa-spin mr-1"></i>Processing</span>'
           : session.status === 'failed'
           ? '<span class="px-2 py-1 bg-red-100 text-red-700 text-xs rounded-full"><i class="fas fa-times mr-1"></i>Failed</span>'
-          : '<span class="px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded-full">Pending</span>';
+          : '<span class="px-2 py-1 bg-slate-100 text-slate-700 text-xs rounded-full">Pending</span>';
         
         const sourceIcon = session.source_type === 'url' 
-          ? '<i class="fas fa-link text-gray-400"></i>' 
-          : '<i class="fas fa-upload text-gray-400"></i>';
+          ? '<i class="fas fa-link text-brand-gray"></i>' 
+          : '<i class="fas fa-upload text-brand-gray"></i>';
         
         return \`
-          <div class="bg-white rounded-xl shadow-lg overflow-hidden hover:shadow-xl transition cursor-pointer group" onclick="viewSession('\${session.id}')">
-            <div class="aspect-video bg-gray-100 relative overflow-hidden">
-              <img src="\${session.original_image}" class="w-full h-full object-contain">
-              <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
-                <span class="text-white font-semibold"><i class="fas fa-eye mr-2"></i>View Results</span>
+          <div class="bg-white rounded-2xl shadow-lg overflow-hidden card-hover cursor-pointer group" onclick="viewSession('\${session.id}')">
+            <div class="aspect-video bg-slate-100 relative overflow-hidden">
+              <img src="\${session.original_image || ''}" class="w-full h-full object-contain" onerror="this.style.display='none'">
+              <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition flex items-end justify-center pb-4">
+                <span class="text-white font-medium text-sm"><i class="fas fa-eye mr-2"></i>View Results</span>
               </div>
             </div>
             <div class="p-4">
               <div class="flex items-start justify-between mb-2">
-                <h3 class="font-semibold text-gray-800 truncate flex-1">\${session.product_name || 'Untitled Product'}</h3>
+                <h3 class="font-semibold text-brand-dark truncate flex-1">\${session.product_name || 'Untitled'}</h3>
                 \${statusBadge}
               </div>
-              <div class="flex items-center justify-between text-sm text-gray-500">
-                <span class="flex items-center gap-1">\${sourceIcon} \${date}</span>
+              <div class="flex items-center justify-between text-sm text-brand-gray">
+                <span class="flex items-center gap-2">\${sourceIcon} \${date}</span>
                 <button onclick="event.stopPropagation(); deleteSession('\${session.id}')" 
                         class="text-red-400 hover:text-red-600 transition opacity-0 group-hover:opacity-100">
                   <i class="fas fa-trash"></i>
