@@ -907,20 +907,32 @@ function getHomePage() {
         <!-- Advanced Mode Toggle -->
         <div class="mt-4 flex items-center justify-between">
           <button id="advanced-toggle" onclick="toggleAdvancedMode()" class="flex items-center gap-2 text-sm text-brand-gray hover:text-brand-purple transition">
-            <i id="advanced-icon" class="fas fa-chevron-right text-xs transition-transform"></i>
+            <i id="advanced-icon" class="fas fa-sliders text-xs"></i>
             <span>Advanced Mode</span>
-            <span class="text-xs bg-brand-purple/10 text-brand-purple px-2 py-0.5 rounded-full">Custom Prompts</span>
+            <span id="custom-count-badge" class="text-xs bg-brand-purple/10 text-brand-purple px-2 py-0.5 rounded-full">Custom Prompts</span>
           </button>
         </div>
         
-        <!-- Advanced Mode Panel (Hidden by default) -->
-        <div id="advanced-panel" class="hidden mt-4 border border-slate-200 rounded-xl overflow-hidden">
-          <div class="bg-slate-50 px-4 py-3 border-b border-slate-200">
-            <p class="text-sm font-medium text-brand-dark">Customize Generation Prompts</p>
-            <p class="text-xs text-brand-gray mt-1">Edit any prompt below to customize that specific variation</p>
-          </div>
-          <div class="max-h-64 overflow-y-auto divide-y divide-slate-100" id="prompt-list">
-            <!-- Prompts will be populated by JS -->
+        <!-- Advanced Mode Panel (Hidden by default) - Opens as modal overlay -->
+        <div id="advanced-panel" class="hidden fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div class="bg-white rounded-2xl w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl">
+            <div class="flex items-center justify-between px-5 py-4 border-b border-slate-200">
+              <div>
+                <p class="text-base font-semibold text-brand-dark">Customize Generation Prompts</p>
+                <p class="text-xs text-brand-gray mt-0.5">Edit any prompt to customize that variation</p>
+              </div>
+              <button onclick="toggleAdvancedMode()" class="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-brand-gray hover:text-brand-dark transition">
+                <i class="fas fa-xmark"></i>
+              </button>
+            </div>
+            <div class="flex-1 overflow-y-auto divide-y divide-slate-100" id="prompt-list">
+              <!-- Prompts will be populated by JS -->
+            </div>
+            <div class="px-5 py-4 border-t border-slate-200 bg-slate-50 rounded-b-2xl">
+              <button onclick="toggleAdvancedMode()" class="w-full btn-primary py-3 rounded-xl text-white font-semibold">
+                <i class="fas fa-check mr-2"></i>Done - Apply Prompts
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1071,11 +1083,24 @@ function getHomePage() {
       if (advancedModeEnabled) {
         panel.classList.remove('hidden');
         icon.style.transform = 'rotate(90deg)';
+        document.body.style.overflow = 'hidden'; // Prevent background scroll
         populatePromptList();
       } else {
         panel.classList.add('hidden');
         icon.style.transform = 'rotate(0deg)';
+        document.body.style.overflow = ''; // Restore scroll
       }
+    }
+    
+    // Count custom prompts for badge display
+    function getCustomPromptCount() {
+      let count = 0;
+      for (let i = 1; i < variationDefs.length; i++) {
+        if (customPrompts[i] && customPrompts[i] !== variationDefs[i].defaultPrompt) {
+          count++;
+        }
+      }
+      return count;
     }
     
     function populatePromptList() {
@@ -1089,24 +1114,27 @@ function getHomePage() {
         const currentPrompt = customPrompts[i] || v.defaultPrompt;
         
         const item = document.createElement('div');
-        item.className = 'p-3 hover:bg-slate-50 transition';
+        item.className = 'p-4 hover:bg-slate-50 transition';
         item.innerHTML = \`
           <div class="flex items-center justify-between mb-2">
             <div class="flex items-center gap-2">
-              <i class="\${v.icon} text-brand-purple text-sm"></i>
+              <div class="w-7 h-7 rounded-lg bg-brand-purple/10 flex items-center justify-center">
+                <i class="\${v.icon} text-brand-purple text-xs"></i>
+              </div>
               <span class="text-sm font-medium text-brand-dark">\${v.label}</span>
-              \${isCustom ? '<span class="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-medium">CUSTOM</span>' : ''}
+              <span id="item-badge-\${i}" class="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-medium \${isCustom ? '' : 'hidden'}">CUSTOM</span>
             </div>
-            <button onclick="resetPrompt(\${i})" class="text-xs text-brand-gray hover:text-brand-purple transition \${isCustom ? '' : 'hidden'}" id="reset-btn-\${i}">
+            <button onclick="resetPrompt(\${i})" class="text-xs text-brand-gray hover:text-red-500 transition \${isCustom ? '' : 'hidden'}" id="reset-btn-\${i}">
               <i class="fas fa-undo mr-1"></i>Reset
             </button>
           </div>
           <textarea 
             id="prompt-\${i}" 
-            rows="2" 
-            class="w-full text-xs text-brand-gray bg-white border border-slate-200 rounded-lg p-2 focus:border-brand-purple focus:ring-1 focus:ring-brand-purple/20 outline-none resize-none"
+            rows="3" 
+            class="w-full text-sm text-brand-dark bg-slate-50 border border-slate-200 rounded-lg p-3 focus:border-brand-purple focus:ring-2 focus:ring-brand-purple/20 focus:bg-white outline-none resize-none transition"
             onchange="updateCustomPrompt(\${i}, this.value)"
             oninput="updateCustomPrompt(\${i}, this.value)"
+            placeholder="Enter custom prompt..."
           >\${currentPrompt}</textarea>
         \`;
         list.appendChild(item);
@@ -1118,13 +1146,33 @@ function getHomePage() {
       const isCustom = value.trim() !== v.defaultPrompt;
       customPrompts[index] = value.trim();
       
-      // Update custom badge visibility
+      // Update custom badge visibility in list
       const resetBtn = document.getElementById('reset-btn-' + index);
+      const itemBadge = document.getElementById('item-badge-' + index);
       if (resetBtn) {
         if (isCustom) {
           resetBtn.classList.remove('hidden');
+          if (itemBadge) itemBadge.classList.remove('hidden');
         } else {
           resetBtn.classList.add('hidden');
+          if (itemBadge) itemBadge.classList.add('hidden');
+        }
+      }
+      
+      // Update main toggle badge
+      updateCustomCountBadge();
+    }
+    
+    function updateCustomCountBadge() {
+      const count = getCustomPromptCount();
+      const badge = document.getElementById('custom-count-badge');
+      if (badge) {
+        if (count > 0) {
+          badge.textContent = count + ' Custom';
+          badge.className = 'text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium';
+        } else {
+          badge.textContent = 'Custom Prompts';
+          badge.className = 'text-xs bg-brand-purple/10 text-brand-purple px-2 py-0.5 rounded-full';
         }
       }
     }
@@ -1139,9 +1187,16 @@ function getHomePage() {
       }
       
       const resetBtn = document.getElementById('reset-btn-' + index);
+      const itemBadge = document.getElementById('item-badge-' + index);
       if (resetBtn) {
         resetBtn.classList.add('hidden');
       }
+      if (itemBadge) {
+        itemBadge.classList.add('hidden');
+      }
+      
+      // Update main toggle badge
+      updateCustomCountBadge();
     }
     
     function getPromptForVariation(index) {
