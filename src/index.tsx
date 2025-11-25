@@ -153,10 +153,12 @@ app.post('/api/upload', async (c) => {
     // Create session (store metadata only, not full image)
     const sessionId = generateId()
     
+    // Store only metadata in D1 (base64 images are too large for D1's 1MB row limit)
+    // Full image is returned to client and kept in memory for generation
     await db.prepare(`
       INSERT INTO sessions (id, product_name, source_type, original_image, status)
-      VALUES (?, ?, 'upload', ?, 'pending')
-    `).bind(sessionId, file.name.replace(/\.[^.]+$/, ''), dataUrl).run()
+      VALUES (?, ?, 'upload', '', 'pending')
+    `).bind(sessionId, file.name.replace(/\.[^.]+$/, '')).run()
 
     return c.json({ success: true, sessionId, originalImage: dataUrl })
   } catch (error) {
@@ -247,10 +249,11 @@ app.post('/api/scrape', async (c) => {
     // Create session
     const sessionId = generateId()
     
+    // Store only metadata in D1 (base64 images are too large for D1's 1MB row limit)
     await db.prepare(`
       INSERT INTO sessions (id, product_name, source_type, source_url, original_image, status)
-      VALUES (?, ?, 'url', ?, ?, 'pending')
-    `).bind(sessionId, productName, url, dataUrl).run()
+      VALUES (?, ?, 'url', ?, '', 'pending')
+    `).bind(sessionId, productName, url).run()
 
     return c.json({ success: true, sessionId, originalImage: dataUrl, productName })
   } catch (error) {
