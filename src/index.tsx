@@ -155,8 +155,8 @@ app.post('/api/upload', async (c) => {
     
     await db.prepare(`
       INSERT INTO sessions (id, product_name, source_type, original_image, status)
-      VALUES (?, ?, 'upload', '', 'pending')
-    `).bind(sessionId, file.name.replace(/\.[^.]+$/, '')).run()
+      VALUES (?, ?, 'upload', ?, 'pending')
+    `).bind(sessionId, file.name.replace(/\.[^.]+$/, ''), dataUrl).run()
 
     return c.json({ success: true, sessionId, originalImage: dataUrl })
   } catch (error) {
@@ -249,8 +249,8 @@ app.post('/api/scrape', async (c) => {
     
     await db.prepare(`
       INSERT INTO sessions (id, product_name, source_type, source_url, original_image, status)
-      VALUES (?, ?, 'url', ?, '', 'pending')
-    `).bind(sessionId, productName, url).run()
+      VALUES (?, ?, 'url', ?, ?, 'pending')
+    `).bind(sessionId, productName, url, dataUrl).run()
 
     return c.json({ success: true, sessionId, originalImage: dataUrl, productName })
   } catch (error) {
@@ -1013,6 +1013,8 @@ function getHomePage() {
       const field = variationDefs[index + 1]?.field;
       if (!field) return;
       
+      console.log('[' + index + '] Starting ' + field + '...');
+      
       try {
         const response = await fetch('/api/generate-single/' + currentSessionId + '/' + index, {
           method: 'POST',
@@ -1023,15 +1025,20 @@ function getHomePage() {
           })
         });
         
+        console.log('[' + index + '] Response status: ' + response.status);
+        
         const data = await response.json();
+        console.log('[' + index + '] Response data:', data.success ? 'SUCCESS' : 'FAILED - ' + (data.error || 'unknown'));
         
         if (data.success && data.image) {
           window.currentResults.results[field] = data.image;
           updateThumbnail(index + 1, data.image, true);
         } else {
+          console.error('[' + index + '] Generation failed:', data.error);
           updateThumbnail(index + 1, null, false);
         }
       } catch (err) {
+        console.error('[' + index + '] Fetch error:', err);
         updateThumbnail(index + 1, null, false);
       }
     }
