@@ -834,82 +834,58 @@ function getHomePage() {
       document.querySelector('main > .text-center').classList.add('hidden');
       document.querySelector('main > .bg-white').classList.add('hidden');
       
-      // Create results section
-      const resultsHTML = \`
-        <div id="results-section" class="animate-fadeIn">
-          <div class="flex items-center justify-between mb-8">
-            <div>
-              <h2 class="text-3xl font-bold text-gray-800">\${data.productName || 'Product Variations'}</h2>
-              <p class="text-gray-500 mt-1">Generated \${new Date().toLocaleString()}</p>
-            </div>
-            <div class="flex items-center gap-4">
-              <button onclick="window.location.reload()" class="px-5 py-2.5 border-2 border-tesco-blue text-tesco-blue rounded-lg font-semibold hover:bg-tesco-blue hover:text-white transition">
-                <i class="fas fa-plus mr-2"></i>New Generation
-              </button>
-              <button onclick="downloadAllInline()" class="px-5 py-2.5 bg-tesco-red text-white rounded-lg font-semibold hover:bg-red-600 transition">
-                <i class="fas fa-download mr-2"></i>Download All (ZIP)
-              </button>
-            </div>
-          </div>
-          
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div class="bg-white rounded-xl shadow-lg p-6">
-              <h3 class="text-lg font-bold text-gray-700 mb-4 flex items-center gap-2">
-                <i class="fas fa-image text-tesco-blue"></i>Original Image
-              </h3>
-              <img src="\${data.originalImage}" class="w-full rounded-lg mb-4 cursor-pointer" onclick="openPreviewInline(this.src)">
-              <button onclick="downloadImageInline('\${data.originalImage}', 'original.jpg')" class="w-full px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition">
-                <i class="fas fa-download mr-2"></i>Download
-              </button>
-            </div>
-            
-            <div class="bg-white rounded-xl shadow-lg p-6">
-              <h3 class="text-lg font-bold text-gray-700 mb-4 flex items-center gap-2">
-                <i class="fas fa-home text-tesco-blue"></i>Lifestyle Kitchen Scene
-              </h3>
-              <img src="\${data.results.lifestyle_image}" class="w-full rounded-lg mb-4 cursor-pointer" onclick="openPreviewInline(this.src)">
-              <button onclick="downloadImageInline('\${data.results.lifestyle_image}', 'lifestyle.jpg')" class="w-full px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition">
-                <i class="fas fa-download mr-2"></i>Download
-              </button>
-            </div>
-            
-            <div class="bg-white rounded-xl shadow-lg p-6">
-              <h3 class="text-lg font-bold text-gray-700 mb-4 flex items-center gap-2">
-                <i class="fas fa-shopping-cart text-tesco-blue"></i>E-commerce Hero Shot
-              </h3>
-              <img src="\${data.results.ecommerce_image}" class="w-full rounded-lg mb-4 cursor-pointer" onclick="openPreviewInline(this.src)">
-              <button onclick="downloadImageInline('\${data.results.ecommerce_image}', 'ecommerce.jpg')" class="w-full px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition">
-                <i class="fas fa-download mr-2"></i>Download
-              </button>
-            </div>
-            
-            <div class="bg-white rounded-xl shadow-lg p-6">
-              <h3 class="text-lg font-bold text-gray-700 mb-4 flex items-center gap-2">
-                <i class="fab fa-instagram text-tesco-blue"></i>Instagram Flat-lay
-              </h3>
-              <img src="\${data.results.instagram_image}" class="w-full rounded-lg mb-4 cursor-pointer" onclick="openPreviewInline(this.src)">
-              <button onclick="downloadImageInline('\${data.results.instagram_image}', 'instagram.jpg')" class="w-full px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition">
-                <i class="fas fa-download mr-2"></i>Download
-              </button>
-            </div>
-            
-            <div class="bg-white rounded-xl shadow-lg p-6">
-              <h3 class="text-lg font-bold text-gray-700 mb-4 flex items-center gap-2">
-                <i class="fas fa-search-plus text-tesco-blue"></i>Macro Detail Close-up
-              </h3>
-              <img src="\${data.results.macro_image}" class="w-full rounded-lg mb-4 cursor-pointer" onclick="openPreviewInline(this.src)">
-              <button onclick="downloadImageInline('\${data.results.macro_image}', 'macro.jpg')" class="w-full px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition">
-                <i class="fas fa-download mr-2"></i>Download
-              </button>
-            </div>
-          </div>
-        </div>
-      \`;
-      
-      document.querySelector('main').insertAdjacentHTML('beforeend', resultsHTML);
-      
       // Store images globally for download
       window.currentResults = data;
+      
+      // Create results section using DOM (avoids template literal escaping issues)
+      const resultsSection = document.createElement('div');
+      resultsSection.id = 'results-section';
+      resultsSection.className = 'animate-fadeIn';
+      
+      // Header
+      const header = document.createElement('div');
+      header.className = 'flex items-center justify-between mb-8';
+      header.innerHTML = '<div><h2 class="text-3xl font-bold text-gray-800">' + (data.productName || 'Product Variations') + '</h2><p class="text-gray-500 mt-1">Generated ' + new Date().toLocaleString() + '</p></div><div class="flex items-center gap-4"><button onclick="window.location.reload()" class="px-5 py-2.5 border-2 border-tesco-blue text-tesco-blue rounded-lg font-semibold hover:bg-tesco-blue hover:text-white transition"><i class="fas fa-plus mr-2"></i>New Generation</button><button onclick="downloadAllInline()" class="px-5 py-2.5 bg-tesco-red text-white rounded-lg font-semibold hover:bg-red-600 transition"><i class="fas fa-download mr-2"></i>Download All (ZIP)</button></div>';
+      resultsSection.appendChild(header);
+      
+      // Grid
+      const grid = document.createElement('div');
+      grid.className = 'grid grid-cols-1 md:grid-cols-2 gap-6';
+      
+      // Helper function to create image card
+      function createImageCard(title, icon, imgSrc, filename) {
+        const card = document.createElement('div');
+        card.className = 'bg-white rounded-xl shadow-lg p-6';
+        
+        const heading = document.createElement('h3');
+        heading.className = 'text-lg font-bold text-gray-700 mb-4 flex items-center gap-2';
+        heading.innerHTML = '<i class="' + icon + ' text-tesco-blue"></i>' + title;
+        card.appendChild(heading);
+        
+        const img = document.createElement('img');
+        img.src = imgSrc;
+        img.className = 'w-full rounded-lg mb-4 cursor-pointer';
+        img.onclick = function() { openPreviewInline(imgSrc); };
+        card.appendChild(img);
+        
+        const btn = document.createElement('button');
+        btn.className = 'w-full px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition';
+        btn.innerHTML = '<i class="fas fa-download mr-2"></i>Download';
+        btn.onclick = function() { downloadImageInline(imgSrc, filename); };
+        card.appendChild(btn);
+        
+        return card;
+      }
+      
+      // Add all image cards
+      grid.appendChild(createImageCard('Original Image', 'fas fa-image', data.originalImage, 'original.jpg'));
+      grid.appendChild(createImageCard('Lifestyle Kitchen Scene', 'fas fa-home', data.results.lifestyle_image, 'lifestyle.jpg'));
+      grid.appendChild(createImageCard('E-commerce Hero Shot', 'fas fa-shopping-cart', data.results.ecommerce_image, 'ecommerce.jpg'));
+      grid.appendChild(createImageCard('Instagram Flat-lay', 'fab fa-instagram', data.results.instagram_image, 'instagram.jpg'));
+      grid.appendChild(createImageCard('Macro Detail Close-up', 'fas fa-search-plus', data.results.macro_image, 'macro.jpg'));
+      
+      resultsSection.appendChild(grid);
+      document.querySelector('main').appendChild(resultsSection);
     }
     
     function openPreviewInline(src) {
