@@ -31,8 +31,22 @@ async function ensureDatabase(db: D1Database) {
       )
     `).run()
     
+    // Table for generated images (each row is one variation, ~50-100KB each)
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS generated_images (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        variation_type TEXT NOT NULL,
+        variation_index INTEGER NOT NULL,
+        image_data TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+      )
+    `).run()
+    
     await db.prepare('CREATE INDEX IF NOT EXISTS idx_sessions_created_at ON sessions(created_at DESC)').run()
     await db.prepare('CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status)').run()
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_generated_images_session ON generated_images(session_id)').run()
   } catch (err) {
     console.log('Database already initialized or error:', err)
   }
@@ -73,22 +87,67 @@ app.get('/api/sessions', async (c) => {
   }
 })
 
-// API: Get single session
+// API: Get single session with its generated images
 app.get('/api/sessions/:id', async (c) => {
   try {
     const db = c.env.TESCO_DB
     const id = c.req.param('id')
-    const result = await db.prepare(
+    const session = await db.prepare(
       'SELECT * FROM sessions WHERE id = ?'
     ).bind(id).first()
     
-    if (!result) {
+    if (!session) {
       return c.json({ success: false, error: 'Session not found' }, 404)
     }
-    return c.json({ success: true, session: result })
+    
+    // Get generated images for this session
+    const images = await db.prepare(
+      'SELECT variation_type, variation_index, image_data FROM generated_images WHERE session_id = ? ORDER BY variation_index'
+    ).bind(id).all()
+    
+    return c.json({ 
+      success: true, 
+      session,
+      images: images.results || []
+    })
   } catch (error) {
     console.error('Error fetching session:', error)
     return c.json({ success: false, error: 'Failed to fetch session' }, 500)
+  }
+})
+
+// API: Save a generated image
+app.post('/api/sessions/:id/images', async (c) => {
+  try {
+    const db = c.env.TESCO_DB
+    const sessionId = c.req.param('id')
+    const { variation_type, variation_index, image_data } = await c.req.json()
+    
+    if (!variation_type || variation_index === undefined || !image_data) {
+      return c.json({ success: false, error: 'Missing required fields' }, 400)
+    }
+    
+    // Check if image already exists for this variation
+    const existing = await db.prepare(
+      'SELECT id FROM generated_images WHERE session_id = ? AND variation_index = ?'
+    ).bind(sessionId, variation_index).first()
+    
+    if (existing) {
+      // Update existing
+      await db.prepare(
+        'UPDATE generated_images SET image_data = ? WHERE session_id = ? AND variation_index = ?'
+      ).bind(image_data, sessionId, variation_index).run()
+    } else {
+      // Insert new
+      await db.prepare(
+        'INSERT INTO generated_images (session_id, variation_type, variation_index, image_data) VALUES (?, ?, ?, ?)'
+      ).bind(sessionId, variation_type, variation_index, image_data).run()
+    }
+    
+    return c.json({ success: true })
+  } catch (error) {
+    console.error('Error saving image:', error)
+    return c.json({ success: false, error: 'Failed to save image' }, 500)
   }
 })
 
@@ -1033,6 +1092,59 @@ function getHomePage() {
         img.src = URL.createObjectURL(file);
       });
     }
+    
+    // Compress image for storage (max 800px, JPEG quality 0.8, ~50-150KB)
+    function compressImageForStorage(base64Data) {
+      return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const maxSize = 800;
+          let width = img.width;
+          let height = img.height;
+          
+          // Scale down if larger than maxSize
+          if (width > maxSize || height > maxSize) {
+            if (width > height) {
+              height = (height / width) * maxSize;
+              width = maxSize;
+            } else {
+              width = (width / height) * maxSize;
+              height = maxSize;
+            }
+          }
+          
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', 0.8));
+        };
+        img.onerror = () => resolve(base64Data); // Return original if error
+        img.src = base64Data;
+      });
+    }
+    
+    // Save generated image to database
+    async function saveGeneratedImage(sessionId, variationType, variationIndex, imageData) {
+      try {
+        // Compress image before saving
+        const compressed = await compressImageForStorage(imageData);
+        
+        await fetch('/api/sessions/' + sessionId + '/images', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            variation_type: variationType,
+            variation_index: variationIndex,
+            image_data: compressed
+          })
+        });
+        console.log('[' + variationIndex + '] Image saved to database');
+      } catch (err) {
+        console.error('[' + variationIndex + '] Failed to save image:', err);
+      }
+    }
 
     async function processFile(file) {
       const validTypes = ['image/jpeg', 'image/png', 'image/webp'];
@@ -1199,6 +1311,9 @@ function getHomePage() {
           updateProgressState(cardIndex, 'complete', totalTime);
           window.currentResults.results[field] = data.image;
           setTimeout(() => updateThumbnail(cardIndex, data.image, true), 300);
+          
+          // Save image to database for History page
+          saveGeneratedImage(currentSessionId, field, cardIndex, data.image);
         } else {
           console.error('[' + index + '] Generation failed:', data.error);
           markCardComplete(cardIndex);
@@ -1517,13 +1632,14 @@ function getResultsPage(sessionId: string) {
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script>
     tailwind.config = {
       theme: {
         extend: {
           fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
           colors: {
-            'brand': { 'blue': '#3B82F6', 'purple': '#8B5CF6', 'dark': '#0F172A', 'gray': '#64748B' }
+            'brand': { 'blue': '#3B82F6', 'purple': '#8B5CF6', 'dark': '#0F172A', 'gray': '#64748B', 'light': '#F8FAFC' }
           }
         }
       }
@@ -1532,13 +1648,17 @@ function getResultsPage(sessionId: string) {
   <style>
     * { font-family: 'Inter', system-ui, sans-serif; }
     .gradient-bg { background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%); }
+    .glass { background: rgba(255, 255, 255, 0.8); backdrop-filter: blur(12px); }
+    .card-3d { background: white; box-shadow: 0 4px 12px rgba(0,0,0,0.08); transition: all 0.3s ease; }
+    .card-3d:hover { transform: translateY(-4px); box-shadow: 0 12px 24px rgba(0,0,0,0.12); }
+    .lightbox-backdrop { background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(8px); }
   </style>
 </head>
-<body class="bg-slate-50 min-h-screen">
-  <header class="bg-white border-b border-slate-200">
+<body class="bg-brand-light min-h-screen">
+  <header class="glass sticky top-0 z-40 border-b border-white/20">
     <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
       <a href="/" class="flex items-center gap-3">
-        <div class="w-10 h-10 gradient-bg rounded-xl flex items-center justify-center">
+        <div class="w-10 h-10 gradient-bg rounded-xl flex items-center justify-center shadow-lg">
           <svg class="w-6 h-6 text-white" viewBox="0 0 24 24" fill="currentColor">
             <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/>
             <circle cx="12" cy="12" r="4" fill="currentColor"/>
@@ -1547,17 +1667,17 @@ function getResultsPage(sessionId: string) {
         <span class="text-xl font-bold text-brand-dark">ShopShot</span>
       </a>
       <nav class="flex items-center gap-4">
-        <a href="/" class="px-4 py-2 rounded-lg text-sm font-medium text-brand-dark hover:bg-slate-100 transition">
-          <i class="fas fa-plus mr-2"></i>New
+        <a href="/" class="px-4 py-2 rounded-lg text-sm font-medium text-brand-dark hover:bg-brand-purple/10 transition">
+          <i class="fas fa-sparkles mr-2 text-brand-purple"></i>New
         </a>
-        <a href="/history" class="px-4 py-2 rounded-lg text-sm font-medium text-brand-gray hover:bg-slate-100 transition">
+        <a href="/history" class="px-4 py-2 rounded-lg text-sm font-medium text-brand-gray hover:bg-brand-purple/10 transition">
           <i class="fas fa-clock-rotate-left mr-2"></i>History
         </a>
       </nav>
     </div>
   </header>
 
-  <main class="max-w-7xl mx-auto px-6 py-10">
+  <main class="max-w-6xl mx-auto px-6 py-8">
     <div id="loading" class="text-center py-20">
       <div class="w-12 h-12 rounded-full border-4 border-brand-purple/30 border-t-brand-purple animate-spin mx-auto mb-4"></div>
       <p class="text-brand-gray">Loading results...</p>
@@ -1567,30 +1687,192 @@ function getResultsPage(sessionId: string) {
       <div class="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
         <i class="fas fa-exclamation-triangle text-3xl text-red-500"></i>
       </div>
-      <h3 class="text-2xl font-bold text-brand-dark mb-2">Session Expired</h3>
-      <p class="text-brand-gray mb-6">Generated images are only available immediately after creation.</p>
+      <h3 class="text-2xl font-bold text-brand-dark mb-2">No Images Found</h3>
+      <p class="text-brand-gray mb-6">This session has no saved images or was created before image saving was enabled.</p>
       <a href="/" class="inline-block gradient-bg px-6 py-3 text-white rounded-xl font-semibold">
         <i class="fas fa-plus mr-2"></i>Generate New Images
       </a>
     </div>
+
+    <div id="results" class="hidden">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
+        <div>
+          <h1 id="session-name" class="text-2xl sm:text-3xl font-bold text-brand-dark">Loading...</h1>
+          <p id="session-info" class="text-brand-gray mt-1 text-sm"></p>
+        </div>
+        <div class="flex items-center gap-3">
+          <a href="/" class="px-4 py-2.5 border border-slate-200 rounded-xl font-medium text-brand-dark hover:bg-slate-50 transition text-sm flex items-center gap-2">
+            <i class="fas fa-plus"></i>
+            <span>New</span>
+          </a>
+          <button onclick="downloadAll()" class="gradient-bg px-4 py-2.5 rounded-xl font-medium text-white flex items-center gap-2 text-sm shadow-lg">
+            <i class="fas fa-download"></i>
+            <span>Download All</span>
+          </button>
+        </div>
+      </div>
+      
+      <div id="images-grid" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4"></div>
+    </div>
   </main>
+
+  <!-- Lightbox -->
+  <div id="lightbox" class="hidden fixed inset-0 lightbox-backdrop z-50 flex flex-col items-center justify-center p-4">
+    <button onclick="closeLightbox()" class="absolute top-4 right-4 w-10 h-10 rounded-full glass flex items-center justify-center text-white hover:bg-white/20 transition">
+      <i class="fas fa-xmark text-xl"></i>
+    </button>
+    <h3 id="lightbox-title" class="text-white text-lg font-semibold mb-4"></h3>
+    <div class="relative flex-1 flex items-center justify-center w-full max-w-4xl">
+      <button onclick="navigateLightbox(-1)" class="absolute left-2 w-10 h-10 rounded-full glass flex items-center justify-center text-white hover:bg-white/20 transition">
+        <i class="fas fa-chevron-left"></i>
+      </button>
+      <button onclick="navigateLightbox(1)" class="absolute right-2 w-10 h-10 rounded-full glass flex items-center justify-center text-white hover:bg-white/20 transition">
+        <i class="fas fa-chevron-right"></i>
+      </button>
+      <img id="lightbox-image" class="max-w-full max-h-[70vh] rounded-xl shadow-2xl object-contain">
+    </div>
+    <button onclick="downloadCurrent()" class="mt-4 gradient-bg px-6 py-3 rounded-xl text-white font-semibold flex items-center gap-2">
+      <i class="fas fa-download"></i>
+      <span>Download</span>
+    </button>
+  </div>
 
   <script>
     const sessionId = '${sessionId}';
+    let images = [];
+    let currentIndex = 0;
+    let sessionData = null;
+    
+    const variationLabels = {
+      'original': 'Original',
+      'macro_texture': 'Texture Detail',
+      'label_branding': 'Label & Branding', 
+      'construction_detail': 'Construction',
+      'color_finish': 'Color & Finish',
+      'scale_reference': 'Size Reference',
+      'hero_white': 'Hero (White BG)',
+      'inuse_action': 'In-Use Action',
+      'flatlay_styled': 'Flat-Lay',
+      'environment_context': 'Environment',
+      'multi_angle': 'Multi-Angle'
+    };
     
     async function loadSession() {
-      const cachedKey = 'shopshot_session_' + sessionId;
-      const cached = sessionStorage.getItem(cachedKey);
-      
-      if (!cached) {
-        document.getElementById('loading').classList.add('hidden');
-        document.getElementById('error').classList.remove('hidden');
-        return;
+      try {
+        const response = await fetch('/api/sessions/' + sessionId);
+        const data = await response.json();
+        
+        if (!data.success) {
+          showError();
+          return;
+        }
+        
+        sessionData = data.session;
+        
+        // Build images array (original + generated)
+        if (sessionData.original_image && sessionData.original_image.length > 50) {
+          images.push({ type: 'original', data: sessionData.original_image, label: 'Original' });
+        }
+        
+        if (data.images && data.images.length > 0) {
+          data.images.forEach(img => {
+            images.push({
+              type: img.variation_type,
+              data: img.image_data,
+              label: variationLabels[img.variation_type] || img.variation_type
+            });
+          });
+        }
+        
+        if (images.length === 0) {
+          showError();
+          return;
+        }
+        
+        displayResults();
+      } catch (error) {
+        console.error('Error loading session:', error);
+        showError();
       }
-      
-      // Redirect to home with cached data
-      window.location.href = '/';
     }
+    
+    function showError() {
+      document.getElementById('loading').classList.add('hidden');
+      document.getElementById('error').classList.remove('hidden');
+    }
+    
+    function displayResults() {
+      document.getElementById('loading').classList.add('hidden');
+      document.getElementById('results').classList.remove('hidden');
+      
+      document.getElementById('session-name').textContent = sessionData.product_name || 'Product Shots';
+      const date = new Date(sessionData.created_at).toLocaleDateString('en-GB', {
+        day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+      });
+      document.getElementById('session-info').textContent = images.length + ' images - ' + date;
+      
+      const grid = document.getElementById('images-grid');
+      grid.innerHTML = images.map((img, idx) => \`
+        <div class="card-3d rounded-xl overflow-hidden cursor-pointer" onclick="openLightbox(\${idx})">
+          <div class="aspect-square bg-slate-100">
+            <img src="\${img.data}" class="w-full h-full object-cover" loading="lazy">
+          </div>
+          <div class="p-3 text-center border-t border-slate-100">
+            <p class="text-xs font-medium text-brand-dark truncate">\${img.label}</p>
+          </div>
+        </div>
+      \`).join('');
+    }
+    
+    function openLightbox(idx) {
+      currentIndex = idx;
+      renderLightbox();
+      document.getElementById('lightbox').classList.remove('hidden');
+    }
+    
+    function closeLightbox() {
+      document.getElementById('lightbox').classList.add('hidden');
+    }
+    
+    function navigateLightbox(dir) {
+      currentIndex = (currentIndex + dir + images.length) % images.length;
+      renderLightbox();
+    }
+    
+    function renderLightbox() {
+      const img = images[currentIndex];
+      document.getElementById('lightbox-title').textContent = img.label + ' (' + (currentIndex + 1) + '/' + images.length + ')';
+      document.getElementById('lightbox-image').src = img.data;
+    }
+    
+    function downloadCurrent() {
+      const img = images[currentIndex];
+      const link = document.createElement('a');
+      link.href = img.data;
+      link.download = 'shopshot-' + img.type + '.jpg';
+      link.click();
+    }
+    
+    async function downloadAll() {
+      const zip = new JSZip();
+      images.forEach((img, idx) => {
+        const base64 = img.data.split(',')[1];
+        zip.file((idx + 1).toString().padStart(2, '0') + '-' + img.type + '.jpg', base64, { base64: true });
+      });
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = (sessionData.product_name || 'shopshot') + '-images.zip';
+      link.click();
+    }
+    
+    // Keyboard navigation
+    document.addEventListener('keydown', (e) => {
+      if (document.getElementById('lightbox').classList.contains('hidden')) return;
+      if (e.key === 'Escape') closeLightbox();
+      if (e.key === 'ArrowLeft') navigateLightbox(-1);
+      if (e.key === 'ArrowRight') navigateLightbox(1);
+    });
     
     loadSession();
   </script>
