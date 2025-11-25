@@ -268,7 +268,127 @@ app.post('/api/scrape', async (c) => {
   }
 })
 
-// API: Generate variations
+// Variation definitions (shared between API and frontend)
+const variationDefinitions = [
+  { field: 'lifestyle_kitchen', label: '1. Lifestyle Kitchen' },
+  { field: 'ecommerce_white', label: '2. E-commerce Hero' },
+  { field: 'instagram_flatlay', label: '3. Flat-Lay' },
+  { field: 'macro_detail', label: '4. Macro Detail' },
+  { field: 'lifestyle_living', label: '5. Living Room' },
+  { field: 'outdoor_natural', label: '6. Outdoor Natural' },
+  { field: 'minimalist_grey', label: '7. Minimalist Studio' },
+  { field: 'action_inuse', label: '8. In-Use Action' },
+  { field: 'grouped_arrangement', label: '9. Product Group' },
+  { field: 'packaging_focus', label: '10. Packaging Focus' }
+]
+
+// API: Generate a single variation (called individually for each)
+app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
+  const sessionId = c.req.param('sessionId')
+  const variationIndex = parseInt(c.req.param('variationIndex'))
+  const db = c.env.TESCO_DB
+  const apiKey = c.env.GEMINI_API_KEY
+  
+  try {
+    const body = await c.req.json().catch(() => ({}))
+    const originalImage = body.originalImage
+    const productName = body.productName || 'product'
+    
+    if (!originalImage || originalImage.length < 100) {
+      return c.json({ success: false, error: 'No image provided', field: variationDefinitions[variationIndex]?.field }, 400)
+    }
+    
+    if (!apiKey) {
+      return c.json({ success: false, error: 'API key not configured', field: variationDefinitions[variationIndex]?.field }, 500)
+    }
+
+    // Define all 10 variation prompts
+    const prompts: Record<string, string> = {
+      'lifestyle_kitchen': `Create a warm, inviting lifestyle kitchen scene featuring this ${productName}. Place the product naturally on a kitchen counter or table with soft morning light, cozy ambient lighting, wooden surfaces, fresh ingredients nearby, and a homey atmosphere. The product should be the hero but feel integrated into a real family kitchen moment. Professional food photography style with shallow depth of field, high resolution 2k.`,
+      'ecommerce_white': `Create a professional e-commerce hero shot of this ${productName}. Pure clean white background, perfect studio lighting with soft shadows, product centered and perfectly lit, crisp sharp focus, professional commercial product photography. The image should look like it belongs on a premium retail website. No distracting elements, just the product presented beautifully, high resolution 2k.`,
+      'instagram_flatlay': `Create a trendy Instagram flat-lay composition featuring this ${productName}. Overhead bird's eye view, styled on a marble or wooden surface with complementary props like fresh herbs, linens, artisanal items, and lifestyle accessories. Modern social media aesthetic with beautiful natural lighting, Pinterest-worthy styling. The product should be the star but surrounded by aesthetically pleasing complementary items, high resolution 2k.`,
+      'macro_detail': `Create a dramatic macro close-up detail shot of this ${productName}. Extreme close-up showing texture, quality, and craftsmanship. Emphasize premium quality through sharp detail photography - show the fine details, surface textures, colors, and quality indicators. Professional macro photography with precise focus and beautiful bokeh background. Make viewers feel they can almost touch the product, high resolution 2k.`,
+      'lifestyle_living': `Create a lifestyle scene featuring this ${productName} styled in contemporary living room environment, afternoon natural light from large windows, placed on modern coffee table with design magazine and potted succulent nearby, aspirational lifestyle photography, neutral color palette with warm accents, shallow depth of field, interior design magazine style, high resolution 2k, professional product placement.`,
+      'outdoor_natural': `Create a photograph of this ${productName} in outdoor natural environment, soft golden hour lighting, placed on weathered wood surface with green foliage in background, fresh air and nature aesthetic, dappled sunlight, organic lifestyle photography, earthy tones, eco-friendly sustainable vibe, high resolution 2k, authentic outdoor feel.`,
+      'minimalist_grey': `Create minimalist product photography of this ${productName} on neutral grey seamless background, clean modern aesthetic, professional studio lighting with subtle gradients, product centered with generous negative space, contemporary design-forward style, sophisticated color grading, high-end catalog photography, high resolution 2k, editorial quality.`,
+      'action_inuse': `Create a photograph of this ${productName} being actively used in real-world scenario, dynamic composition showing human hands interacting with product, natural authentic moment captured, lifestyle photography showing practical application, relatable everyday setting, genuine user experience photography, high resolution 2k, candid documentary style.`,
+      'grouped_arrangement': `Create a photograph showing multiple units of this ${productName} arranged in appealing composition, styled as product family or bundle display, professional commercial photography showing scale and variety, clean organized presentation, soft shadows for depth, ecommerce bundle photography style, high resolution 2k, attractive merchandising layout.`,
+      'packaging_focus': `Create a photograph with this ${productName} packaging as hero element, professional studio photography highlighting branding and label details, slight angle showing box dimensionality, premium unboxing aesthetic, sharp typography visible, commercial packaging photography, high resolution 2k, brand-forward presentation.`
+    }
+    
+    const variation = variationDefinitions[variationIndex]
+    if (!variation) {
+      return c.json({ success: false, error: 'Invalid variation index', field: 'unknown' }, 400)
+    }
+    
+    const prompt = prompts[variation.field]
+    console.log(`🎨 [${variation.field}] Generating...`)
+    
+    const startTime = Date.now()
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              {
+                inline_data: {
+                  mime_type: originalImage.split(';')[0].split(':')[1],
+                  data: originalImage.split(',')[1]
+                }
+              },
+              { text: prompt }
+            ]
+          }],
+          generationConfig: {
+            responseModalities: ["IMAGE", "TEXT"]
+          }
+        })
+      }
+    )
+    
+    const elapsed = Date.now() - startTime
+    console.log(`⏱️  [${variation.field}] Response in ${elapsed}ms, status: ${response.status}`)
+    
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error(`❌ [${variation.field}] API error:`, errorText.substring(0, 200))
+      return c.json({ success: false, error: 'API error', field: variation.field }, 500)
+    }
+    
+    const data = await response.json() as any
+    
+    // Extract image
+    if (data.candidates?.[0]?.content?.parts) {
+      for (const part of data.candidates[0].content.parts) {
+        if (part.inlineData?.data) {
+          const mimeType = part.inlineData.mimeType || 'image/png'
+          const imageData = `data:${mimeType};base64,${part.inlineData.data}`
+          console.log(`✅ [${variation.field}] Success!`)
+          return c.json({ 
+            success: true, 
+            field: variation.field, 
+            label: variation.label,
+            image: imageData,
+            elapsed
+          })
+        }
+      }
+    }
+    
+    console.error(`❌ [${variation.field}] No image in response`)
+    return c.json({ success: false, error: 'No image generated', field: variation.field }, 500)
+    
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err)
+    console.error(`Error:`, errorMsg)
+    return c.json({ success: false, error: errorMsg, field: variationDefinitions[variationIndex]?.field || 'unknown' }, 500)
+  }
+})
+
+// API: Generate variations (legacy - kept for compatibility)
 app.post('/api/generate/:id', async (c) => {
   const sessionId = c.req.param('id')
   const db = c.env.TESCO_DB
@@ -289,104 +409,39 @@ app.post('/api/generate/:id', async (c) => {
 
     // Get original image from request body (not from D1, since we don't store it there)
     const body = await c.req.json().catch(() => ({}))
-    console.log('📥 Backend received body keys:', Object.keys(body))
-    console.log('📥 Body has originalImage?', 'originalImage' in body)
-    console.log('📥 Body.originalImage type:', typeof body.originalImage)
-    console.log('📥 Body.originalImage length:', body.originalImage?.length || 0)
-    
     const originalImage = body.originalImage || session.original_image
     
     if (!originalImage || originalImage.length < 100) {
-      console.error('❌ Validation failed - image length:', originalImage?.length || 0)
       return c.json({ success: false, error: 'No original image provided' }, 400)
     }
 
-    // Update status to generating
-    await db.prepare(
-      'UPDATE sessions SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
-    ).bind('generating', sessionId).run()
-
     const apiKey = c.env.GEMINI_API_KEY
-    console.log('🔑 API Key exists:', !!apiKey, '| Image size:', originalImage.length, 'bytes')
-    
-    // DEBUG: Return early with diagnostics if no API key
     if (!apiKey) {
-      return c.json({
-        success: false,
-        error: 'GEMINI_API_KEY not configured',
-        debug: {
-          hasApiKey: false,
-          imageLength: originalImage.length,
-          sessionId: sessionId
-        }
-      }, 500)
+      return c.json({ success: false, error: 'GEMINI_API_KEY not configured' }, 500)
     }
     
     const productName = session.product_name || 'product'
 
     // Define all 10 variation prompts
-    const variations = [
-      {
-        field: 'lifestyle_kitchen',
-        label: '1. Lifestyle Kitchen',
-        prompt: `Create a warm, inviting lifestyle kitchen scene featuring this ${productName}. Place the product naturally on a kitchen counter or table with soft morning light, cozy ambient lighting, wooden surfaces, fresh ingredients nearby, and a homey atmosphere. The product should be the hero but feel integrated into a real family kitchen moment. Professional food photography style with shallow depth of field, high resolution 2k.`
-      },
-      {
-        field: 'ecommerce_white',
-        label: '2. E-commerce Hero',
-        prompt: `Create a professional e-commerce hero shot of this ${productName}. Pure clean white background, perfect studio lighting with soft shadows, product centered and perfectly lit, crisp sharp focus, professional commercial product photography. The image should look like it belongs on a premium retail website. No distracting elements, just the product presented beautifully, high resolution 2k.`
-      },
-      {
-        field: 'instagram_flatlay',
-        label: '3. Flat-Lay',
-        prompt: `Create a trendy Instagram flat-lay composition featuring this ${productName}. Overhead bird's eye view, styled on a marble or wooden surface with complementary props like fresh herbs, linens, artisanal items, and lifestyle accessories. Modern social media aesthetic with beautiful natural lighting, Pinterest-worthy styling. The product should be the star but surrounded by aesthetically pleasing complementary items, high resolution 2k.`
-      },
-      {
-        field: 'macro_detail',
-        label: '4. Macro Detail',
-        prompt: `Create a dramatic macro close-up detail shot of this ${productName}. Extreme close-up showing texture, quality, and craftsmanship. Emphasize premium quality through sharp detail photography - show the fine details, surface textures, colors, and quality indicators. Professional macro photography with precise focus and beautiful bokeh background. Make viewers feel they can almost touch the product, high resolution 2k.`
-      },
-      {
-        field: 'lifestyle_living',
-        label: '5. Living Room',
-        prompt: `Create a lifestyle scene featuring this ${productName} styled in contemporary living room environment, afternoon natural light from large windows, placed on modern coffee table with design magazine and potted succulent nearby, aspirational lifestyle photography, neutral color palette with warm accents, shallow depth of field, interior design magazine style, high resolution 2k, professional product placement.`
-      },
-      {
-        field: 'outdoor_natural',
-        label: '6. Outdoor Natural',
-        prompt: `Create a photograph of this ${productName} in outdoor natural environment, soft golden hour lighting, placed on weathered wood surface with green foliage in background, fresh air and nature aesthetic, dappled sunlight, organic lifestyle photography, earthy tones, eco-friendly sustainable vibe, high resolution 2k, authentic outdoor feel.`
-      },
-      {
-        field: 'minimalist_grey',
-        label: '7. Minimalist Studio',
-        prompt: `Create minimalist product photography of this ${productName} on neutral grey seamless background, clean modern aesthetic, professional studio lighting with subtle gradients, product centered with generous negative space, contemporary design-forward style, sophisticated color grading, high-end catalog photography, high resolution 2k, editorial quality.`
-      },
-      {
-        field: 'action_inuse',
-        label: '8. In-Use Action',
-        prompt: `Create a photograph of this ${productName} being actively used in real-world scenario, dynamic composition showing human hands interacting with product, natural authentic moment captured, lifestyle photography showing practical application, relatable everyday setting, genuine user experience photography, high resolution 2k, candid documentary style.`
-      },
-      {
-        field: 'grouped_arrangement',
-        label: '9. Product Group',
-        prompt: `Create a photograph showing multiple units of this ${productName} arranged in appealing composition, styled as product family or bundle display, professional commercial photography showing scale and variety, clean organized presentation, soft shadows for depth, ecommerce bundle photography style, high resolution 2k, attractive merchandising layout.`
-      },
-      {
-        field: 'packaging_focus',
-        label: '10. Packaging Focus',
-        prompt: `Create a photograph with this ${productName} packaging as hero element, professional studio photography highlighting branding and label details, slight angle showing box dimensionality, premium unboxing aesthetic, sharp typography visible, commercial packaging photography, high resolution 2k, brand-forward presentation.`
-      }
-    ]
+    const prompts: Record<string, string> = {
+      'lifestyle_kitchen': `Create a warm, inviting lifestyle kitchen scene featuring this ${productName}. Place the product naturally on a kitchen counter or table with soft morning light, cozy ambient lighting, wooden surfaces, fresh ingredients nearby, and a homey atmosphere. The product should be the hero but feel integrated into a real family kitchen moment. Professional food photography style with shallow depth of field, high resolution 2k.`,
+      'ecommerce_white': `Create a professional e-commerce hero shot of this ${productName}. Pure clean white background, perfect studio lighting with soft shadows, product centered and perfectly lit, crisp sharp focus, professional commercial product photography. The image should look like it belongs on a premium retail website. No distracting elements, just the product presented beautifully, high resolution 2k.`,
+      'instagram_flatlay': `Create a trendy Instagram flat-lay composition featuring this ${productName}. Overhead bird's eye view, styled on a marble or wooden surface with complementary props like fresh herbs, linens, artisanal items, and lifestyle accessories. Modern social media aesthetic with beautiful natural lighting, Pinterest-worthy styling. The product should be the star but surrounded by aesthetically pleasing complementary items, high resolution 2k.`,
+      'macro_detail': `Create a dramatic macro close-up detail shot of this ${productName}. Extreme close-up showing texture, quality, and craftsmanship. Emphasize premium quality through sharp detail photography - show the fine details, surface textures, colors, and quality indicators. Professional macro photography with precise focus and beautiful bokeh background. Make viewers feel they can almost touch the product, high resolution 2k.`,
+      'lifestyle_living': `Create a lifestyle scene featuring this ${productName} styled in contemporary living room environment, afternoon natural light from large windows, placed on modern coffee table with design magazine and potted succulent nearby, aspirational lifestyle photography, neutral color palette with warm accents, shallow depth of field, interior design magazine style, high resolution 2k, professional product placement.`,
+      'outdoor_natural': `Create a photograph of this ${productName} in outdoor natural environment, soft golden hour lighting, placed on weathered wood surface with green foliage in background, fresh air and nature aesthetic, dappled sunlight, organic lifestyle photography, earthy tones, eco-friendly sustainable vibe, high resolution 2k, authentic outdoor feel.`,
+      'minimalist_grey': `Create minimalist product photography of this ${productName} on neutral grey seamless background, clean modern aesthetic, professional studio lighting with subtle gradients, product centered with generous negative space, contemporary design-forward style, sophisticated color grading, high-end catalog photography, high resolution 2k, editorial quality.`,
+      'action_inuse': `Create a photograph of this ${productName} being actively used in real-world scenario, dynamic composition showing human hands interacting with product, natural authentic moment captured, lifestyle photography showing practical application, relatable everyday setting, genuine user experience photography, high resolution 2k, candid documentary style.`,
+      'grouped_arrangement': `Create a photograph showing multiple units of this ${productName} arranged in appealing composition, styled as product family or bundle display, professional commercial photography showing scale and variety, clean organized presentation, soft shadows for depth, ecommerce bundle photography style, high resolution 2k, attractive merchandising layout.`,
+      'packaging_focus': `Create a photograph with this ${productName} packaging as hero element, professional studio photography highlighting branding and label details, slight angle showing box dimensionality, premium unboxing aesthetic, sharp typography visible, commercial packaging photography, high resolution 2k, brand-forward presentation.`
+    }
 
     const results: Record<string, string> = {}
     const errors: string[] = []
 
-    // Generate each variation using Gemini API
-    console.log(`🔄 Starting generation loop for ${variations.length} variations`)
-    for (const variation of variations) {
+    // Generate each variation
+    for (const variation of variationDefinitions) {
       try {
-        console.log(`🎨 [${variation.field}] Calling Gemini API...`)
-        const startTime = Date.now()
         const response = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key=${apiKey}`,
           {
@@ -401,96 +456,40 @@ app.post('/api/generate/:id', async (c) => {
                       data: originalImage.split(',')[1]
                     }
                   },
-                  {
-                    text: variation.prompt
-                  }
+                  { text: prompts[variation.field] }
                 ]
               }],
-              generationConfig: {
-                responseModalities: ["IMAGE", "TEXT"]
-              }
+              generationConfig: { responseModalities: ["IMAGE", "TEXT"] }
             })
           }
         )
-
-        const elapsed = Date.now() - startTime
-        console.log(`⏱️  [${variation.field}] Response received in ${elapsed}ms, status: ${response.status}`)
         
-        if (!response.ok) {
-          const errorText = await response.text()
-          console.error(`❌ [${variation.field}] Gemini API error:`, response.status, errorText.substring(0, 200))
-          errors.push(`${variation.field}: ${response.status} - ${errorText.substring(0, 200)}`)
-          continue
-        }
-
-        const data = await response.json() as any
-        
-        // Log full response structure for debugging
-        console.log(`📋 [${variation.field}] Response structure:`, JSON.stringify({
-          hasCandidates: !!data.candidates,
-          candidateCount: data.candidates?.length,
-          hasContent: !!data.candidates?.[0]?.content,
-          partsCount: data.candidates?.[0]?.content?.parts?.length,
-          partTypes: data.candidates?.[0]?.content?.parts?.map((p: any) => 
-            p.text ? 'text' : p.inlineData ? 'inlineData' : 'unknown'
-          ),
-          error: data.error
-        }))
-        
-        // Extract image from response
-        if (data.candidates?.[0]?.content?.parts) {
-          for (const part of data.candidates[0].content.parts) {
-            if (part.inlineData?.data) {
-              const mimeType = part.inlineData.mimeType || 'image/png'
-              results[variation.field] = `data:${mimeType};base64,${part.inlineData.data}`
-              console.log(`✅ [${variation.field}] Image extracted successfully (${mimeType})`)
-              break
+        if (response.ok) {
+          const data = await response.json() as any
+          if (data.candidates?.[0]?.content?.parts) {
+            for (const part of data.candidates[0].content.parts) {
+              if (part.inlineData?.data) {
+                results[variation.field] = `data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`
+                break
+              }
             }
           }
-          if (!results[variation.field]) {
-            console.error(`❌ [${variation.field}] Parts found but no inlineData`)
-            errors.push(`${variation.field}: No image in response parts`)
-          }
-        } else {
-          console.error(`❌ [${variation.field}] No candidates/parts in response:`, JSON.stringify(data).substring(0, 500))
-          errors.push(`${variation.field}: ${data.error?.message || 'No image data in response'}`)
         }
       } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : String(err)
-        console.error(`Error generating ${variation.field}:`, errorMsg)
-        errors.push(`${variation.field}: ${errorMsg}`)
+        errors.push(`${variation.field}: ${err}`)
       }
     }
 
-    // Update session status only (don't store large base64 images in D1)
-    await db.prepare(`
-      UPDATE sessions 
-      SET status = ?,
-          updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `).bind('completed', sessionId).run()
-
-    console.log('✅ Generation complete! Results keys:', Object.keys(results))
+    await db.prepare('UPDATE sessions SET status = ? WHERE id = ?').bind('completed', sessionId).run()
     
-    // Return results directly - frontend will store in localStorage
     return c.json({ 
       success: true, 
       results,
-      originalImage: originalImage,
+      originalImage,
       productName: session.product_name,
-      debug: {
-        resultCount: Object.keys(results).length,
-        errors: errors
-      }
+      debug: { resultCount: Object.keys(results).length, errors }
     })
   } catch (error) {
-    console.error('Generation error:', error)
-    
-    // Update session with error
-    await db.prepare(
-      'UPDATE sessions SET status = ?, error_message = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
-    ).bind('failed', String(error), sessionId).run()
-    
     return c.json({ success: false, error: 'Failed to generate variations' }, 500)
   }
 })
@@ -552,6 +551,20 @@ function getHomePage() {
       0%, 100% { opacity: 1; }
       50% { opacity: 0.5; }
     }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: scale(0.95); }
+      to { opacity: 1; transform: scale(1); }
+    }
+    .animate-fadeIn {
+      animation: fadeIn 0.3s ease-out forwards;
+    }
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    .animate-spin {
+      animation: spin 1s linear infinite;
+    }
   </style>
 </head>
 <body class="bg-gray-50 min-h-screen">
@@ -586,7 +599,7 @@ function getHomePage() {
     <!-- Hero Section -->
     <div class="text-center mb-10">
       <h2 class="text-3xl font-bold text-gray-800 mb-3">Transform Product Images</h2>
-      <p class="text-gray-600 text-lg">Upload a product image or paste a Tesco URL to generate 4 professional variations</p>
+      <p class="text-gray-600 text-lg">Upload a product image or paste a Tesco URL to generate 10 professional variations</p>
     </div>
 
     <!-- Main Card -->
@@ -804,96 +817,146 @@ function getHomePage() {
         return;
       }
 
-      // Show loading modal
-      document.getElementById('loading-modal').classList.remove('hidden');
+      // Hide upload section and show results grid immediately
+      document.querySelector('main > .text-center').classList.add('hidden');
+      document.querySelector('main > .bg-white').classList.add('hidden');
       document.getElementById('generate-btn').disabled = true;
-
-      // Start timer
-      const startTime = Date.now();
-      const timerInterval = setInterval(() => {
-        const elapsed = Math.floor((Date.now() - startTime) / 1000);
-        document.getElementById('timer-text').textContent = 'Elapsed: ' + elapsed + 's / ~120s';
-      }, 100);
-
-      // Simulate progress for 10 variations
-      let progress = 0;
-      const progressTexts = [
-        'Starting generation...',
-        '1/10 - Creating lifestyle kitchen...',
-        '2/10 - Creating e-commerce shot...',
-        '3/10 - Creating flat-lay...',
-        '4/10 - Creating macro detail...',
-        '5/10 - Creating living room scene...',
-        '6/10 - Creating outdoor shot...',
-        '7/10 - Creating minimalist studio...',
-        '8/10 - Creating action shot...',
-        '9/10 - Creating product group...',
-        '10/10 - Creating packaging shot...',
-        'Finalizing images...'
-      ];
       
-      const progressInterval = setInterval(() => {
-        progress += Math.random() * 8;
-        if (progress > 95) progress = 95;
-        document.getElementById('progress-bar').style.width = progress + '%';
-        const textIndex = Math.min(Math.floor(progress / 9), progressTexts.length - 1);
-        document.getElementById('progress-text').textContent = progressTexts[textIndex];
-      }, 1500);
-
+      // Initialize results storage
+      window.currentResults = {
+        originalImage: currentOriginalImage,
+        productName: 'Product',
+        results: {}
+      };
+      
+      // Show results grid with loading placeholders
+      showProgressiveResults();
+      
+      // Start generating all 10 variations in parallel
+      const startTime = Date.now();
+      console.log('🚀 Starting parallel generation for all 10 variations...');
+      
+      // Launch all 10 requests simultaneously
+      const promises = [];
+      for (let i = 0; i < 10; i++) {
+        promises.push(generateSingleVariation(i, startTime));
+      }
+      
+      // Wait for all to complete
+      await Promise.allSettled(promises);
+      
+      const totalTime = Math.floor((Date.now() - startTime) / 1000);
+      console.log('✅ All generations complete in ' + totalTime + 's');
+      
+      // Update header with completion time
+      const header = document.querySelector('#results-section h2');
+      if (header) {
+        header.parentElement.querySelector('p').textContent = 'Generated ' + new Date().toLocaleString() + ' in ' + totalTime + 's';
+      }
+    }
+    
+    async function generateSingleVariation(index, startTime) {
+      const field = variationDefs[index + 1]?.field; // +1 because index 0 is original
+      if (!field) return;
+      
       try {
-        console.log('Starting generation for session:', currentSessionId);
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minute timeout for 10 images
+        console.log('🎨 [' + index + '] Starting ' + field + '...');
         
-        console.log('📤 Sending to API:');
-        console.log('  Session:', currentSessionId);
-        console.log('  Image size:', currentOriginalImage?.length || 0);
-        console.log('  Image type:', typeof currentOriginalImage);
-        console.log('  Is null?', currentOriginalImage === null);
-        console.log('  Is undefined?', currentOriginalImage === undefined);
-        
-        const response = await fetch('/api/generate/' + currentSessionId, {
+        const response = await fetch('/api/generate-single/' + currentSessionId + '/' + index, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ originalImage: currentOriginalImage }),
-          signal: controller.signal
+          body: JSON.stringify({ 
+            originalImage: currentOriginalImage,
+            productName: 'Product'
+          })
         });
-        clearTimeout(timeoutId);
         
-        console.log('Response received, status:', response.status);
         const data = await response.json();
-        console.log('Data parsed, success:', data.success);
-        console.log('🔍 Full response:', JSON.stringify(data, null, 2));
         
-        clearInterval(progressInterval);
-        clearInterval(timerInterval);
-        document.getElementById('progress-bar').style.width = '100%';
-        document.getElementById('progress-text').textContent = 'Complete!';
-        
-        const totalTime = Math.floor((Date.now() - startTime) / 1000);
-        document.getElementById('timer-text').textContent = 'Completed in ' + totalTime + 's';
-        
-        if (data.success) {
-          console.log('✅ SUCCESS! Results received in', totalTime + 's');
-          
-          // Hide loading, show results immediately in-page
-          setTimeout(() => {
-            document.getElementById('loading-modal').classList.add('hidden');
-            displayResultsInline(data);
-          }, 800);
+        if (data.success && data.image) {
+          console.log('✅ [' + index + '] ' + field + ' complete in ' + data.elapsed + 'ms');
+          window.currentResults.results[field] = data.image;
+          updateThumbnail(index + 1, data.image, true); // +1 for grid position
         } else {
-          console.error('Generation failed:', data.error);
-          document.getElementById('loading-modal').classList.add('hidden');
-          document.getElementById('generate-btn').disabled = false;
-          showError(data.error || 'Generation failed');
+          console.error('❌ [' + index + '] ' + field + ' failed:', data.error);
+          updateThumbnail(index + 1, null, false);
         }
-      } catch (error) {
-        console.error('Fetch error:', error);
-        clearInterval(progressInterval);
-        clearInterval(timerInterval);
-        document.getElementById('loading-modal').classList.add('hidden');
-        document.getElementById('generate-btn').disabled = false;
-        showError('Generation failed: ' + (error.name === 'AbortError' ? 'Request timed out' : 'Please try again.'));
+      } catch (err) {
+        console.error('❌ [' + index + '] ' + field + ' error:', err);
+        updateThumbnail(index + 1, null, false);
+      }
+    }
+    
+    function showProgressiveResults() {
+      // Create results section
+      const resultsSection = document.createElement('div');
+      resultsSection.id = 'results-section';
+      resultsSection.className = 'animate-fadeIn';
+      
+      // Header
+      const header = document.createElement('div');
+      header.className = 'flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4';
+      header.innerHTML = '<div><h2 class="text-2xl md:text-3xl font-bold text-gray-800">Product Variations</h2><p class="text-gray-500 mt-1 text-sm">Generating 10 images...</p></div><div class="flex items-center gap-3 flex-wrap"><button onclick="window.location.reload()" class="px-4 py-2 border-2 border-tesco-blue text-tesco-blue rounded-lg font-semibold hover:bg-tesco-blue hover:text-white transition text-sm"><i class="fas fa-plus mr-2"></i>New</button><button onclick="downloadAllInline()" class="px-4 py-2 bg-tesco-red text-white rounded-lg font-semibold hover:bg-red-600 transition text-sm"><i class="fas fa-download mr-2"></i>Download All (ZIP)</button></div>';
+      resultsSection.appendChild(header);
+      
+      // Thumbnail Grid
+      const grid = document.createElement('div');
+      grid.id = 'results-grid';
+      grid.className = 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4';
+      
+      // Add original image first (already loaded)
+      const originalCard = createProgressCard(0, currentOriginalImage, true, variationDefs[0]);
+      grid.appendChild(originalCard);
+      
+      // Add 10 loading placeholders
+      for (let i = 1; i <= 10; i++) {
+        const card = createProgressCard(i, null, false, variationDefs[i]);
+        grid.appendChild(card);
+      }
+      
+      resultsSection.appendChild(grid);
+      document.querySelector('main').appendChild(resultsSection);
+      
+      // Build lightbox images array with original
+      lightboxImages = [{ src: currentOriginalImage, label: 'Original', filename: '00-original.jpg' }];
+    }
+    
+    function createProgressCard(index, imgSrc, isLoaded, varDef) {
+      const card = document.createElement('div');
+      card.id = 'card-' + index;
+      card.className = 'bg-white rounded-xl shadow-md overflow-hidden transition-all duration-300';
+      
+      if (isLoaded && imgSrc) {
+        // Loaded state
+        card.className += ' hover:shadow-xl hover:scale-105 cursor-pointer';
+        card.innerHTML = '<div class="aspect-square overflow-hidden bg-gray-100"><img src="' + imgSrc + '" class="w-full h-full object-cover" loading="lazy"></div><div class="p-2 text-center border-t"><p class="text-xs text-gray-700 truncate font-medium"><i class="' + varDef.icon + ' text-tesco-blue mr-1"></i>' + varDef.label + '</p></div>';
+        card.onclick = function() { openLightbox(index); };
+      } else {
+        // Loading state with spinner
+        card.innerHTML = '<div class="aspect-square bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center"><div class="text-center"><div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-tesco-blue border-t-transparent mb-2"></div><p class="text-xs text-gray-500">Generating...</p></div></div><div class="p-2 text-center border-t"><p class="text-xs text-gray-500 truncate"><i class="' + varDef.icon + ' mr-1"></i>' + varDef.label + '</p></div>';
+      }
+      
+      return card;
+    }
+    
+    function updateThumbnail(index, imgSrc, success) {
+      const card = document.getElementById('card-' + index);
+      if (!card) return;
+      
+      const varDef = variationDefs[index];
+      
+      if (success && imgSrc) {
+        // Update to loaded state with animation
+        card.className = 'bg-white rounded-xl shadow-md overflow-hidden transition-all duration-300 hover:shadow-xl hover:scale-105 cursor-pointer';
+        card.innerHTML = '<div class="aspect-square overflow-hidden bg-gray-100"><img src="' + imgSrc + '" class="w-full h-full object-cover animate-fadeIn" loading="lazy"></div><div class="p-2 text-center border-t bg-green-50"><p class="text-xs text-gray-700 truncate font-medium"><i class="' + varDef.icon + ' text-green-600 mr-1"></i><i class="fas fa-check text-green-600 mr-1"></i>' + varDef.label + '</p></div>';
+        card.onclick = function() { openLightbox(index); };
+        
+        // Add to lightbox array
+        lightboxImages.push({ src: imgSrc, label: varDef.label, filename: varDef.filename });
+      } else {
+        // Failed state
+        card.className = 'bg-white rounded-xl shadow-md overflow-hidden opacity-60';
+        card.innerHTML = '<div class="aspect-square bg-red-50 flex items-center justify-center"><div class="text-center text-red-400 p-4"><i class="fas fa-exclamation-triangle text-2xl mb-2"></i><p class="text-xs">Failed</p></div></div><div class="p-2 text-center border-t bg-red-50"><p class="text-xs text-red-500 truncate"><i class="' + varDef.icon + ' mr-1"></i>' + varDef.label + '</p></div>';
       }
     }
 
