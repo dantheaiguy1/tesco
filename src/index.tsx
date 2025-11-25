@@ -1697,7 +1697,16 @@ function getResultsPage(sessionId: string) {
     <div id="results" class="hidden">
       <div class="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
         <div>
-          <h1 id="session-name" class="text-2xl sm:text-3xl font-bold text-brand-dark">Loading...</h1>
+          <div class="flex items-center gap-2 group">
+            <h1 id="session-name" class="text-2xl sm:text-3xl font-bold text-brand-dark cursor-pointer hover:text-brand-purple transition" 
+                onclick="startEditName()" title="Click to rename">Loading...</h1>
+            <button onclick="startEditName()" class="text-brand-gray hover:text-brand-purple transition opacity-0 group-hover:opacity-100 p-1">
+              <i class="fas fa-pencil text-sm"></i>
+            </button>
+          </div>
+          <input type="text" id="session-name-input" 
+                 class="hidden text-2xl sm:text-3xl font-bold text-brand-dark bg-transparent border-b-2 border-brand-purple outline-none w-full max-w-md"
+                 onblur="saveSessionName()" onkeydown="handleNameKeydown(event)">
           <p id="session-info" class="text-brand-gray mt-1 text-sm"></p>
         </div>
         <div class="flex items-center gap-3">
@@ -1806,6 +1815,7 @@ function getResultsPage(sessionId: string) {
       document.getElementById('results').classList.remove('hidden');
       
       document.getElementById('session-name').textContent = sessionData.product_name || 'Product Shots';
+      document.getElementById('session-name-input').value = sessionData.product_name || '';
       const date = new Date(sessionData.created_at).toLocaleDateString('en-GB', {
         day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
       });
@@ -1822,6 +1832,58 @@ function getResultsPage(sessionId: string) {
           </div>
         </div>
       \`).join('');
+    }
+    
+    // Session name editing
+    function startEditName() {
+      const display = document.getElementById('session-name');
+      const input = document.getElementById('session-name-input');
+      display.classList.add('hidden');
+      display.nextElementSibling.classList.add('hidden'); // Hide pencil button
+      input.classList.remove('hidden');
+      input.focus();
+      input.select();
+    }
+    
+    function handleNameKeydown(e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        saveSessionName();
+      }
+      if (e.key === 'Escape') {
+        cancelEditName();
+      }
+    }
+    
+    function cancelEditName() {
+      const display = document.getElementById('session-name');
+      const input = document.getElementById('session-name-input');
+      input.value = display.textContent;
+      input.classList.add('hidden');
+      display.classList.remove('hidden');
+      display.nextElementSibling.classList.remove('hidden');
+    }
+    
+    async function saveSessionName() {
+      const display = document.getElementById('session-name');
+      const input = document.getElementById('session-name-input');
+      const newName = input.value.trim() || 'Product Shots';
+      
+      display.textContent = newName;
+      input.classList.add('hidden');
+      display.classList.remove('hidden');
+      display.nextElementSibling.classList.remove('hidden');
+      
+      try {
+        await fetch('/api/sessions/' + sessionId, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ product_name: newName })
+        });
+        sessionData.product_name = newName;
+      } catch (err) {
+        console.error('Failed to save name:', err);
+      }
     }
     
     function openLightbox(idx) {
