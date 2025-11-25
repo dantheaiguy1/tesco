@@ -732,33 +732,45 @@ function getHomePage() {
     
     /* Responsive */
     @media (max-width: 768px) {
-      .hero-title { font-size: 2.5rem !important; }
-      .hero-icon { width: 80px !important; height: 80px !important; }
+      .hero-title { font-size: 1.875rem !important; }
+      .hero-icon { width: 64px !important; height: 64px !important; }
+    }
+    
+    /* When results are showing, allow scrolling */
+    body.showing-results {
+      height: auto;
+      overflow: auto;
+    }
+    body.showing-results #main-content {
+      height: auto;
+      min-height: 100vh;
+      padding-top: 5rem;
+      justify-content: flex-start;
     }
   </style>
 </head>
-<body class="hero-bg min-h-screen">
+<body class="hero-bg h-screen overflow-hidden">
   <!-- Header -->
-  <header class="glass sticky top-0 z-40 border-b border-white/20">
+  <header class="glass fixed top-0 left-0 right-0 z-40 border-b border-white/20">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-      <div class="h-16 flex items-center justify-between">
-        <a href="/" class="flex items-center gap-3 group">
-          <div class="w-10 h-10 gradient-bg rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-xl transition-shadow">
-            <svg class="w-6 h-6 text-white" viewBox="0 0 24 24" fill="currentColor">
+      <div class="h-14 flex items-center justify-between">
+        <a href="/" class="flex items-center gap-2.5 group">
+          <div class="w-9 h-9 gradient-bg rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-xl transition-shadow">
+            <svg class="w-5 h-5 text-white" viewBox="0 0 24 24" fill="currentColor">
               <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/>
               <circle cx="12" cy="12" r="4" fill="currentColor"/>
               <rect x="18" y="6" width="4" height="3" rx="1" fill="currentColor"/>
             </svg>
           </div>
-          <span class="text-xl font-bold text-brand-dark">ShopShot</span>
+          <span class="text-lg font-bold text-brand-dark">ShopShot</span>
         </a>
         
-        <nav class="flex items-center gap-1 sm:gap-2">
-          <a href="/" class="px-3 sm:px-4 py-2 rounded-lg text-sm font-medium text-brand-dark hover:bg-brand-purple/10 transition flex items-center gap-2">
+        <nav class="flex items-center gap-1">
+          <a href="/" class="px-3 py-1.5 rounded-lg text-sm font-medium text-brand-dark hover:bg-brand-purple/10 transition flex items-center gap-2">
             <i class="fas fa-sparkles text-brand-purple"></i>
             <span class="hidden sm:inline">New</span>
           </a>
-          <a href="/history" class="px-3 sm:px-4 py-2 rounded-lg text-sm font-medium text-brand-gray hover:bg-brand-purple/10 transition flex items-center gap-2">
+          <a href="/history" class="px-3 py-1.5 rounded-lg text-sm font-medium text-brand-gray hover:bg-brand-purple/10 transition flex items-center gap-2">
             <i class="fas fa-clock-rotate-left"></i>
             <span class="hidden sm:inline">History</span>
           </a>
@@ -767,97 +779,68 @@ function getHomePage() {
     </div>
   </header>
 
-  <main class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 lg:py-16">
+  <main id="main-content" class="h-screen flex flex-col items-center justify-center px-4 sm:px-6 pt-14">
     <!-- Hero Section -->
-    <div id="hero-section" class="text-center mb-8 sm:mb-12 animate-fadeInUp">
+    <div id="hero-section" class="text-center mb-6 animate-fadeInUp">
       <!-- 3D Floating Icon -->
-      <div class="mb-6 sm:mb-8 relative">
-        <div class="inline-block animate-float">
-          <div class="hero-icon w-20 h-20 sm:w-24 sm:h-24 gradient-bg-vibrant rounded-3xl flex items-center justify-center shadow-2xl transform -rotate-6">
-            <i class="fas fa-camera text-white text-3xl sm:text-4xl"></i>
+      <div class="mb-4 relative inline-block">
+        <div class="animate-float">
+          <div class="hero-icon w-16 h-16 sm:w-20 sm:h-20 gradient-bg-vibrant rounded-2xl flex items-center justify-center shadow-2xl transform -rotate-6">
+            <i class="fas fa-camera text-white text-2xl sm:text-3xl"></i>
           </div>
         </div>
-        <!-- Floating decorations -->
-        <div class="absolute -top-4 -right-4 w-8 h-8 bg-yellow-400 rounded-full animate-float-slow opacity-80 hidden sm:block" style="animation-delay: 0.5s"></div>
-        <div class="absolute -bottom-2 -left-6 w-6 h-6 bg-pink-400 rounded-lg animate-float-slow opacity-80 hidden sm:block" style="animation-delay: 1s"></div>
       </div>
       
-      <h1 class="hero-title text-4xl sm:text-5xl lg:text-6xl font-extrabold mb-4 sm:mb-6 tracking-tight">
+      <h1 class="hero-title text-3xl sm:text-4xl lg:text-5xl font-extrabold mb-2 tracking-tight">
         <span class="gradient-text">ShopShot</span>
       </h1>
-      <p class="text-lg sm:text-xl text-brand-gray max-w-lg mx-auto leading-relaxed px-4">
-        Transform one product photo into<br class="hidden sm:block">
-        <span class="font-semibold text-brand-dark">10 professional shots</span> in 90 seconds
+      <p class="text-base sm:text-lg text-brand-gray max-w-md mx-auto leading-relaxed">
+        Transform one photo into <span class="font-semibold text-brand-dark">10 professional shots</span>
       </p>
     </div>
 
     <!-- Upload Card -->
-    <div id="upload-section" class="card-3d rounded-3xl overflow-hidden animate-fadeInUp mb-8 sm:mb-12" style="animation-delay: 0.15s">
-      <div class="p-6 sm:p-8 lg:p-12">
+    <div id="upload-section" class="card-3d rounded-2xl sm:rounded-3xl overflow-hidden animate-fadeInUp w-full max-w-xl" style="animation-delay: 0.1s">
+      <div class="p-5 sm:p-8">
         <!-- Upload Zone -->
-        <div id="upload-zone" class="upload-zone rounded-2xl p-8 sm:p-12 text-center cursor-pointer"
+        <div id="upload-zone" class="upload-zone rounded-xl sm:rounded-2xl p-6 sm:p-8 text-center cursor-pointer"
              ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)"
              onclick="document.getElementById('file-input').click()">
           <input type="file" id="file-input" accept="image/jpeg,image/png,image/webp" class="hidden" onchange="handleFileSelect(event)">
           
           <div id="upload-prompt">
-            <div class="w-16 h-16 sm:w-20 sm:h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-brand-blue/10 to-brand-purple/10 flex items-center justify-center">
-              <i class="fas fa-cloud-arrow-up text-3xl sm:text-4xl gradient-text"></i>
+            <div class="w-14 h-14 sm:w-16 sm:h-16 mx-auto mb-4 rounded-xl bg-gradient-to-br from-brand-blue/10 to-brand-purple/10 flex items-center justify-center">
+              <i class="fas fa-cloud-arrow-up text-2xl sm:text-3xl gradient-text"></i>
             </div>
-            <p class="text-lg sm:text-xl font-semibold text-brand-dark mb-2">Drop your product image here</p>
-            <p class="text-brand-gray mb-6">or click to browse files</p>
-            <div class="inline-flex items-center gap-2 text-sm text-brand-muted bg-brand-light px-4 py-2 rounded-full border border-slate-200">
+            <p class="text-base sm:text-lg font-semibold text-brand-dark mb-1">Drop your product image here</p>
+            <p class="text-sm text-brand-gray mb-4">or click to browse</p>
+            <div class="inline-flex items-center gap-2 text-xs text-brand-muted bg-brand-light px-3 py-1.5 rounded-full border border-slate-200">
               <i class="fas fa-image text-brand-purple"></i>
               JPG, PNG, WebP up to 10MB
             </div>
           </div>
           
           <div id="upload-preview" class="hidden">
-            <img id="preview-image" class="max-h-64 sm:max-h-72 mx-auto rounded-2xl shadow-lg mb-4 border border-slate-200">
-            <p id="preview-filename" class="text-brand-dark font-medium mb-2"></p>
-            <button onclick="event.stopPropagation(); resetUpload()" class="text-sm text-brand-gray hover:text-brand-purple transition">
-              <i class="fas fa-xmark mr-1"></i> Choose different image
+            <img id="preview-image" class="max-h-40 sm:max-h-48 mx-auto rounded-xl shadow-lg mb-3 border border-slate-200">
+            <p id="preview-filename" class="text-brand-dark font-medium text-sm mb-1"></p>
+            <button onclick="event.stopPropagation(); resetUpload()" class="text-xs text-brand-gray hover:text-brand-purple transition">
+              <i class="fas fa-xmark mr-1"></i> Change image
             </button>
           </div>
         </div>
 
         <!-- Generate Button -->
-        <div class="mt-6 sm:mt-8 text-center">
+        <div class="mt-5 text-center">
           <button id="generate-btn" onclick="generateVariations()" disabled
-                  class="btn-primary w-full sm:w-auto px-8 sm:px-10 py-4 text-white rounded-xl font-semibold text-base sm:text-lg disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none disabled:transform-none">
+                  class="btn-primary w-full px-6 py-3.5 text-white rounded-xl font-semibold text-base disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none disabled:transform-none">
             <i class="fas fa-sparkles mr-2"></i>
             Generate 10 Professional Shots
           </button>
-          <p class="text-sm text-brand-muted mt-4 flex items-center justify-center gap-2">
+          <p class="text-xs text-brand-muted mt-3 flex items-center justify-center gap-1.5">
             <i class="fas fa-bolt text-amber-500"></i>
             Takes about 60-90 seconds
           </p>
         </div>
-      </div>
-    </div>
-
-    <!-- Features Grid -->
-    <div id="features-section" class="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 animate-fadeInUp" style="animation-delay: 0.3s">
-      <div class="card-3d rounded-2xl p-6 text-center">
-        <div class="w-12 h-12 mx-auto mb-4 rounded-xl bg-blue-50 flex items-center justify-center">
-          <i class="fas fa-search-plus text-xl text-brand-blue"></i>
-        </div>
-        <h3 class="font-semibold text-brand-dark mb-1">5 Detail Shots</h3>
-        <p class="text-sm text-brand-gray">Texture, branding, construction close-ups</p>
-      </div>
-      <div class="card-3d rounded-2xl p-6 text-center">
-        <div class="w-12 h-12 mx-auto mb-4 rounded-xl bg-purple-50 flex items-center justify-center">
-          <i class="fas fa-image text-xl text-brand-purple"></i>
-        </div>
-        <h3 class="font-semibold text-brand-dark mb-1">5 Lifestyle Shots</h3>
-        <p class="text-sm text-brand-gray">Hero, action, flat-lay, environment</p>
-      </div>
-      <div class="card-3d rounded-2xl p-6 text-center">
-        <div class="w-12 h-12 mx-auto mb-4 rounded-xl bg-green-50 flex items-center justify-center">
-          <i class="fas fa-download text-xl text-green-600"></i>
-        </div>
-        <h3 class="font-semibold text-brand-dark mb-1">Instant Download</h3>
-        <p class="text-sm text-brand-gray">ZIP with all 10 high-res images</p>
       </div>
     </div>
 
@@ -1015,7 +998,7 @@ function getHomePage() {
       // Hide upload UI, show results grid
       document.getElementById('hero-section').classList.add('hidden');
       document.getElementById('upload-section').classList.add('hidden');
-      document.getElementById('features-section').classList.add('hidden');
+      document.body.classList.add('showing-results');
       
       // Store results
       window.currentResults = {
