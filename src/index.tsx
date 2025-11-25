@@ -514,6 +514,26 @@ app.delete('/api/sessions', async (c) => {
   }
 })
 
+// API: Update session status
+app.patch('/api/sessions/:id', async (c) => {
+  try {
+    const db = c.env.TESCO_DB
+    const id = c.req.param('id')
+    const { status } = await c.req.json()
+    
+    if (!['pending', 'generating', 'completed', 'failed'].includes(status)) {
+      return c.json({ success: false, error: 'Invalid status' }, 400)
+    }
+    
+    await db.prepare('UPDATE sessions SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+      .bind(status, id).run()
+    return c.json({ success: true })
+  } catch (error) {
+    console.error('Update error:', error)
+    return c.json({ success: false, error: 'Failed to update session' }, 500)
+  }
+})
+
 // HTML Templates - ShopShot Branded
 function getHomePage() {
   return `<!DOCTYPE html>
@@ -1007,6 +1027,17 @@ function getHomePage() {
       // Build and show results grid
       showProgressiveResults();
       
+      // Update session status to generating
+      try {
+        await fetch('/api/sessions/' + currentSessionId, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'generating' })
+        });
+      } catch (e) {
+        console.error('Failed to update session status:', e);
+      }
+      
       // Start all 10 generations in parallel
       const startTime = Date.now();
       const promises = [];
@@ -1015,6 +1046,17 @@ function getHomePage() {
       }
       
       await Promise.allSettled(promises);
+      
+      // Update session status to completed
+      try {
+        await fetch('/api/sessions/' + currentSessionId, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'completed' })
+        });
+      } catch (e) {
+        console.error('Failed to update session status:', e);
+      }
       
       // Update header with completion time
       const totalTime = Math.floor((Date.now() - startTime) / 1000);
