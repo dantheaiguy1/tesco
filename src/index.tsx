@@ -265,7 +265,7 @@ app.post('/api/generate/:id', async (c) => {
     const body = await c.req.json().catch(() => ({}))
     const originalImage = body.originalImage || session.original_image
     
-    if (!originalImage) {
+    if (!originalImage || originalImage.length < 100) {
       return c.json({ success: false, error: 'No original image provided' }, 400)
     }
 
