@@ -95,6 +95,16 @@ app.get('/api/sessions/:id', async (c) => {
   }
 })
 
+// API: Health check
+app.get('/api/health', async (c) => {
+  return c.json({ 
+    status: 'ok',
+    hasGeminiKey: !!c.env.GEMINI_API_KEY,
+    keyLength: c.env.GEMINI_API_KEY?.length || 0,
+    hasDB: !!c.env.TESCO_DB
+  })
+})
+
 // API: Create session from upload
 app.post('/api/upload', async (c) => {
   try {
@@ -507,34 +517,7 @@ function getHomePage() {
           </div>
         </div>
 
-        <!-- URL Panel -->
-        <div id="panel-url" class="hidden">
-          <div class="max-w-2xl mx-auto">
-            <label class="block text-gray-700 font-medium mb-3">Tesco Product URL</label>
-            <div class="flex gap-3">
-              <input type="url" id="url-input" placeholder="https://www.tesco.com/groceries/en-GB/products/..."
-                     class="flex-1 px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-tesco-blue focus:outline-none transition">
-              <button onclick="scrapeUrl()" class="px-6 py-3 bg-tesco-blue text-white rounded-xl font-semibold hover:bg-blue-700 transition">
-                <i class="fas fa-search mr-2"></i>Fetch
-              </button>
-            </div>
-            <p class="text-sm text-gray-500 mt-2">
-              <i class="fas fa-lightbulb text-yellow-500 mr-1"></i>
-              Paste any Tesco.com product page URL
-            </p>
-          </div>
-          
-          <!-- URL Preview -->
-          <div id="url-preview" class="hidden mt-8 p-6 bg-gray-50 rounded-xl">
-            <div class="flex items-start gap-6">
-              <img id="url-preview-image" class="w-32 h-32 object-contain rounded-lg bg-white shadow">
-              <div>
-                <h3 id="url-preview-name" class="text-xl font-semibold text-gray-800 mb-2"></h3>
-                <p class="text-sm text-gray-500 mb-4">Product image extracted successfully</p>
-              </div>
-            </div>
-          </div>
-        </div>
+
 
         <!-- Generate Button -->
         <div class="mt-8 text-center">
@@ -625,22 +608,7 @@ function getHomePage() {
     let selectedFile = null;
     let currentOriginalImage = null;
 
-    function switchTab(tab) {
-      currentTab = tab;
-      document.getElementById('panel-upload').classList.toggle('hidden', tab !== 'upload');
-      document.getElementById('panel-url').classList.toggle('hidden', tab !== 'url');
-      document.getElementById('tab-upload').classList.toggle('tab-active', tab === 'upload');
-      document.getElementById('tab-url').classList.toggle('tab-active', tab === 'url');
-      
-      // Reset state
-      currentSessionId = null;
-      selectedFile = null;
-      document.getElementById('generate-btn').disabled = true;
-      document.getElementById('upload-prompt').classList.remove('hidden');
-      document.getElementById('upload-preview').classList.add('hidden');
-      document.getElementById('url-preview').classList.add('hidden');
-      document.getElementById('url-input').value = '';
-    }
+
 
     function handleDragOver(e) {
       e.preventDefault();
@@ -717,39 +685,11 @@ function getHomePage() {
       }
     }
 
-    async function scrapeUrl() {
-      const url = document.getElementById('url-input').value.trim();
-      if (!url) {
-        showError('Please enter a Tesco product URL');
-        return;
-      }
 
-      try {
-        const response = await fetch('/api/scrape', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url })
-        });
-        const data = await response.json();
-        
-        if (data.success) {
-          currentSessionId = data.sessionId;
-          currentOriginalImage = data.originalImage;
-          document.getElementById('url-preview-image').src = data.originalImage;
-          document.getElementById('url-preview-name').textContent = data.productName;
-          document.getElementById('url-preview').classList.remove('hidden');
-          document.getElementById('generate-btn').disabled = false;
-        } else {
-          showError(data.error || 'Failed to fetch product');
-        }
-      } catch (error) {
-        showError('Failed to fetch Tesco URL. Please try again.');
-      }
-    }
 
     async function generateVariations() {
       if (!currentSessionId) {
-        showError('Please upload an image or fetch a product first');
+        showError('Please upload an image first');
         return;
       }
 
