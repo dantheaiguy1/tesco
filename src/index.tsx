@@ -890,8 +890,16 @@ function getHomePage() {
       const grid = document.createElement('div');
       grid.className = 'grid grid-cols-1 md:grid-cols-2 gap-6';
       
-      // Helper function to create image card
+      // Helper function to create image card (handles missing images)
       function createImageCard(title, icon, imgSrc, filename) {
+        // Skip creating card if image is missing
+        if (!imgSrc || imgSrc === 'undefined' || imgSrc === undefined) {
+          const card = document.createElement('div');
+          card.className = 'bg-white rounded-xl shadow-lg p-6 opacity-50';
+          card.innerHTML = '<h3 class="text-lg font-bold text-gray-700 mb-4 flex items-center gap-2"><i class="' + icon + ' text-gray-400"></i>' + title + '</h3><div class="w-full h-48 bg-gray-200 rounded-lg mb-4 flex items-center justify-center"><div class="text-center text-gray-500"><i class="fas fa-exclamation-triangle text-2xl mb-2"></i><p>Generation failed</p><p class="text-sm">Please try again</p></div></div>';
+          return card;
+        }
+        
         const card = document.createElement('div');
         card.className = 'bg-white rounded-xl shadow-lg p-6';
         
@@ -904,6 +912,7 @@ function getHomePage() {
         img.src = imgSrc;
         img.className = 'w-full rounded-lg mb-4 cursor-pointer';
         img.onclick = function() { openPreviewInline(imgSrc); };
+        img.onerror = function() { this.style.display = 'none'; this.parentElement.querySelector('.error-placeholder')?.classList.remove('hidden'); };
         card.appendChild(img);
         
         const btn = document.createElement('button');
@@ -961,10 +970,10 @@ function getHomePage() {
       }
       
       zip.file('original.jpg', base64ToBlob(data.originalImage));
-      zip.file('lifestyle.jpg', base64ToBlob(data.results.lifestyle_image));
-      zip.file('ecommerce.jpg', base64ToBlob(data.results.ecommerce_image));
-      zip.file('instagram.jpg', base64ToBlob(data.results.instagram_image));
-      zip.file('macro.jpg', base64ToBlob(data.results.macro_image));
+      if (data.results.lifestyle_image) zip.file('lifestyle.jpg', base64ToBlob(data.results.lifestyle_image));
+      if (data.results.ecommerce_image) zip.file('ecommerce.jpg', base64ToBlob(data.results.ecommerce_image));
+      if (data.results.instagram_image) zip.file('instagram.jpg', base64ToBlob(data.results.instagram_image));
+      if (data.results.macro_image) zip.file('macro.jpg', base64ToBlob(data.results.macro_image));
       
       const blob = await zip.generateAsync({ type: 'blob' });
       const link = document.createElement('a');
