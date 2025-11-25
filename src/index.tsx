@@ -2015,17 +2015,31 @@ function getHistoryPage() {
           : '<div class="w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200"><i class="fas fa-image text-4xl text-slate-300"></i></div>';
         
         return \`
-          <div class="bg-white rounded-2xl shadow-lg overflow-hidden card-hover cursor-pointer group" onclick="viewSession('\${session.id}')">
-            <div class="aspect-video bg-slate-100 relative overflow-hidden">
+          <div class="bg-white rounded-2xl shadow-lg overflow-hidden card-hover group" data-session-id="\${session.id}">
+            <div class="aspect-video bg-slate-100 relative overflow-hidden cursor-pointer" onclick="viewSession('\${session.id}')">
               \${imageContent}
               <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition flex items-end justify-center pb-4">
                 <span class="text-white font-medium text-sm"><i class="fas fa-eye mr-2"></i>View Results</span>
               </div>
             </div>
             <div class="p-4">
-              <div class="flex items-start justify-between mb-2">
-                <h3 class="font-semibold text-brand-dark truncate flex-1">\${session.product_name || 'Untitled'}</h3>
-                \${statusBadge}
+              <div class="flex items-start justify-between mb-2 gap-2">
+                <div class="flex-1 min-w-0">
+                  <h3 id="name-display-\${session.id}" class="font-semibold text-brand-dark truncate cursor-pointer hover:text-brand-purple transition" 
+                      onclick="startEditSessionName('\${session.id}')" title="Click to rename">\${session.product_name || 'Untitled'}</h3>
+                  <input type="text" id="name-input-\${session.id}" 
+                         class="hidden w-full font-semibold text-brand-dark bg-transparent border-b-2 border-brand-purple outline-none"
+                         value="\${session.product_name || ''}"
+                         onblur="saveSessionName('\${session.id}')"
+                         onkeydown="handleNameKeydown(event, '\${session.id}')">
+                </div>
+                <div class="flex items-center gap-2 flex-shrink-0">
+                  <button onclick="event.stopPropagation(); startEditSessionName('\${session.id}')" 
+                          class="text-brand-gray hover:text-brand-purple transition opacity-0 group-hover:opacity-100 p-1">
+                    <i class="fas fa-pencil text-xs"></i>
+                  </button>
+                  \${statusBadge}
+                </div>
               </div>
               <div class="flex items-center justify-between text-sm text-brand-gray">
                 <span class="flex items-center gap-2">\${sourceIcon} \${date}</span>
@@ -2042,6 +2056,59 @@ function getHistoryPage() {
 
     function viewSession(id) {
       window.location.href = '/results/' + id;
+    }
+    
+    function startEditSessionName(id) {
+      event.stopPropagation();
+      const display = document.getElementById('name-display-' + id);
+      const input = document.getElementById('name-input-' + id);
+      if (!display || !input) return;
+      
+      display.classList.add('hidden');
+      input.classList.remove('hidden');
+      input.focus();
+      input.select();
+    }
+    
+    function handleNameKeydown(e, id) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        saveSessionName(id);
+      }
+      if (e.key === 'Escape') {
+        cancelEditName(id);
+      }
+    }
+    
+    function cancelEditName(id) {
+      const display = document.getElementById('name-display-' + id);
+      const input = document.getElementById('name-input-' + id);
+      if (!display || !input) return;
+      
+      input.value = display.textContent;
+      input.classList.add('hidden');
+      display.classList.remove('hidden');
+    }
+    
+    async function saveSessionName(id) {
+      const display = document.getElementById('name-display-' + id);
+      const input = document.getElementById('name-input-' + id);
+      if (!display || !input) return;
+      
+      const newName = input.value.trim() || 'Untitled';
+      display.textContent = newName;
+      input.classList.add('hidden');
+      display.classList.remove('hidden');
+      
+      try {
+        await fetch('/api/sessions/' + id, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ product_name: newName })
+        });
+      } catch (err) {
+        console.error('Failed to save session name:', err);
+      }
     }
 
     async function deleteSession(id) {
