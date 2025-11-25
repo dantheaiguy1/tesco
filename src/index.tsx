@@ -283,30 +283,30 @@ const variationDefinitions = [
   { field: 'social_flatlay', label: '10. Social Flat-Lay' }
 ]
 
-// Shared prompt generator function
+// Shared prompt generator function - explicit transformation instructions
 function getPrompts(productName: string): Record<string, string> {
   return {
-    // === CLOSE-UP PRODUCT SHOTS (1-5) - Retail-focused, high detail ===
-    'hero_white': `Professional e-commerce product photography of this ${productName}. Pure white seamless background, centered product filling 70% of frame, perfect studio lighting with soft diffused shadows, razor-sharp focus on product details, clean commercial style suitable for Amazon/Tesco online listings. Product must be clearly visible with all branding/labels readable. High resolution 2k, professional retouching quality.`,
+    // === CLOSE-UP PRODUCT SHOTS (1-5) ===
+    'hero_white': `TRANSFORM this product image: Remove the current background completely and replace with a PURE WHITE (#FFFFFF) seamless studio background. Re-render the ${productName} with professional e-commerce lighting - soft key light from top-left, fill light from right, creating gentle shadows underneath. Center the product, make it fill 70% of frame. This must look like a professional Amazon/retail product listing photo, NOT the original image. Generate a new studio photograph.`,
     
-    'hero_grey': `Premium studio product shot of this ${productName}. Neutral grey gradient background, product centered and prominent, sophisticated lighting with subtle rim light highlighting edges, elegant commercial photography style. Clean negative space around product, sharp focus throughout, high-end catalog quality suitable for premium retail. High resolution 2k.`,
+    'hero_grey': `TRANSFORM this product image: Remove the background and replace with a NEUTRAL GREY gradient studio backdrop (light grey at top fading to medium grey). Re-photograph the ${productName} with sophisticated rim lighting highlighting the edges, elegant commercial style. Add subtle reflection underneath. This should look like a premium catalog shot - completely different lighting and environment from the original.`,
     
-    'macro_texture': `Extreme macro close-up of this ${productName} showing surface texture and quality details. Fill the frame with the product, dramatic shallow depth of field with creamy bokeh, emphasize material quality and craftsmanship. Show the fine details customers want to see - textures, colors, quality indicators. Professional macro lens photography, high resolution 2k.`,
+    'macro_texture': `CREATE an extreme macro close-up shot: Zoom in dramatically on the ${productName} to show surface texture and fine details. Fill 90% of the frame with just a portion of the product - show the material quality, textures, colors up close. Use dramatic shallow depth of field with creamy bokeh blur. This should be a completely different perspective - an artistic detail shot, not the full product view.`,
     
-    'angle_detail': `Dynamic 45-degree angle shot of this ${productName}. Three-quarter view showing depth and dimension, professional studio lighting with key light and fill, product dominates frame at 80%, subtle shadow for grounding. Sharp focus on front label/branding, slight blur on back edge. Commercial product photography style, high resolution 2k.`,
+    'angle_detail': `RE-PHOTOGRAPH this product from a NEW ANGLE: Create a dynamic 45-degree three-quarter view of the ${productName}. Show the product from a different perspective than the original - emphasize depth and dimension. Professional studio lighting with shadows showing form. The viewpoint must be noticeably different from the source image.`,
     
-    'packaging_closeup': `Close-up product photography focusing on this ${productName} packaging and branding. Slight angle to show box/container dimension, crystal clear focus on logo and text, professional lighting making colors pop. Retail-ready shot showing exactly what customers will receive. Clean background, product fills 75% of frame, high resolution 2k.`,
+    'packaging_closeup': `CREATE a tight crop focusing on the ${productName} packaging and branding. Zoom in on the label/logo area, make text and branding the hero. Slight angle to show dimension. Crystal clear focus on typography and brand elements. Professional lighting making colors vibrant. This is a DETAIL SHOT of the packaging, not a full product view.`,
     
-    // === LIFESTYLE/CONTEXT SHOTS (6-10) - Aspirational, social media worthy ===
-    'lifestyle_kitchen': `Lifestyle photography of this ${productName} in a warm kitchen setting. Product placed naturally on wooden countertop or cutting board, soft morning window light, cozy atmosphere with subtle props (fresh ingredients, kitchen items). Product is hero but feels at home. Shallow depth of field, aspirational but authentic feel, high resolution 2k.`,
+    // === LIFESTYLE/CONTEXT SHOTS (6-10) ===
+    'lifestyle_kitchen': `PLACE this ${productName} into a NEW SCENE: A warm, inviting kitchen environment. Position the product on a wooden countertop or cutting board near a window with soft morning light streaming in. Add contextual props - fresh ingredients, a knife, kitchen towels. Create a cozy, homey atmosphere. The product must be IN a kitchen setting, not on a plain background.`,
     
-    'lifestyle_table': `Beautiful table setting featuring this ${productName}. Styled on elegant dining surface with complementary items (plates, napkins, cutlery), natural daylight, sophisticated food/lifestyle photography style. Product prominently displayed but integrated into an aspirational meal moment. High resolution 2k, magazine editorial quality.`,
+    'lifestyle_table': `CREATE a styled table setting scene: Place the ${productName} on an elegant dining table with complementary items - white plates, cloth napkins, cutlery, perhaps a glass of water or wine. Natural daylight from a window. Magazine editorial quality - this should look like a food/lifestyle photoshoot, completely different from a product-only shot.`,
     
-    'hand_holding': `Authentic lifestyle shot showing human hand holding or interacting with this ${productName}. Natural skin tones, casual grip showing product scale and usability, soft natural lighting, clean simple background. Relatable and trustworthy feel - shows real person using product. Candid documentary style, high resolution 2k.`,
+    'hand_holding': `GENERATE a lifestyle shot with HUMAN INTERACTION: Show a realistic human hand holding or reaching for the ${productName}. Natural skin tones, casual grip demonstrating scale and usability. Clean, simple background (kitchen or neutral). This adds the human element - a person actually using/touching the product.`,
     
-    'shopping_bag': `Lifestyle shot of this ${productName} emerging from or placed next to a shopping bag. Fresh-from-the-store feeling, clean bright setting, suggests quality grocery shopping experience. Product clearly visible with shopping context (bag, other groceries glimpsed). Aspirational retail lifestyle, high resolution 2k.`,
+    'shopping_bag': `CREATE a shopping context scene: Show the ${productName} emerging from or placed next to a brown paper shopping bag or canvas tote. Add other grocery items partially visible. Clean, bright setting suggesting a quality shopping experience. Fresh-from-the-store feeling - the product in a retail/purchase context.`,
     
-    'social_flatlay': `Instagram-worthy flat-lay composition with this ${productName} as hero. Overhead bird's eye view, styled on marble or light wood surface, complementary props arranged aesthetically (fresh herbs, linens, small accessories). Modern social media aesthetic, beautiful natural lighting, Pinterest-worthy styling. Product is star of composition, high resolution 2k.`
+    'social_flatlay': `CREATE an Instagram flat-lay composition: Overhead bird's eye view looking straight down. Place the ${productName} on a marble or light wood surface. Arrange complementary props aesthetically around it - fresh herbs, linen napkin, small decorative items. Modern social media aesthetic with beautiful natural lighting. Pinterest-worthy styled shot - completely different from a standard product photo.`
   }
 }
 
