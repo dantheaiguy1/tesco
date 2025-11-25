@@ -1822,16 +1822,31 @@ function getResultsPage(sessionId: string) {
       document.getElementById('session-info').textContent = images.length + ' images - ' + date;
       
       const grid = document.getElementById('images-grid');
-      grid.innerHTML = images.map((img, idx) => \`
-        <div class="card-3d rounded-xl overflow-hidden cursor-pointer" onclick="openLightbox(\${idx})">
-          <div class="aspect-square bg-slate-100">
-            <img src="\${img.data}" class="w-full h-full object-cover" loading="lazy">
+      grid.innerHTML = images.map((img, idx) => {
+        const isOriginal = img.type === 'original';
+        const regenButton = isOriginal ? '' : \`
+          <button onclick="event.stopPropagation(); regenerateImage(\${idx})" 
+                  class="absolute top-2 right-2 w-8 h-8 rounded-full bg-white/90 shadow-lg flex items-center justify-center text-brand-gray hover:text-brand-purple hover:bg-white transition opacity-0 group-hover:opacity-100"
+                  title="Regenerate this image">
+            <i class="fas fa-rotate text-sm"></i>
+          </button>
+        \`;
+        return \`
+          <div id="card-\${idx}" class="card-3d rounded-xl overflow-hidden cursor-pointer group relative" onclick="openLightbox(\${idx})">
+            <div class="aspect-square bg-slate-100 relative">
+              <img id="img-\${idx}" src="\${img.data}" class="w-full h-full object-cover" loading="lazy">
+              \${regenButton}
+              <div id="loading-\${idx}" class="hidden absolute inset-0 bg-white/90 flex flex-col items-center justify-center">
+                <div class="w-8 h-8 rounded-full border-3 border-brand-purple/30 border-t-brand-purple animate-spin mb-2"></div>
+                <p class="text-xs text-brand-gray">Regenerating...</p>
+              </div>
+            </div>
+            <div class="p-3 text-center border-t border-slate-100">
+              <p class="text-xs font-medium text-brand-dark truncate">\${img.label}</p>
+            </div>
           </div>
-          <div class="p-3 text-center border-t border-slate-100">
-            <p class="text-xs font-medium text-brand-dark truncate">\${img.label}</p>
-          </div>
-        </div>
-      \`).join('');
+        \`;
+      }).join('');
     }
     
     // Session name editing
@@ -1884,6 +1899,115 @@ function getResultsPage(sessionId: string) {
       } catch (err) {
         console.error('Failed to save name:', err);
       }
+    }
+    
+    // Image regeneration
+    async function regenerateImage(idx) {
+      const img = images[idx];
+      if (img.type === 'original') return; // Can't regenerate original
+      
+      // Find variation index (1-10) from type
+      const variationTypes = ['macro_texture', 'label_branding', 'construction_detail', 'color_finish', 
+                              'scale_reference', 'hero_white', 'inuse_action', 'flatlay_styled', 
+                              'environment_context', 'multi_angle'];
+      const variationIndex = variationTypes.indexOf(img.type);
+      if (variationIndex === -1) {
+        alert('Cannot regenerate this image type');
+        return;
+      }
+      
+      // Show loading state
+      const loadingEl = document.getElementById('loading-' + idx);
+      const imgEl = document.getElementById('img-' + idx);
+      if (loadingEl) loadingEl.classList.remove('hidden');
+      
+      try {
+        // Get original image from first image in array
+        const originalImage = images.find(i => i.type === 'original')?.data;
+        if (!originalImage) {
+          alert('Original image not found');
+          return;
+        }
+        
+        // Call API to regenerate
+        const response = await fetch('/api/generate-single/' + sessionId + '/' + variationIndex, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            originalImage: originalImage,
+            productName: sessionData.product_name || 'product'
+          })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success && data.image) {
+          // Update image in array
+          images[idx].data = data.image;
+          
+          // Update UI
+          if (imgEl) imgEl.src = data.image;
+          
+          // Save to database
+          await saveRegeneratedImage(img.type, variationIndex + 1, data.image);
+        } else {
+          alert('Regeneration failed: ' + (data.error || 'Unknown error'));
+        }
+      } catch (err) {
+        console.error('Regeneration error:', err);
+        alert('Failed to regenerate image');
+      } finally {
+        if (loadingEl) loadingEl.classList.add('hidden');
+      }
+    }
+    
+    async function saveRegeneratedImage(variationType, variationIndex, imageData) {
+      try {
+        // Compress image before saving
+        const compressed = await compressForStorage(imageData);
+        
+        await fetch('/api/sessions/' + sessionId + '/images', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            variation_type: variationType,
+            variation_index: variationIndex,
+            image_data: compressed
+          })
+        });
+      } catch (err) {
+        console.error('Failed to save regenerated image:', err);
+      }
+    }
+    
+    function compressForStorage(base64Data) {
+      return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const maxSize = 800;
+          let width = img.width;
+          let height = img.height;
+          
+          if (width > maxSize || height > maxSize) {
+            if (width > height) {
+              height = (height / width) * maxSize;
+              width = maxSize;
+            } else {
+              width = (width / height) * maxSize;
+              height = maxSize;
+            }
+          }
+          
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', 0.8));
+        };
+        img.onerror = () => resolve(base64Data);
+        img.src = base64Data;
+      });
     }
     
     function openLightbox(idx) {
