@@ -1548,9 +1548,6 @@ function getHomePage() {
           </div>
         \`;
         card.onclick = () => openLightbox(index);
-        
-        // Add to lightbox array
-        lightboxImages.push({ src: imgSrc, label: varDef.label, filename: varDef.filename });
       } else {
         card.classList.add('failed');
         card.innerHTML = \`
@@ -1581,17 +1578,20 @@ function getHomePage() {
 
     // Lightbox Functions
     function openLightbox(index) {
-      // Map grid index to lightbox index (accounting for failed images)
-      let actualIndex = 0;
-      for (let i = 0; i < variationDefs.length && i <= index; i++) {
+      // Build lightbox array in grid order (not completion order)
+      lightboxImages = [];
+      for (let i = 0; i < variationDefs.length; i++) {
         const v = variationDefs[i];
         const src = v.isOriginal ? window.currentResults?.originalImage : window.currentResults?.results?.[v.field];
-        if (src && i < index) actualIndex++;
-        if (i === index && src) {
-          currentLightboxIndex = actualIndex;
-          break;
+        if (src) {
+          lightboxImages.push({ src: src, label: v.label, filename: v.filename, gridIndex: i });
         }
       }
+      
+      // Find the clicked image in the ordered array
+      const clickedItem = lightboxImages.find(img => img.gridIndex === index);
+      currentLightboxIndex = clickedItem ? lightboxImages.indexOf(clickedItem) : 0;
+      
       renderLightbox();
     }
     
@@ -1599,6 +1599,8 @@ function getHomePage() {
       if (lightboxImages.length === 0) return;
       
       const img = lightboxImages[currentLightboxIndex];
+      if (!img) return;
+      
       document.getElementById('lightbox-title').textContent = img.label + ' (' + (currentLightboxIndex + 1) + '/' + lightboxImages.length + ')';
       document.getElementById('lightbox-image').src = img.src;
       document.getElementById('lightbox').classList.remove('hidden');
