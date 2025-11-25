@@ -379,6 +379,7 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
     const body = await c.req.json().catch(() => ({}))
     const originalImage = body.originalImage
     const productName = body.productName || 'product'
+    const customPrompt = body.customPrompt // User-provided custom prompt
     
     if (!originalImage || originalImage.length < 100) {
       return c.json({ success: false, error: 'No image provided', field: variationDefinitions[variationIndex]?.field }, 400)
@@ -395,7 +396,9 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
       return c.json({ success: false, error: 'Invalid variation index', field: 'unknown' }, 400)
     }
     
-    const prompt = prompts[variation.field]
+    // Use custom prompt if provided, otherwise use default
+    const prompt = customPrompt || prompts[variation.field]
+    const isCustom = !!customPrompt
     console.log(`[${variation.field}] Generating...`)
     
     const startTime = Date.now()
@@ -440,13 +443,14 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
         if (part.inlineData?.data) {
           const mimeType = part.inlineData.mimeType || 'image/png'
           const imageData = `data:${mimeType};base64,${part.inlineData.data}`
-          console.log(`[${variation.field}] Success!`)
+          console.log(`[${variation.field}] Success!${isCustom ? ' (Custom Prompt)' : ''}`)
           return c.json({ 
             success: true, 
             field: variation.field, 
             label: variation.label,
             image: imageData,
-            elapsed
+            elapsed,
+            isCustom
           })
         }
       }
@@ -900,6 +904,26 @@ function getHomePage() {
           </div>
         </div>
 
+        <!-- Advanced Mode Toggle -->
+        <div class="mt-4 flex items-center justify-between">
+          <button id="advanced-toggle" onclick="toggleAdvancedMode()" class="flex items-center gap-2 text-sm text-brand-gray hover:text-brand-purple transition">
+            <i id="advanced-icon" class="fas fa-chevron-right text-xs transition-transform"></i>
+            <span>Advanced Mode</span>
+            <span class="text-xs bg-brand-purple/10 text-brand-purple px-2 py-0.5 rounded-full">Custom Prompts</span>
+          </button>
+        </div>
+        
+        <!-- Advanced Mode Panel (Hidden by default) -->
+        <div id="advanced-panel" class="hidden mt-4 border border-slate-200 rounded-xl overflow-hidden">
+          <div class="bg-slate-50 px-4 py-3 border-b border-slate-200">
+            <p class="text-sm font-medium text-brand-dark">Customize Generation Prompts</p>
+            <p class="text-xs text-brand-gray mt-1">Edit any prompt below to customize that specific variation</p>
+          </div>
+          <div class="max-h-64 overflow-y-auto divide-y divide-slate-100" id="prompt-list">
+            <!-- Prompts will be populated by JS -->
+          </div>
+        </div>
+
         <!-- Generate Button -->
         <div class="mt-5 text-center">
           <button id="generate-btn" onclick="generateVariations()" disabled
@@ -969,20 +993,24 @@ function getHomePage() {
     let currentLightboxIndex = 0;
     let lightboxImages = [];
     
-    // Variation Definitions
+    // Variation Definitions with default prompts
     const variationDefs = [
-      { field: 'original', label: 'Original', icon: 'fas fa-image', filename: '00-original.jpg', isOriginal: true },
-      { field: 'macro_texture', label: 'Texture Detail', icon: 'fas fa-search-plus', filename: '01-texture-detail.jpg' },
-      { field: 'label_branding', label: 'Label & Branding', icon: 'fas fa-tag', filename: '02-label-branding.jpg' },
-      { field: 'construction_detail', label: 'Construction', icon: 'fas fa-tools', filename: '03-construction.jpg' },
-      { field: 'color_finish', label: 'Color & Finish', icon: 'fas fa-palette', filename: '04-color-finish.jpg' },
-      { field: 'scale_reference', label: 'Size Reference', icon: 'fas fa-ruler', filename: '05-size-reference.jpg' },
-      { field: 'hero_white', label: 'Hero (White BG)', icon: 'fas fa-square', filename: '06-hero-white.jpg' },
-      { field: 'inuse_action', label: 'In-Use Action', icon: 'fas fa-hand-pointer', filename: '07-in-use.jpg' },
-      { field: 'flatlay_styled', label: 'Flat-Lay', icon: 'fab fa-instagram', filename: '08-flat-lay.jpg' },
-      { field: 'environment_context', label: 'Environment', icon: 'fas fa-tree', filename: '09-environment.jpg' },
-      { field: 'multi_angle', label: 'Multi-Angle', icon: 'fas fa-cube', filename: '10-multi-angle.jpg' }
+      { field: 'original', label: 'Original', icon: 'fas fa-image', filename: '00-original.jpg', isOriginal: true, defaultPrompt: '' },
+      { field: 'macro_texture', label: 'Texture Detail', icon: 'fas fa-search-plus', filename: '01-texture-detail.jpg', defaultPrompt: 'Extreme close-up macro photography showing the material texture and surface detail. Shallow depth of field with soft bokeh background. Professional studio lighting highlighting weave pattern, grain, or surface texture. Rich color saturation, crisp sharp focus on texture details. Commercial product photography emphasizing quality and craftsmanship. High resolution 2k, premium detail shot.' },
+      { field: 'label_branding', label: 'Label & Branding', icon: 'fas fa-tag', filename: '02-label-branding.jpg', defaultPrompt: 'Close-up product photography focused on branding elements, logo, and label details. Professional studio lighting, sharp focus on typography and brand marks. Slight angle showing product dimensionality while keeping text completely readable. Commercial catalog photography style, color-accurate brand presentation. High resolution 2k, editorial detail quality.' },
+      { field: 'construction_detail', label: 'Construction', icon: 'fas fa-tools', filename: '03-construction.jpg', defaultPrompt: 'Detailed close-up showing construction quality - seams, stitching, joints, edges, or assembly details. Professional studio lighting emphasizing craftsmanship. Shallow depth of field isolating key quality indicators. Premium product photography highlighting durability and attention to detail. High resolution 2k, trust-building detail shot.' },
+      { field: 'color_finish', label: 'Color & Finish', icon: 'fas fa-palette', filename: '04-color-finish.jpg', defaultPrompt: 'Close-up photography emphasizing true-to-life color accuracy and surface finish. Professional color-corrected studio lighting. Neutral background to showcase product color without distraction. Lighting angles showing sheen, matte finish, or surface quality. Commercial product photography for accurate buyer expectations. High resolution 2k.' },
+      { field: 'scale_reference', label: 'Size Reference', icon: 'fas fa-ruler', filename: '05-size-reference.jpg', defaultPrompt: 'Product photography with clear scale reference showing actual size. Close-up composition with human hand partially in frame OR common object for size comparison. Professional studio lighting, clear perspective on product dimensions. Ecommerce photography that reduces size-related returns. High resolution 2k.' },
+      { field: 'hero_white', label: 'Hero (White BG)', icon: 'fas fa-square', filename: '06-hero-white.jpg', defaultPrompt: 'Clean professional product photo on pure white background. Studio lighting from multiple angles. Product positioned at slight 45-degree angle showing depth and dimensionality. Soft natural shadow underneath. Centered composition. Amazon and Shopify listing style. High resolution 2k, catalog-quality commercial photography.' },
+      { field: 'inuse_action', label: 'In-Use Action', icon: 'fas fa-hand-pointer', filename: '07-in-use.jpg', defaultPrompt: 'Product being actively used in real-world scenario. Natural hands interacting with product showing scale and functionality. Authentic everyday setting. Lifestyle photography demonstrating practical application. Candid moment captured. Relatable use-case photography. Natural lighting. High resolution 2k.' },
+      { field: 'flatlay_styled', label: 'Flat-Lay', icon: 'fab fa-instagram', filename: '08-flat-lay.jpg', defaultPrompt: 'Flat-lay composition photographed directly from above. Product styled with complementary accessories and props on neutral surface. Instagram aesthetic with intentional negative space. Natural window lighting. Curated lifestyle arrangement. Social media content style. Balanced composition. High resolution 2k.' },
+      { field: 'environment_context', label: 'Environment', icon: 'fas fa-tree', filename: '09-environment.jpg', defaultPrompt: 'Product in natural environment relevant to its use. Soft natural lighting showing product in realistic setting. Background slightly blurred to emphasize product as hero. Lifestyle photography creating emotional connection and showing product purpose. Authentic scene composition. High resolution 2k.' },
+      { field: 'multi_angle', label: 'Multi-Angle', icon: 'fas fa-cube', filename: '10-multi-angle.jpg', defaultPrompt: 'Product shown from three key angles in single composition: front view, side profile, and top-down perspective. Clean white or grey background. Professional studio lighting consistent across all angles. Commercial photography showing complete product understanding. Informative multi-view layout. High resolution 2k.' }
     ];
+    
+    // Custom prompts storage (index 1-10 maps to variations)
+    let customPrompts = {};
+    let advancedModeEnabled = false;
 
     // Session Name Editing
     let currentSessionName = '';
@@ -1032,6 +1060,101 @@ function getHomePage() {
           console.error('Failed to save session name:', err);
         }
       }
+    }
+
+    // Advanced Mode Functions
+    function toggleAdvancedMode() {
+      advancedModeEnabled = !advancedModeEnabled;
+      const panel = document.getElementById('advanced-panel');
+      const icon = document.getElementById('advanced-icon');
+      
+      if (advancedModeEnabled) {
+        panel.classList.remove('hidden');
+        icon.style.transform = 'rotate(90deg)';
+        populatePromptList();
+      } else {
+        panel.classList.add('hidden');
+        icon.style.transform = 'rotate(0deg)';
+      }
+    }
+    
+    function populatePromptList() {
+      const list = document.getElementById('prompt-list');
+      list.innerHTML = '';
+      
+      // Skip index 0 (Original) - only show variations 1-10
+      for (let i = 1; i < variationDefs.length; i++) {
+        const v = variationDefs[i];
+        const isCustom = customPrompts[i] && customPrompts[i] !== v.defaultPrompt;
+        const currentPrompt = customPrompts[i] || v.defaultPrompt;
+        
+        const item = document.createElement('div');
+        item.className = 'p-3 hover:bg-slate-50 transition';
+        item.innerHTML = \`
+          <div class="flex items-center justify-between mb-2">
+            <div class="flex items-center gap-2">
+              <i class="\${v.icon} text-brand-purple text-sm"></i>
+              <span class="text-sm font-medium text-brand-dark">\${v.label}</span>
+              \${isCustom ? '<span class="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-medium">CUSTOM</span>' : ''}
+            </div>
+            <button onclick="resetPrompt(\${i})" class="text-xs text-brand-gray hover:text-brand-purple transition \${isCustom ? '' : 'hidden'}" id="reset-btn-\${i}">
+              <i class="fas fa-undo mr-1"></i>Reset
+            </button>
+          </div>
+          <textarea 
+            id="prompt-\${i}" 
+            rows="2" 
+            class="w-full text-xs text-brand-gray bg-white border border-slate-200 rounded-lg p-2 focus:border-brand-purple focus:ring-1 focus:ring-brand-purple/20 outline-none resize-none"
+            onchange="updateCustomPrompt(\${i}, this.value)"
+            oninput="updateCustomPrompt(\${i}, this.value)"
+          >\${currentPrompt}</textarea>
+        \`;
+        list.appendChild(item);
+      }
+    }
+    
+    function updateCustomPrompt(index, value) {
+      const v = variationDefs[index];
+      const isCustom = value.trim() !== v.defaultPrompt;
+      customPrompts[index] = value.trim();
+      
+      // Update custom badge visibility
+      const resetBtn = document.getElementById('reset-btn-' + index);
+      if (resetBtn) {
+        if (isCustom) {
+          resetBtn.classList.remove('hidden');
+        } else {
+          resetBtn.classList.add('hidden');
+        }
+      }
+    }
+    
+    function resetPrompt(index) {
+      const v = variationDefs[index];
+      customPrompts[index] = v.defaultPrompt;
+      
+      const textarea = document.getElementById('prompt-' + index);
+      if (textarea) {
+        textarea.value = v.defaultPrompt;
+      }
+      
+      const resetBtn = document.getElementById('reset-btn-' + index);
+      if (resetBtn) {
+        resetBtn.classList.add('hidden');
+      }
+    }
+    
+    function getPromptForVariation(index) {
+      const v = variationDefs[index];
+      if (customPrompts[index] && customPrompts[index].trim()) {
+        return customPrompts[index];
+      }
+      return null; // Return null to use server default
+    }
+    
+    function isCustomPrompt(index) {
+      const v = variationDefs[index];
+      return customPrompts[index] && customPrompts[index].trim() !== v.defaultPrompt;
     }
 
     // Drag & Drop Handlers
@@ -1157,43 +1280,41 @@ function getHomePage() {
       const loadingEl = document.getElementById('regen-loading-' + cardIndex);
       if (loadingEl) loadingEl.classList.remove('hidden');
       
+      // Check for custom prompt
+      const customPrompt = getPromptForVariation(cardIndex);
+      const isCustom = isCustomPrompt(cardIndex);
+      
       try {
         const response = await fetch('/api/generate-single/' + currentSessionId + '/' + variationIndex, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             originalImage: currentOriginalImage,
-            productName: document.getElementById('session-name-display')?.textContent || 'product'
+            productName: document.getElementById('session-name-display')?.textContent || 'product',
+            customPrompt: customPrompt
           })
         });
         
         const data = await response.json();
         
         if (data.success && data.image) {
-          // Update the image element
-          const imgEl = document.getElementById('img-' + cardIndex);
-          if (imgEl) imgEl.src = data.image;
+          // Re-render the entire card to update Custom badge if needed
+          updateThumbnail(cardIndex, data.image, true, isCustom || data.isCustom);
           
           // Update in results store
           window.currentResults.results[varDef.field] = data.image;
           
-          // Update lightbox array
-          const lightboxIdx = lightboxImages.findIndex(img => img.label === varDef.label);
-          if (lightboxIdx >= 0) {
-            lightboxImages[lightboxIdx].src = data.image;
-          }
-          
           // Save to database
           saveGeneratedImage(currentSessionId, varDef.field, cardIndex, data.image);
           
-          console.log('[' + cardIndex + '] Regenerated successfully');
+          console.log('[' + cardIndex + '] Regenerated successfully' + (isCustom ? ' (Custom Prompt)' : ''));
         } else {
           alert('Regeneration failed: ' + (data.error || 'Unknown error'));
+          if (loadingEl) loadingEl.classList.add('hidden');
         }
       } catch (err) {
         console.error('Regeneration error:', err);
         alert('Failed to regenerate. Please try again.');
-      } finally {
         if (loadingEl) loadingEl.classList.add('hidden');
       }
     }
@@ -1329,12 +1450,16 @@ function getHomePage() {
       }, 100);
       
       try {
+        // Check for custom prompt
+        const customPrompt = getPromptForVariation(index + 1);
+        
         const response = await fetch('/api/generate-single/' + currentSessionId + '/' + index, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
             originalImage: currentOriginalImage,
-            productName: 'Product'
+            productName: 'Product',
+            customPrompt: customPrompt
           })
         });
         
@@ -1362,7 +1487,8 @@ function getHomePage() {
           markCardComplete(cardIndex);
           updateProgressState(cardIndex, 'complete', totalTime);
           window.currentResults.results[field] = data.image;
-          setTimeout(() => updateThumbnail(cardIndex, data.image, true), 300);
+          // Pass isCustom flag to show badge
+          setTimeout(() => updateThumbnail(cardIndex, data.image, true, data.isCustom || isCustomPrompt(cardIndex)), 300);
           
           // Save image to database for History page
           saveGeneratedImage(currentSessionId, field, cardIndex, data.image);
@@ -1518,7 +1644,7 @@ function getHomePage() {
       return card;
     }
     
-    function updateThumbnail(index, imgSrc, success) {
+    function updateThumbnail(index, imgSrc, success, isCustom = false) {
       const card = document.getElementById('card-' + index);
       if (!card) return;
       
@@ -1527,9 +1653,11 @@ function getHomePage() {
       
       if (success && imgSrc) {
         card.classList.add('success');
+        const customBadge = isCustom ? '<span class="absolute top-2 left-2 text-[9px] bg-amber-500 text-white px-1.5 py-0.5 rounded font-bold shadow">CUSTOM</span>' : '';
         card.innerHTML = \`
           <div class="aspect-square overflow-hidden bg-slate-100 relative group/img">
             <img id="img-\${index}" src="\${imgSrc}" class="w-full h-full object-cover animate-scaleIn" loading="lazy">
+            \${customBadge}
             <button onclick="event.stopPropagation(); regenerateVariation(\${index})" 
                     class="absolute top-2 right-2 w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-white shadow-lg flex items-center justify-center text-brand-purple hover:bg-brand-purple hover:text-white transition-all border-2 border-brand-purple/30 hover:border-brand-purple"
                     title="Regenerate this image">
@@ -1540,9 +1668,9 @@ function getHomePage() {
               <p class="text-xs text-brand-gray">Regenerating...</p>
             </div>
           </div>
-          <div class="p-2 sm:p-3 text-center bg-green-50 border-t border-green-100">
+          <div class="p-2 sm:p-3 text-center \${isCustom ? 'bg-amber-50 border-t border-amber-100' : 'bg-green-50 border-t border-green-100'}">
             <p class="text-xs text-brand-dark truncate font-medium flex items-center justify-center gap-1.5">
-              <i class="\${varDef.icon} text-green-600 text-[10px]"></i>
+              <i class="\${varDef.icon} \${isCustom ? 'text-amber-600' : 'text-green-600'} text-[10px]"></i>
               \${varDef.label}
             </p>
           </div>
