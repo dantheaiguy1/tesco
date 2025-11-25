@@ -499,6 +499,18 @@ app.delete('/api/sessions/:id', async (c) => {
   }
 })
 
+// API: Delete all sessions
+app.delete('/api/sessions', async (c) => {
+  try {
+    const db = c.env.TESCO_DB
+    await db.prepare('DELETE FROM sessions').run()
+    return c.json({ success: true })
+  } catch (error) {
+    console.error('Delete all error:', error)
+    return c.json({ success: false, error: 'Failed to delete sessions' }, 500)
+  }
+})
+
 // HTML Templates - ShopShot Branded
 function getHomePage() {
   return `<!DOCTYPE html>
@@ -1436,9 +1448,14 @@ function getHistoryPage() {
         <h2 class="text-3xl font-bold text-brand-dark">Generation History</h2>
         <p class="text-brand-gray mt-1">View and manage your previous generations</p>
       </div>
-      <a href="/" class="gradient-bg px-5 py-2.5 text-white rounded-xl font-semibold shadow-lg hover:shadow-xl transition">
-        <i class="fas fa-plus mr-2"></i>New Generation
-      </a>
+      <div class="flex items-center gap-3">
+        <button onclick="clearAllSessions()" class="px-4 py-2.5 text-red-500 border border-red-200 rounded-xl font-medium hover:bg-red-50 transition text-sm">
+          <i class="fas fa-trash mr-2"></i>Clear All
+        </button>
+        <a href="/" class="gradient-bg px-5 py-2.5 text-white rounded-xl font-semibold shadow-lg hover:shadow-xl transition">
+          <i class="fas fa-plus mr-2"></i>New Generation
+        </a>
+      </div>
     </div>
 
     <div id="loading" class="text-center py-20">
@@ -1500,10 +1517,15 @@ function getHistoryPage() {
           ? '<i class="fas fa-link text-brand-gray"></i>' 
           : '<i class="fas fa-upload text-brand-gray"></i>';
         
+        const hasImage = session.original_image && session.original_image.length > 10;
+        const imageContent = hasImage
+          ? '<img src="' + session.original_image + '" class="w-full h-full object-contain">'
+          : '<div class="w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200"><i class="fas fa-image text-4xl text-slate-300"></i></div>';
+        
         return \`
           <div class="bg-white rounded-2xl shadow-lg overflow-hidden card-hover cursor-pointer group" onclick="viewSession('\${session.id}')">
             <div class="aspect-video bg-slate-100 relative overflow-hidden">
-              <img src="\${session.original_image || ''}" class="w-full h-full object-contain" onerror="this.style.display='none'">
+              \${imageContent}
               <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition flex items-end justify-center pb-4">
                 <span class="text-white font-medium text-sm"><i class="fas fa-eye mr-2"></i>View Results</span>
               </div>
@@ -1538,6 +1560,17 @@ function getHistoryPage() {
         loadHistory();
       } catch (error) {
         alert('Failed to delete session');
+      }
+    }
+
+    async function clearAllSessions() {
+      if (!confirm('Delete ALL sessions? This cannot be undone.')) return;
+      
+      try {
+        await fetch('/api/sessions', { method: 'DELETE' });
+        loadHistory();
+      } catch (error) {
+        alert('Failed to clear sessions');
       }
     }
 
