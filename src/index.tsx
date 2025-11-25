@@ -308,6 +308,20 @@ app.post('/api/generate/:id', async (c) => {
 
     const apiKey = c.env.GEMINI_API_KEY
     console.log('🔑 API Key exists:', !!apiKey, '| Image size:', originalImage.length, 'bytes')
+    
+    // DEBUG: Return early with diagnostics if no API key
+    if (!apiKey) {
+      return c.json({
+        success: false,
+        error: 'GEMINI_API_KEY not configured',
+        debug: {
+          hasApiKey: false,
+          imageLength: originalImage.length,
+          sessionId: sessionId
+        }
+      }, 500)
+    }
+    
     const productName = session.product_name || 'product'
 
     // Define the 4 variation prompts
@@ -331,10 +345,14 @@ app.post('/api/generate/:id', async (c) => {
     ]
 
     const results: Record<string, string> = {}
+    const errors: string[] = []
 
     // Generate each variation using Gemini API
+    console.log(`🔄 Starting generation loop for ${variations.length} variations`)
     for (const variation of variations) {
       try {
+        console.log(`🎨 [${variation.field}] Calling Gemini API...`)
+        const startTime = Date.now()
         const response = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp-image-generation:generateContent?key=${apiKey}`,
           {
@@ -361,9 +379,13 @@ app.post('/api/generate/:id', async (c) => {
           }
         )
 
+        const elapsed = Date.now() - startTime
+        console.log(`⏱️  [${variation.field}] Response received in ${elapsed}ms, status: ${response.status}`)
+        
         if (!response.ok) {
           const errorText = await response.text()
-          console.error(`Gemini API error for ${variation.field}:`, errorText)
+          console.error(`❌ [${variation.field}] Gemini API error:`, response.status, errorText.substring(0, 200))
+          errors.push(`${variation.field}: ${response.status} - ${errorText.substring(0, 200)}`)
           continue
         }
 
@@ -374,12 +396,18 @@ app.post('/api/generate/:id', async (c) => {
           for (const part of data.candidates[0].content.parts) {
             if (part.inlineData?.data) {
               results[variation.field] = `data:image/jpeg;base64,${part.inlineData.data}`
+              console.log(`✅ [${variation.field}] Image extracted successfully`)
               break
             }
           }
+        } else {
+          console.error(`❌ [${variation.field}] No image data in response:`, JSON.stringify(data).substring(0, 200))
+          errors.push(`${variation.field}: No image data in response`)
         }
       } catch (err) {
-        console.error(`Error generating ${variation.field}:`, err)
+        const errorMsg = err instanceof Error ? err.message : String(err)
+        console.error(`Error generating ${variation.field}:`, errorMsg)
+        errors.push(`${variation.field}: ${errorMsg}`)
       }
     }
 
@@ -398,7 +426,11 @@ app.post('/api/generate/:id', async (c) => {
       success: true, 
       results,
       originalImage: originalImage,
-      productName: session.product_name
+      productName: session.product_name,
+      debug: {
+        resultCount: Object.keys(results).length,
+        errors: errors
+      }
     })
   } catch (error) {
     console.error('Generation error:', error)
