@@ -591,6 +591,8 @@ function getHomePage() {
       <p class="text-sm text-gray-500">
         <i class="fas fa-clock mr-1"></i>
         <span id="progress-text">Starting generation...</span>
+        <br>
+        <span id="timer-text" class="text-xs text-gray-400 mt-1 inline-block">Elapsed: 0s</span>
       </p>
     </div>
   </div>
@@ -744,6 +746,13 @@ function getHomePage() {
       document.getElementById('loading-modal').classList.remove('hidden');
       document.getElementById('generate-btn').disabled = true;
 
+      // Start timer
+      const startTime = Date.now();
+      const timerInterval = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - startTime) / 1000);
+        document.getElementById('timer-text').textContent = 'Elapsed: ' + elapsed + 's / ~20s';
+      }, 100);
+
       // Simulate progress
       let progress = 0;
       const progressTexts = [
@@ -779,17 +788,21 @@ function getHomePage() {
         console.log('Data parsed, success:', data.success);
         
         clearInterval(progressInterval);
+        clearInterval(timerInterval);
         document.getElementById('progress-bar').style.width = '100%';
         document.getElementById('progress-text').textContent = 'Complete!';
         
+        const totalTime = Math.floor((Date.now() - startTime) / 1000);
+        document.getElementById('timer-text').textContent = 'Completed in ' + totalTime + 's';
+        
         if (data.success) {
-          console.log('✅ SUCCESS! Results received');
+          console.log('✅ SUCCESS! Results received in', totalTime + 's');
           
           // Hide loading, show results immediately in-page
           setTimeout(() => {
             document.getElementById('loading-modal').classList.add('hidden');
             displayResultsInline(data);
-          }, 500);
+          }, 800);
         } else {
           console.error('Generation failed:', data.error);
           document.getElementById('loading-modal').classList.add('hidden');
@@ -799,6 +812,7 @@ function getHomePage() {
       } catch (error) {
         console.error('Fetch error:', error);
         clearInterval(progressInterval);
+        clearInterval(timerInterval);
         document.getElementById('loading-modal').classList.add('hidden');
         document.getElementById('generate-btn').disabled = false;
         showError('Generation failed: ' + (error.name === 'AbortError' ? 'Request timed out' : 'Please try again.'));
