@@ -354,7 +354,7 @@ app.post('/api/generate/:id', async (c) => {
         console.log(`🎨 [${variation.field}] Calling Gemini API...`)
         const startTime = Date.now()
         const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp-image-generation:generateContent?key=${apiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key=${apiKey}`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -391,18 +391,35 @@ app.post('/api/generate/:id', async (c) => {
 
         const data = await response.json() as any
         
+        // Log full response structure for debugging
+        console.log(`📋 [${variation.field}] Response structure:`, JSON.stringify({
+          hasCandidates: !!data.candidates,
+          candidateCount: data.candidates?.length,
+          hasContent: !!data.candidates?.[0]?.content,
+          partsCount: data.candidates?.[0]?.content?.parts?.length,
+          partTypes: data.candidates?.[0]?.content?.parts?.map((p: any) => 
+            p.text ? 'text' : p.inlineData ? 'inlineData' : 'unknown'
+          ),
+          error: data.error
+        }))
+        
         // Extract image from response
         if (data.candidates?.[0]?.content?.parts) {
           for (const part of data.candidates[0].content.parts) {
             if (part.inlineData?.data) {
-              results[variation.field] = `data:image/jpeg;base64,${part.inlineData.data}`
-              console.log(`✅ [${variation.field}] Image extracted successfully`)
+              const mimeType = part.inlineData.mimeType || 'image/png'
+              results[variation.field] = `data:${mimeType};base64,${part.inlineData.data}`
+              console.log(`✅ [${variation.field}] Image extracted successfully (${mimeType})`)
               break
             }
           }
+          if (!results[variation.field]) {
+            console.error(`❌ [${variation.field}] Parts found but no inlineData`)
+            errors.push(`${variation.field}: No image in response parts`)
+          }
         } else {
-          console.error(`❌ [${variation.field}] No image data in response:`, JSON.stringify(data).substring(0, 200))
-          errors.push(`${variation.field}: No image data in response`)
+          console.error(`❌ [${variation.field}] No candidates/parts in response:`, JSON.stringify(data).substring(0, 500))
+          errors.push(`${variation.field}: ${data.error?.message || 'No image data in response'}`)
         }
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err)
