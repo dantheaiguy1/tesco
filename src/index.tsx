@@ -1145,6 +1145,58 @@ function getHomePage() {
         console.error('[' + variationIndex + '] Failed to save image:', err);
       }
     }
+    
+    // Regenerate a single variation
+    async function regenerateVariation(cardIndex) {
+      if (cardIndex === 0) return; // Can't regenerate original
+      
+      const varDef = variationDefs[cardIndex];
+      const variationIndex = cardIndex - 1; // API uses 0-indexed
+      
+      // Show loading
+      const loadingEl = document.getElementById('regen-loading-' + cardIndex);
+      if (loadingEl) loadingEl.classList.remove('hidden');
+      
+      try {
+        const response = await fetch('/api/generate-single/' + currentSessionId + '/' + variationIndex, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            originalImage: currentOriginalImage,
+            productName: document.getElementById('session-name-display')?.textContent || 'product'
+          })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success && data.image) {
+          // Update the image element
+          const imgEl = document.getElementById('img-' + cardIndex);
+          if (imgEl) imgEl.src = data.image;
+          
+          // Update in results store
+          window.currentResults.results[varDef.field] = data.image;
+          
+          // Update lightbox array
+          const lightboxIdx = lightboxImages.findIndex(img => img.label === varDef.label);
+          if (lightboxIdx >= 0) {
+            lightboxImages[lightboxIdx].src = data.image;
+          }
+          
+          // Save to database
+          saveGeneratedImage(currentSessionId, varDef.field, cardIndex, data.image);
+          
+          console.log('[' + cardIndex + '] Regenerated successfully');
+        } else {
+          alert('Regeneration failed: ' + (data.error || 'Unknown error'));
+        }
+      } catch (err) {
+        console.error('Regeneration error:', err);
+        alert('Failed to regenerate. Please try again.');
+      } finally {
+        if (loadingEl) loadingEl.classList.add('hidden');
+      }
+    }
 
     async function processFile(file) {
       const validTypes = ['image/jpeg', 'image/png', 'image/webp'];
@@ -1476,10 +1528,19 @@ function getHomePage() {
       if (success && imgSrc) {
         card.classList.add('success');
         card.innerHTML = \`
-          <div class="aspect-square overflow-hidden bg-slate-100 relative">
-            <img src="\${imgSrc}" class="w-full h-full object-cover animate-scaleIn" loading="lazy">
+          <div class="aspect-square overflow-hidden bg-slate-100 relative group/img">
+            <img id="img-\${index}" src="\${imgSrc}" class="w-full h-full object-cover animate-scaleIn" loading="lazy">
             <div class="absolute top-2 right-2 w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-green-500 flex items-center justify-center shadow-lg">
               <i class="fas fa-check text-white text-xs"></i>
+            </div>
+            <button onclick="event.stopPropagation(); regenerateVariation(\${index})" 
+                    class="absolute top-2 left-2 w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-white/90 shadow-lg flex items-center justify-center text-brand-gray hover:text-brand-purple hover:bg-white transition opacity-0 group-hover/img:opacity-100"
+                    title="Regenerate this image">
+              <i class="fas fa-rotate text-xs sm:text-sm"></i>
+            </button>
+            <div id="regen-loading-\${index}" class="hidden absolute inset-0 bg-white/90 flex flex-col items-center justify-center">
+              <div class="w-8 h-8 rounded-full border-3 border-brand-purple/30 border-t-brand-purple animate-spin mb-2"></div>
+              <p class="text-xs text-brand-gray">Regenerating...</p>
             </div>
           </div>
           <div class="p-2 sm:p-3 text-center bg-green-50 border-t border-green-100">
@@ -1496,17 +1557,25 @@ function getHomePage() {
       } else {
         card.classList.add('failed');
         card.innerHTML = \`
-          <div class="aspect-square flex items-center justify-center bg-red-50">
+          <div class="aspect-square flex items-center justify-center bg-red-50 relative group/img">
             <div class="text-center text-red-400 p-2">
               <i class="fas fa-exclamation-triangle text-xl sm:text-2xl mb-1"></i>
               <p class="text-xs">Failed</p>
+            </div>
+            <button onclick="event.stopPropagation(); regenerateVariation(\${index})" 
+                    class="absolute top-2 left-2 w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-white/90 shadow-lg flex items-center justify-center text-red-400 hover:text-brand-purple hover:bg-white transition"
+                    title="Retry this image">
+              <i class="fas fa-rotate text-xs sm:text-sm"></i>
+            </button>
+            <div id="regen-loading-\${index}" class="hidden absolute inset-0 bg-white/90 flex flex-col items-center justify-center">
+              <div class="w-8 h-8 rounded-full border-3 border-brand-purple/30 border-t-brand-purple animate-spin mb-2"></div>
+              <p class="text-xs text-brand-gray">Regenerating...</p>
             </div>
           </div>
           <div class="p-2 sm:p-3 text-center bg-red-50 border-t border-red-100">
             <p class="text-xs text-red-500 truncate flex items-center justify-center gap-1.5">
               <i class="\${varDef.icon} text-[10px]"></i>
               \${varDef.label}
-            </p>
           </div>
         \`;
       }
