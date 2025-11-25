@@ -105,6 +105,18 @@ app.get('/api/health', async (c) => {
   })
 })
 
+// API: Test POST body
+app.post('/api/test-body', async (c) => {
+  const body = await c.req.json().catch(() => ({}))
+  return c.json({
+    bodyKeys: Object.keys(body),
+    hasOriginalImage: 'originalImage' in body,
+    originalImageType: typeof body.originalImage,
+    originalImageLength: body.originalImage?.length || 0,
+    firstChars: body.originalImage?.substring(0, 50) || 'none'
+  })
+})
+
 // API: Create session from upload
 app.post('/api/upload', async (c) => {
   try {
@@ -261,11 +273,15 @@ app.post('/api/generate/:id', async (c) => {
   const sessionId = c.req.param('id')
   const db = c.env.TESCO_DB
   
+  console.log('🚀 Generate endpoint called for session:', sessionId)
+  
   try {
     // Get session
     const session = await db.prepare(
       'SELECT * FROM sessions WHERE id = ?'
     ).bind(sessionId).first() as any
+    
+    console.log('📝 Session found:', !!session)
     
     if (!session) {
       return c.json({ success: false, error: 'Session not found' }, 404)
@@ -273,9 +289,15 @@ app.post('/api/generate/:id', async (c) => {
 
     // Get original image from request body (not from D1, since we don't store it there)
     const body = await c.req.json().catch(() => ({}))
+    console.log('📥 Backend received body keys:', Object.keys(body))
+    console.log('📥 Body has originalImage?', 'originalImage' in body)
+    console.log('📥 Body.originalImage type:', typeof body.originalImage)
+    console.log('📥 Body.originalImage length:', body.originalImage?.length || 0)
+    
     const originalImage = body.originalImage || session.original_image
     
     if (!originalImage || originalImage.length < 100) {
+      console.error('❌ Validation failed - image length:', originalImage?.length || 0)
       return c.json({ success: false, error: 'No original image provided' }, 400)
     }
 
@@ -369,11 +391,13 @@ app.post('/api/generate/:id', async (c) => {
       WHERE id = ?
     `).bind('completed', sessionId).run()
 
+    console.log('✅ Generation complete! Results keys:', Object.keys(results))
+    
     // Return results directly - frontend will store in localStorage
     return c.json({ 
       success: true, 
       results,
-      originalImage: session.original_image,
+      originalImage: originalImage,
       productName: session.product_name
     })
   } catch (error) {
