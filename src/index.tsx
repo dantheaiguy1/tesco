@@ -275,6 +275,7 @@ app.post('/api/generate/:id', async (c) => {
     ).bind('generating', sessionId).run()
 
     const apiKey = c.env.GEMINI_API_KEY
+    console.log('🔑 API Key exists:', !!apiKey, '| Image size:', originalImage.length, 'bytes')
     const productName = session.product_name || 'product'
 
     // Define the 4 variation prompts
