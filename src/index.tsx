@@ -474,14 +474,14 @@ function getHomePage() {
 
     <!-- Main Card -->
     <div class="bg-white rounded-2xl shadow-xl overflow-hidden">
-      <!-- Tabs -->
-      <div class="flex border-b">
-        <button id="tab-upload" onclick="switchTab('upload')" class="flex-1 py-4 px-6 font-semibold text-gray-600 hover:text-tesco-blue transition tab-active">
-          <i class="fas fa-upload mr-2"></i>Upload Image
-        </button>
-        <button id="tab-url" onclick="switchTab('url')" class="flex-1 py-4 px-6 font-semibold text-gray-600 hover:text-tesco-blue transition">
-          <i class="fas fa-link mr-2"></i>Tesco Product URL
-        </button>
+      <!-- Header -->
+      <div class="border-b bg-tesco-blue/5">
+        <div class="py-4 px-6">
+          <h3 class="font-semibold text-tesco-blue text-lg">
+            <i class="fas fa-upload mr-2"></i>
+            Upload Product Image
+          </h3>
+        </div>
       </div>
 
       <div class="p-8">
