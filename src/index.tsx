@@ -324,23 +324,57 @@ app.post('/api/generate/:id', async (c) => {
     
     const productName = session.product_name || 'product'
 
-    // Define the 4 variation prompts
+    // Define all 10 variation prompts
     const variations = [
       {
-        field: 'lifestyle_image',
-        prompt: `Create a warm, inviting lifestyle kitchen scene featuring this ${productName}. Place the product naturally on a kitchen counter or table with soft morning light, cozy ambient lighting, wooden surfaces, fresh ingredients nearby, and a homey atmosphere. The product should be the hero but feel integrated into a real family kitchen moment. Professional food photography style with shallow depth of field.`
+        field: 'lifestyle_kitchen',
+        label: '1. Lifestyle Kitchen',
+        prompt: `Create a warm, inviting lifestyle kitchen scene featuring this ${productName}. Place the product naturally on a kitchen counter or table with soft morning light, cozy ambient lighting, wooden surfaces, fresh ingredients nearby, and a homey atmosphere. The product should be the hero but feel integrated into a real family kitchen moment. Professional food photography style with shallow depth of field, high resolution 2k.`
       },
       {
-        field: 'ecommerce_image',
-        prompt: `Create a professional e-commerce hero shot of this ${productName}. Pure clean white background, perfect studio lighting with soft shadows, product centered and perfectly lit, crisp sharp focus, professional commercial product photography. The image should look like it belongs on a premium retail website. No distracting elements, just the product presented beautifully.`
+        field: 'ecommerce_white',
+        label: '2. E-commerce Hero',
+        prompt: `Create a professional e-commerce hero shot of this ${productName}. Pure clean white background, perfect studio lighting with soft shadows, product centered and perfectly lit, crisp sharp focus, professional commercial product photography. The image should look like it belongs on a premium retail website. No distracting elements, just the product presented beautifully, high resolution 2k.`
       },
       {
-        field: 'instagram_image',
-        prompt: `Create a trendy Instagram flat-lay composition featuring this ${productName}. Overhead bird's eye view, styled on a marble or wooden surface with complementary props like fresh herbs, linens, artisanal items, and lifestyle accessories. Modern social media aesthetic with beautiful natural lighting, Pinterest-worthy styling. The product should be the star but surrounded by aesthetically pleasing complementary items.`
+        field: 'instagram_flatlay',
+        label: '3. Flat-Lay',
+        prompt: `Create a trendy Instagram flat-lay composition featuring this ${productName}. Overhead bird's eye view, styled on a marble or wooden surface with complementary props like fresh herbs, linens, artisanal items, and lifestyle accessories. Modern social media aesthetic with beautiful natural lighting, Pinterest-worthy styling. The product should be the star but surrounded by aesthetically pleasing complementary items, high resolution 2k.`
       },
       {
-        field: 'macro_image',
-        prompt: `Create a dramatic macro close-up detail shot of this ${productName}. Extreme close-up showing texture, quality, and craftsmanship. Emphasize premium quality through sharp detail photography - show the fine details, surface textures, colors, and quality indicators. Professional macro photography with precise focus and beautiful bokeh background. Make viewers feel they can almost touch the product.`
+        field: 'macro_detail',
+        label: '4. Macro Detail',
+        prompt: `Create a dramatic macro close-up detail shot of this ${productName}. Extreme close-up showing texture, quality, and craftsmanship. Emphasize premium quality through sharp detail photography - show the fine details, surface textures, colors, and quality indicators. Professional macro photography with precise focus and beautiful bokeh background. Make viewers feel they can almost touch the product, high resolution 2k.`
+      },
+      {
+        field: 'lifestyle_living',
+        label: '5. Living Room',
+        prompt: `Create a lifestyle scene featuring this ${productName} styled in contemporary living room environment, afternoon natural light from large windows, placed on modern coffee table with design magazine and potted succulent nearby, aspirational lifestyle photography, neutral color palette with warm accents, shallow depth of field, interior design magazine style, high resolution 2k, professional product placement.`
+      },
+      {
+        field: 'outdoor_natural',
+        label: '6. Outdoor Natural',
+        prompt: `Create a photograph of this ${productName} in outdoor natural environment, soft golden hour lighting, placed on weathered wood surface with green foliage in background, fresh air and nature aesthetic, dappled sunlight, organic lifestyle photography, earthy tones, eco-friendly sustainable vibe, high resolution 2k, authentic outdoor feel.`
+      },
+      {
+        field: 'minimalist_grey',
+        label: '7. Minimalist Studio',
+        prompt: `Create minimalist product photography of this ${productName} on neutral grey seamless background, clean modern aesthetic, professional studio lighting with subtle gradients, product centered with generous negative space, contemporary design-forward style, sophisticated color grading, high-end catalog photography, high resolution 2k, editorial quality.`
+      },
+      {
+        field: 'action_inuse',
+        label: '8. In-Use Action',
+        prompt: `Create a photograph of this ${productName} being actively used in real-world scenario, dynamic composition showing human hands interacting with product, natural authentic moment captured, lifestyle photography showing practical application, relatable everyday setting, genuine user experience photography, high resolution 2k, candid documentary style.`
+      },
+      {
+        field: 'grouped_arrangement',
+        label: '9. Product Group',
+        prompt: `Create a photograph showing multiple units of this ${productName} arranged in appealing composition, styled as product family or bundle display, professional commercial photography showing scale and variety, clean organized presentation, soft shadows for depth, ecommerce bundle photography style, high resolution 2k, attractive merchandising layout.`
+      },
+      {
+        field: 'packaging_focus',
+        label: '10. Packaging Focus',
+        prompt: `Create a photograph with this ${productName} packaging as hero element, professional studio photography highlighting branding and label details, slight angle showing box dimensionality, premium unboxing aesthetic, sharp typography visible, commercial packaging photography, high resolution 2k, brand-forward presentation.`
       }
     ]
 
@@ -778,32 +812,38 @@ function getHomePage() {
       const startTime = Date.now();
       const timerInterval = setInterval(() => {
         const elapsed = Math.floor((Date.now() - startTime) / 1000);
-        document.getElementById('timer-text').textContent = 'Elapsed: ' + elapsed + 's / ~20s';
+        document.getElementById('timer-text').textContent = 'Elapsed: ' + elapsed + 's / ~120s';
       }, 100);
 
-      // Simulate progress
+      // Simulate progress for 10 variations
       let progress = 0;
       const progressTexts = [
         'Starting generation...',
-        'Creating lifestyle scene...',
-        'Creating e-commerce shot...',
-        'Creating Instagram flat-lay...',
-        'Creating macro detail...',
+        '1/10 - Creating lifestyle kitchen...',
+        '2/10 - Creating e-commerce shot...',
+        '3/10 - Creating flat-lay...',
+        '4/10 - Creating macro detail...',
+        '5/10 - Creating living room scene...',
+        '6/10 - Creating outdoor shot...',
+        '7/10 - Creating minimalist studio...',
+        '8/10 - Creating action shot...',
+        '9/10 - Creating product group...',
+        '10/10 - Creating packaging shot...',
         'Finalizing images...'
       ];
       
       const progressInterval = setInterval(() => {
-        progress += Math.random() * 15;
+        progress += Math.random() * 8;
         if (progress > 95) progress = 95;
         document.getElementById('progress-bar').style.width = progress + '%';
-        const textIndex = Math.min(Math.floor(progress / 20), progressTexts.length - 1);
+        const textIndex = Math.min(Math.floor(progress / 9), progressTexts.length - 1);
         document.getElementById('progress-text').textContent = progressTexts[textIndex];
-      }, 2000);
+      }, 1500);
 
       try {
         console.log('Starting generation for session:', currentSessionId);
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 180000); // 3 minute timeout
+        const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minute timeout for 10 images
         
         console.log('📤 Sending to API:');
         console.log('  Session:', currentSessionId);
@@ -867,6 +907,24 @@ function getHomePage() {
       document.getElementById('error-toast').classList.add('hidden');
     }
     
+    // All 10 variation definitions for the frontend
+    const variationDefs = [
+      { field: 'lifestyle_kitchen', label: 'Original', icon: 'fas fa-image', filename: 'original.jpg', isOriginal: true },
+      { field: 'lifestyle_kitchen', label: '1. Lifestyle Kitchen', icon: 'fas fa-utensils', filename: '01-lifestyle-kitchen.jpg' },
+      { field: 'ecommerce_white', label: '2. E-commerce Hero', icon: 'fas fa-shopping-cart', filename: '02-ecommerce-hero.jpg' },
+      { field: 'instagram_flatlay', label: '3. Flat-Lay', icon: 'fab fa-instagram', filename: '03-flatlay.jpg' },
+      { field: 'macro_detail', label: '4. Macro Detail', icon: 'fas fa-search-plus', filename: '04-macro-detail.jpg' },
+      { field: 'lifestyle_living', label: '5. Living Room', icon: 'fas fa-couch', filename: '05-living-room.jpg' },
+      { field: 'outdoor_natural', label: '6. Outdoor Natural', icon: 'fas fa-tree', filename: '06-outdoor-natural.jpg' },
+      { field: 'minimalist_grey', label: '7. Minimalist Studio', icon: 'fas fa-square', filename: '07-minimalist-studio.jpg' },
+      { field: 'action_inuse', label: '8. In-Use Action', icon: 'fas fa-hand-pointer', filename: '08-action-inuse.jpg' },
+      { field: 'grouped_arrangement', label: '9. Product Group', icon: 'fas fa-layer-group', filename: '09-product-group.jpg' },
+      { field: 'packaging_focus', label: '10. Packaging Focus', icon: 'fas fa-box', filename: '10-packaging-focus.jpg' }
+    ];
+    
+    let currentLightboxIndex = 0;
+    let lightboxImages = [];
+
     function displayResultsInline(data) {
       // Hide upload section, show results
       document.querySelector('main > .text-center').classList.add('hidden');
@@ -875,72 +933,175 @@ function getHomePage() {
       // Store images globally for download
       window.currentResults = data;
       
-      // Create results section using DOM (avoids template literal escaping issues)
+      // Build lightbox images array
+      lightboxImages = [];
+      variationDefs.forEach(v => {
+        const src = v.isOriginal ? data.originalImage : data.results[v.field];
+        if (src && src !== 'undefined') {
+          lightboxImages.push({ src, label: v.label, filename: v.filename });
+        }
+      });
+      
+      // Create results section
       const resultsSection = document.createElement('div');
       resultsSection.id = 'results-section';
       resultsSection.className = 'animate-fadeIn';
       
-      // Header
+      // Header with buttons
       const header = document.createElement('div');
-      header.className = 'flex items-center justify-between mb-8';
-      header.innerHTML = '<div><h2 class="text-3xl font-bold text-gray-800">' + (data.productName || 'Product Variations') + '</h2><p class="text-gray-500 mt-1">Generated ' + new Date().toLocaleString() + '</p></div><div class="flex items-center gap-4"><button onclick="window.location.reload()" class="px-5 py-2.5 border-2 border-tesco-blue text-tesco-blue rounded-lg font-semibold hover:bg-tesco-blue hover:text-white transition"><i class="fas fa-plus mr-2"></i>New Generation</button><button onclick="downloadAllInline()" class="px-5 py-2.5 bg-tesco-red text-white rounded-lg font-semibold hover:bg-red-600 transition"><i class="fas fa-download mr-2"></i>Download All (ZIP)</button></div>';
+      header.className = 'flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4';
+      header.innerHTML = '<div><h2 class="text-2xl md:text-3xl font-bold text-gray-800">' + (data.productName || 'Product Variations') + '</h2><p class="text-gray-500 mt-1 text-sm">Generated ' + new Date().toLocaleString() + ' - ' + lightboxImages.length + ' images</p></div><div class="flex items-center gap-3 flex-wrap"><button onclick="window.location.reload()" class="px-4 py-2 border-2 border-tesco-blue text-tesco-blue rounded-lg font-semibold hover:bg-tesco-blue hover:text-white transition text-sm"><i class="fas fa-plus mr-2"></i>New</button><button onclick="downloadAllInline()" class="px-4 py-2 bg-tesco-red text-white rounded-lg font-semibold hover:bg-red-600 transition text-sm"><i class="fas fa-download mr-2"></i>Download All (ZIP)</button></div>';
       resultsSection.appendChild(header);
       
-      // Grid
+      // Thumbnail Grid - 4 columns desktop, 3 tablet, 2 mobile
       const grid = document.createElement('div');
-      grid.className = 'grid grid-cols-1 md:grid-cols-2 gap-6';
+      grid.className = 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4';
       
-      // Helper function to create image card (handles missing images)
-      function createImageCard(title, icon, imgSrc, filename) {
-        // Skip creating card if image is missing
-        if (!imgSrc || imgSrc === 'undefined' || imgSrc === undefined) {
-          const card = document.createElement('div');
-          card.className = 'bg-white rounded-xl shadow-lg p-6 opacity-50';
-          card.innerHTML = '<h3 class="text-lg font-bold text-gray-700 mb-4 flex items-center gap-2"><i class="' + icon + ' text-gray-400"></i>' + title + '</h3><div class="w-full h-48 bg-gray-200 rounded-lg mb-4 flex items-center justify-center"><div class="text-center text-gray-500"><i class="fas fa-exclamation-triangle text-2xl mb-2"></i><p>Generation failed</p><p class="text-sm">Please try again</p></div></div>';
-          return card;
-        }
-        
-        const card = document.createElement('div');
-        card.className = 'bg-white rounded-xl shadow-lg p-6';
-        
-        const heading = document.createElement('h3');
-        heading.className = 'text-lg font-bold text-gray-700 mb-4 flex items-center gap-2';
-        heading.innerHTML = '<i class="' + icon + ' text-tesco-blue"></i>' + title;
-        card.appendChild(heading);
-        
-        const img = document.createElement('img');
-        img.src = imgSrc;
-        img.className = 'w-full rounded-lg mb-4 cursor-pointer';
-        img.onclick = function() { openPreviewInline(imgSrc); };
-        img.onerror = function() { this.style.display = 'none'; this.parentElement.querySelector('.error-placeholder')?.classList.remove('hidden'); };
-        card.appendChild(img);
-        
-        const btn = document.createElement('button');
-        btn.className = 'w-full px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition';
-        btn.innerHTML = '<i class="fas fa-download mr-2"></i>Download';
-        btn.onclick = function() { downloadImageInline(imgSrc, filename); };
-        card.appendChild(btn);
-        
-        return card;
-      }
-      
-      // Add all image cards
-      grid.appendChild(createImageCard('Original Image', 'fas fa-image', data.originalImage, 'original.jpg'));
-      grid.appendChild(createImageCard('Lifestyle Kitchen Scene', 'fas fa-home', data.results.lifestyle_image, 'lifestyle.jpg'));
-      grid.appendChild(createImageCard('E-commerce Hero Shot', 'fas fa-shopping-cart', data.results.ecommerce_image, 'ecommerce.jpg'));
-      grid.appendChild(createImageCard('Instagram Flat-lay', 'fab fa-instagram', data.results.instagram_image, 'instagram.jpg'));
-      grid.appendChild(createImageCard('Macro Detail Close-up', 'fas fa-search-plus', data.results.macro_image, 'macro.jpg'));
+      variationDefs.forEach((v, index) => {
+        const imgSrc = v.isOriginal ? data.originalImage : data.results[v.field];
+        const card = createThumbnailCard(imgSrc, v.label, v.icon, index);
+        grid.appendChild(card);
+      });
       
       resultsSection.appendChild(grid);
       document.querySelector('main').appendChild(resultsSection);
     }
     
-    function openPreviewInline(src) {
+    function createThumbnailCard(imgSrc, label, icon, index) {
+      const card = document.createElement('div');
+      card.className = 'bg-white rounded-xl shadow-md overflow-hidden transition-all duration-200 hover:shadow-xl hover:scale-105 cursor-pointer';
+      
+      if (!imgSrc || imgSrc === 'undefined' || imgSrc === undefined) {
+        // Failed generation placeholder
+        card.className += ' opacity-50';
+        card.innerHTML = '<div class="aspect-square bg-gray-200 flex items-center justify-center"><div class="text-center text-gray-400 p-4"><i class="fas fa-exclamation-triangle text-2xl mb-2"></i><p class="text-xs">Failed</p></div></div><div class="p-2 text-center"><p class="text-xs text-gray-500 truncate"><i class="' + icon + ' mr-1"></i>' + label + '</p></div>';
+        return card;
+      }
+      
+      // Thumbnail with click to open lightbox
+      const imgWrapper = document.createElement('div');
+      imgWrapper.className = 'aspect-square overflow-hidden bg-gray-100';
+      
+      const img = document.createElement('img');
+      img.src = imgSrc;
+      img.className = 'w-full h-full object-cover';
+      img.loading = 'lazy';
+      img.onclick = function() { openLightbox(index); };
+      imgWrapper.appendChild(img);
+      card.appendChild(imgWrapper);
+      
+      // Label
+      const labelDiv = document.createElement('div');
+      labelDiv.className = 'p-2 text-center border-t';
+      labelDiv.innerHTML = '<p class="text-xs text-gray-700 truncate font-medium"><i class="' + icon + ' text-tesco-blue mr-1"></i>' + label + '</p>';
+      card.appendChild(labelDiv);
+      
+      card.onclick = function() { openLightbox(index); };
+      
+      return card;
+    }
+    
+    function openLightbox(index) {
+      // Find actual index in lightboxImages (skips failed ones)
+      let actualIndex = 0;
+      let count = 0;
+      for (let i = 0; i < variationDefs.length; i++) {
+        const v = variationDefs[i];
+        const src = v.isOriginal ? window.currentResults.originalImage : window.currentResults.results[v.field];
+        if (src && src !== 'undefined') {
+          if (i === index) {
+            actualIndex = count;
+            break;
+          }
+          count++;
+        }
+      }
+      currentLightboxIndex = actualIndex;
+      renderLightbox();
+    }
+    
+    function renderLightbox() {
+      // Remove existing
+      const existing = document.getElementById('lightbox-modal');
+      if (existing) existing.remove();
+      
+      if (lightboxImages.length === 0) return;
+      
+      const img = lightboxImages[currentLightboxIndex];
+      
       const modal = document.createElement('div');
-      modal.className = 'fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4';
-      modal.onclick = () => modal.remove();
-      modal.innerHTML = \`<img src="\${src}" class="max-w-full max-h-full rounded-lg shadow-2xl">\`;
+      modal.id = 'lightbox-modal';
+      modal.className = 'fixed inset-0 bg-black/90 flex flex-col items-center justify-center z-50 p-4';
+      modal.onclick = function(e) { if (e.target === modal) closeLightbox(); };
+      
+      // Close button
+      const closeBtn = document.createElement('button');
+      closeBtn.className = 'absolute top-4 right-4 text-white text-3xl hover:text-gray-300 transition z-50';
+      closeBtn.innerHTML = '<i class="fas fa-times"></i>';
+      closeBtn.onclick = closeLightbox;
+      modal.appendChild(closeBtn);
+      
+      // Title
+      const title = document.createElement('h3');
+      title.className = 'text-white text-lg font-bold mb-4';
+      title.textContent = img.label + ' (' + (currentLightboxIndex + 1) + '/' + lightboxImages.length + ')';
+      modal.appendChild(title);
+      
+      // Image container
+      const imgContainer = document.createElement('div');
+      imgContainer.className = 'relative flex items-center justify-center flex-1 w-full max-h-[70vh]';
+      
+      // Nav arrows
+      if (lightboxImages.length > 1) {
+        const prevBtn = document.createElement('button');
+        prevBtn.className = 'absolute left-2 md:left-8 text-white text-4xl hover:text-tesco-blue transition z-10';
+        prevBtn.innerHTML = '<i class="fas fa-chevron-left"></i>';
+        prevBtn.onclick = function(e) { e.stopPropagation(); navigateLightbox(-1); };
+        imgContainer.appendChild(prevBtn);
+        
+        const nextBtn = document.createElement('button');
+        nextBtn.className = 'absolute right-2 md:right-8 text-white text-4xl hover:text-tesco-blue transition z-10';
+        nextBtn.innerHTML = '<i class="fas fa-chevron-right"></i>';
+        nextBtn.onclick = function(e) { e.stopPropagation(); navigateLightbox(1); };
+        imgContainer.appendChild(nextBtn);
+      }
+      
+      const imgEl = document.createElement('img');
+      imgEl.src = img.src;
+      imgEl.className = 'max-w-full max-h-[70vh] rounded-lg shadow-2xl object-contain';
+      imgContainer.appendChild(imgEl);
+      modal.appendChild(imgContainer);
+      
+      // Download button
+      const downloadBtn = document.createElement('button');
+      downloadBtn.className = 'mt-4 px-6 py-3 bg-tesco-blue text-white rounded-lg font-semibold hover:bg-blue-700 transition';
+      downloadBtn.innerHTML = '<i class="fas fa-download mr-2"></i>Download Image';
+      downloadBtn.onclick = function() { downloadImageInline(img.src, img.filename); };
+      modal.appendChild(downloadBtn);
+      
       document.body.appendChild(modal);
+      
+      // Keyboard navigation
+      document.addEventListener('keydown', lightboxKeyHandler);
+    }
+    
+    function lightboxKeyHandler(e) {
+      if (e.key === 'Escape') closeLightbox();
+      if (e.key === 'ArrowLeft') navigateLightbox(-1);
+      if (e.key === 'ArrowRight') navigateLightbox(1);
+    }
+    
+    function navigateLightbox(direction) {
+      currentLightboxIndex += direction;
+      if (currentLightboxIndex < 0) currentLightboxIndex = lightboxImages.length - 1;
+      if (currentLightboxIndex >= lightboxImages.length) currentLightboxIndex = 0;
+      renderLightbox();
+    }
+    
+    function closeLightbox() {
+      const modal = document.getElementById('lightbox-modal');
+      if (modal) modal.remove();
+      document.removeEventListener('keydown', lightboxKeyHandler);
     }
     
     function downloadImageInline(dataUrl, filename) {
@@ -958,22 +1119,36 @@ function getHomePage() {
       
       // Convert base64 to blob
       function base64ToBlob(base64) {
-        const parts = base64.split(',');
-        const byteString = atob(parts[1]);
-        const mimeString = parts[0].split(':')[1].split(';')[0];
-        const ab = new ArrayBuffer(byteString.length);
-        const ia = new Uint8Array(ab);
-        for (let i = 0; i < byteString.length; i++) {
-          ia[i] = byteString.charCodeAt(i);
+        if (!base64) return null;
+        try {
+          const parts = base64.split(',');
+          const byteString = atob(parts[1]);
+          const mimeString = parts[0].split(':')[1].split(';')[0];
+          const ab = new ArrayBuffer(byteString.length);
+          const ia = new Uint8Array(ab);
+          for (let i = 0; i < byteString.length; i++) {
+            ia[i] = byteString.charCodeAt(i);
+          }
+          return new Blob([ab], { type: mimeString });
+        } catch (e) {
+          return null;
         }
-        return new Blob([ab], { type: mimeString });
       }
       
-      zip.file('original.jpg', base64ToBlob(data.originalImage));
-      if (data.results.lifestyle_image) zip.file('lifestyle.jpg', base64ToBlob(data.results.lifestyle_image));
-      if (data.results.ecommerce_image) zip.file('ecommerce.jpg', base64ToBlob(data.results.ecommerce_image));
-      if (data.results.instagram_image) zip.file('instagram.jpg', base64ToBlob(data.results.instagram_image));
-      if (data.results.macro_image) zip.file('macro.jpg', base64ToBlob(data.results.macro_image));
+      // Add original
+      zip.file('00-original.jpg', base64ToBlob(data.originalImage));
+      
+      // Add all 10 variations
+      if (data.results.lifestyle_kitchen) zip.file('01-lifestyle-kitchen.jpg', base64ToBlob(data.results.lifestyle_kitchen));
+      if (data.results.ecommerce_white) zip.file('02-ecommerce-hero.jpg', base64ToBlob(data.results.ecommerce_white));
+      if (data.results.instagram_flatlay) zip.file('03-flatlay.jpg', base64ToBlob(data.results.instagram_flatlay));
+      if (data.results.macro_detail) zip.file('04-macro-detail.jpg', base64ToBlob(data.results.macro_detail));
+      if (data.results.lifestyle_living) zip.file('05-living-room.jpg', base64ToBlob(data.results.lifestyle_living));
+      if (data.results.outdoor_natural) zip.file('06-outdoor-natural.jpg', base64ToBlob(data.results.outdoor_natural));
+      if (data.results.minimalist_grey) zip.file('07-minimalist-studio.jpg', base64ToBlob(data.results.minimalist_grey));
+      if (data.results.action_inuse) zip.file('08-action-inuse.jpg', base64ToBlob(data.results.action_inuse));
+      if (data.results.grouped_arrangement) zip.file('09-product-group.jpg', base64ToBlob(data.results.grouped_arrangement));
+      if (data.results.packaging_focus) zip.file('10-packaging-focus.jpg', base64ToBlob(data.results.packaging_focus));
       
       const blob = await zip.generateAsync({ type: 'blob' });
       const link = document.createElement('a');
