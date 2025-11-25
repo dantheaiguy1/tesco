@@ -783,37 +783,12 @@ function getHomePage() {
         document.getElementById('progress-text').textContent = 'Complete!';
         
         if (data.success) {
-          console.log('✅ SUCCESS! Results received:', {
-            originalImage: data.originalImage ? 'YES' : 'NO',
-            lifestyle: data.results?.lifestyle_image ? 'YES' : 'NO',
-            ecommerce: data.results?.ecommerce_image ? 'YES' : 'NO',
-            instagram: data.results?.instagram_image ? 'YES' : 'NO',
-            macro: data.results?.macro_image ? 'YES' : 'NO'
-          });
+          console.log('✅ SUCCESS! Results received');
           
-          // Store in sessionStorage (survives page navigation)
-          try {
-            sessionStorage.setItem('tesco_session_' + currentSessionId, JSON.stringify({
-              sessionId: currentSessionId,
-              originalImage: data.originalImage,
-              productName: data.productName,
-              results: data.results,
-              timestamp: Date.now()
-            }));
-            console.log('✅ Stored in sessionStorage, navigating...');
-          } catch (e) {
-            console.error('⚠️ sessionStorage failed (images too large), using memory fallback:', e);
-            window.generatedResults = {
-              sessionId: currentSessionId,
-              originalImage: data.originalImage,
-              productName: data.productName,
-              results: data.results
-            };
-          }
-          
+          // Hide loading, show results immediately in-page
           setTimeout(() => {
-            console.log('Navigating to /results/' + currentSessionId);
-            window.location.href = '/results/' + currentSessionId;
+            document.getElementById('loading-modal').classList.add('hidden');
+            displayResultsInline(data);
           }, 500);
         } else {
           console.error('Generation failed:', data.error);
@@ -838,6 +813,136 @@ function getHomePage() {
 
     function hideError() {
       document.getElementById('error-toast').classList.add('hidden');
+    }
+    
+    function displayResultsInline(data) {
+      // Hide upload section, show results
+      document.querySelector('main > .text-center').classList.add('hidden');
+      document.querySelector('main > .bg-white').classList.add('hidden');
+      
+      // Create results section
+      const resultsHTML = \`
+        <div id="results-section" class="animate-fadeIn">
+          <div class="flex items-center justify-between mb-8">
+            <div>
+              <h2 class="text-3xl font-bold text-gray-800">\${data.productName || 'Product Variations'}</h2>
+              <p class="text-gray-500 mt-1">Generated \${new Date().toLocaleString()}</p>
+            </div>
+            <div class="flex items-center gap-4">
+              <button onclick="window.location.reload()" class="px-5 py-2.5 border-2 border-tesco-blue text-tesco-blue rounded-lg font-semibold hover:bg-tesco-blue hover:text-white transition">
+                <i class="fas fa-plus mr-2"></i>New Generation
+              </button>
+              <button onclick="downloadAllInline()" class="px-5 py-2.5 bg-tesco-red text-white rounded-lg font-semibold hover:bg-red-600 transition">
+                <i class="fas fa-download mr-2"></i>Download All (ZIP)
+              </button>
+            </div>
+          </div>
+          
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div class="bg-white rounded-xl shadow-lg p-6">
+              <h3 class="text-lg font-bold text-gray-700 mb-4 flex items-center gap-2">
+                <i class="fas fa-image text-tesco-blue"></i>Original Image
+              </h3>
+              <img src="\${data.originalImage}" class="w-full rounded-lg mb-4 cursor-pointer" onclick="openPreviewInline(this.src)">
+              <button onclick="downloadImageInline('\${data.originalImage}', 'original.jpg')" class="w-full px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition">
+                <i class="fas fa-download mr-2"></i>Download
+              </button>
+            </div>
+            
+            <div class="bg-white rounded-xl shadow-lg p-6">
+              <h3 class="text-lg font-bold text-gray-700 mb-4 flex items-center gap-2">
+                <i class="fas fa-home text-tesco-blue"></i>Lifestyle Kitchen Scene
+              </h3>
+              <img src="\${data.results.lifestyle_image}" class="w-full rounded-lg mb-4 cursor-pointer" onclick="openPreviewInline(this.src)">
+              <button onclick="downloadImageInline('\${data.results.lifestyle_image}', 'lifestyle.jpg')" class="w-full px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition">
+                <i class="fas fa-download mr-2"></i>Download
+              </button>
+            </div>
+            
+            <div class="bg-white rounded-xl shadow-lg p-6">
+              <h3 class="text-lg font-bold text-gray-700 mb-4 flex items-center gap-2">
+                <i class="fas fa-shopping-cart text-tesco-blue"></i>E-commerce Hero Shot
+              </h3>
+              <img src="\${data.results.ecommerce_image}" class="w-full rounded-lg mb-4 cursor-pointer" onclick="openPreviewInline(this.src)">
+              <button onclick="downloadImageInline('\${data.results.ecommerce_image}', 'ecommerce.jpg')" class="w-full px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition">
+                <i class="fas fa-download mr-2"></i>Download
+              </button>
+            </div>
+            
+            <div class="bg-white rounded-xl shadow-lg p-6">
+              <h3 class="text-lg font-bold text-gray-700 mb-4 flex items-center gap-2">
+                <i class="fab fa-instagram text-tesco-blue"></i>Instagram Flat-lay
+              </h3>
+              <img src="\${data.results.instagram_image}" class="w-full rounded-lg mb-4 cursor-pointer" onclick="openPreviewInline(this.src)">
+              <button onclick="downloadImageInline('\${data.results.instagram_image}', 'instagram.jpg')" class="w-full px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition">
+                <i class="fas fa-download mr-2"></i>Download
+              </button>
+            </div>
+            
+            <div class="bg-white rounded-xl shadow-lg p-6">
+              <h3 class="text-lg font-bold text-gray-700 mb-4 flex items-center gap-2">
+                <i class="fas fa-search-plus text-tesco-blue"></i>Macro Detail Close-up
+              </h3>
+              <img src="\${data.results.macro_image}" class="w-full rounded-lg mb-4 cursor-pointer" onclick="openPreviewInline(this.src)">
+              <button onclick="downloadImageInline('\${data.results.macro_image}', 'macro.jpg')" class="w-full px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition">
+                <i class="fas fa-download mr-2"></i>Download
+              </button>
+            </div>
+          </div>
+        </div>
+      \`;
+      
+      document.querySelector('main').insertAdjacentHTML('beforeend', resultsHTML);
+      
+      // Store images globally for download
+      window.currentResults = data;
+    }
+    
+    function openPreviewInline(src) {
+      const modal = document.createElement('div');
+      modal.className = 'fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4';
+      modal.onclick = () => modal.remove();
+      modal.innerHTML = \`<img src="\${src}" class="max-w-full max-h-full rounded-lg shadow-2xl">\`;
+      document.body.appendChild(modal);
+    }
+    
+    function downloadImageInline(dataUrl, filename) {
+      const link = document.createElement('a');
+      link.href = dataUrl;
+      link.download = filename;
+      link.click();
+    }
+    
+    async function downloadAllInline() {
+      if (!window.JSZip || !window.currentResults) return;
+      
+      const zip = new JSZip();
+      const data = window.currentResults;
+      
+      // Convert base64 to blob
+      function base64ToBlob(base64) {
+        const parts = base64.split(',');
+        const byteString = atob(parts[1]);
+        const mimeString = parts[0].split(':')[1].split(';')[0];
+        const ab = new ArrayBuffer(byteString.length);
+        const ia = new Uint8Array(ab);
+        for (let i = 0; i < byteString.length; i++) {
+          ia[i] = byteString.charCodeAt(i);
+        }
+        return new Blob([ab], { type: mimeString });
+      }
+      
+      zip.file('original.jpg', base64ToBlob(data.originalImage));
+      zip.file('lifestyle.jpg', base64ToBlob(data.results.lifestyle_image));
+      zip.file('ecommerce.jpg', base64ToBlob(data.results.ecommerce_image));
+      zip.file('instagram.jpg', base64ToBlob(data.results.instagram_image));
+      zip.file('macro.jpg', base64ToBlob(data.results.macro_image));
+      
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = 'tesco-images-' + Date.now() + '.zip';
+      link.click();
     }
   </script>
 </body>
