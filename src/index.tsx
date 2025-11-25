@@ -269,44 +269,48 @@ app.post('/api/scrape', async (c) => {
 })
 
 // Variation definitions (shared between API and frontend)
-// 5 CLOSE-UP PRODUCT SHOTS (1-5) + 5 LIFESTYLE/CONTEXT SHOTS (6-10)
+// 5 DETAIL/CLOSE-UP SHOTS (1-5) - Trust-building, return-reducing
+// 5 CONTEXT/LIFESTYLE SHOTS (6-10) - Conversion-driving
 const variationDefinitions = [
-  { field: 'hero_white', label: '1. Hero (White BG)' },
-  { field: 'hero_grey', label: '2. Hero (Grey BG)' },
-  { field: 'macro_texture', label: '3. Macro Texture' },
-  { field: 'angle_detail', label: '4. Angle Detail' },
-  { field: 'packaging_closeup', label: '5. Packaging Close-up' },
-  { field: 'lifestyle_kitchen', label: '6. Kitchen Scene' },
-  { field: 'lifestyle_table', label: '7. Table Setting' },
-  { field: 'hand_holding', label: '8. Hand Holding' },
-  { field: 'shopping_bag', label: '9. Shopping Context' },
-  { field: 'social_flatlay', label: '10. Social Flat-Lay' }
+  { field: 'macro_texture', label: '1. Texture Detail' },
+  { field: 'label_branding', label: '2. Label & Branding' },
+  { field: 'construction_detail', label: '3. Construction Detail' },
+  { field: 'color_finish', label: '4. Color & Finish' },
+  { field: 'scale_reference', label: '5. Size Reference' },
+  { field: 'hero_white', label: '6. Hero (White BG)' },
+  { field: 'inuse_action', label: '7. In-Use Action' },
+  { field: 'flatlay_styled', label: '8. Flat-Lay Styled' },
+  { field: 'environment_context', label: '9. Environment Context' },
+  { field: 'multi_angle', label: '10. Multiple Angles' }
 ]
 
-// Shared prompt generator function - explicit transformation instructions
+// Shared prompt generator function - Strategic ecommerce prompts
+// 5 DETAIL shots (reduce returns) + 5 CONTEXT shots (increase conversion)
 function getPrompts(productName: string): Record<string, string> {
   return {
-    // === CLOSE-UP PRODUCT SHOTS (1-5) ===
-    'hero_white': `TRANSFORM this product image: Remove the current background completely and replace with a PURE WHITE (#FFFFFF) seamless studio background. Re-render the ${productName} with professional e-commerce lighting - soft key light from top-left, fill light from right, creating gentle shadows underneath. Center the product, make it fill 70% of frame. This must look like a professional Amazon/retail product listing photo, NOT the original image. Generate a new studio photograph.`,
+    // === DETAIL/CLOSE-UP SHOTS (1-5) - Trust-building, return-reducing ===
     
-    'hero_grey': `TRANSFORM this product image: Remove the background and replace with a NEUTRAL GREY gradient studio backdrop (light grey at top fading to medium grey). Re-photograph the ${productName} with sophisticated rim lighting highlighting the edges, elegant commercial style. Add subtle reflection underneath. This should look like a premium catalog shot - completely different lighting and environment from the original.`,
+    'macro_texture': `Extreme close-up macro photography showing this ${productName} material texture and surface detail. Shallow depth of field with soft bokeh background. Professional studio lighting highlighting weave pattern, grain, or surface texture. Rich color saturation, crisp sharp focus on texture details. Commercial product photography emphasizing quality and craftsmanship. High resolution 2k, premium detail shot that builds customer trust.`,
     
-    'macro_texture': `CREATE an extreme macro close-up shot: Zoom in dramatically on the ${productName} to show surface texture and fine details. Fill 90% of the frame with just a portion of the product - show the material quality, textures, colors up close. Use dramatic shallow depth of field with creamy bokeh blur. This should be a completely different perspective - an artistic detail shot, not the full product view.`,
+    'label_branding': `Close-up product photography focused on this ${productName} branding elements, logo, and label details. Professional studio lighting, sharp focus on typography and brand marks. Slight angle showing product dimensionality while keeping text completely readable. Commercial catalog photography style, color-accurate brand presentation. High resolution 2k, editorial detail quality.`,
     
-    'angle_detail': `RE-PHOTOGRAPH this product from a NEW ANGLE: Create a dynamic 45-degree three-quarter view of the ${productName}. Show the product from a different perspective than the original - emphasize depth and dimension. Professional studio lighting with shadows showing form. The viewpoint must be noticeably different from the source image.`,
+    'construction_detail': `Detailed close-up showing this ${productName} construction quality - seams, stitching, joints, edges, or assembly details. Professional studio lighting emphasizing craftsmanship. Shallow depth of field isolating key quality indicators. Premium product photography highlighting durability and attention to detail. High resolution 2k, trust-building detail shot that reduces returns.`,
     
-    'packaging_closeup': `CREATE a tight crop focusing on the ${productName} packaging and branding. Zoom in on the label/logo area, make text and branding the hero. Slight angle to show dimension. Crystal clear focus on typography and brand elements. Professional lighting making colors vibrant. This is a DETAIL SHOT of the packaging, not a full product view.`,
+    'color_finish': `Close-up photography of this ${productName} emphasizing true-to-life color accuracy and surface finish. Professional color-corrected studio lighting. Neutral background to showcase product color without distraction. Lighting angles showing sheen, matte finish, or surface quality. Commercial product photography for accurate buyer expectations. High resolution 2k, color-faithful presentation.`,
     
-    // === LIFESTYLE/CONTEXT SHOTS (6-10) ===
-    'lifestyle_kitchen': `PLACE this ${productName} into a NEW SCENE: A warm, inviting kitchen environment. Position the product on a wooden countertop or cutting board near a window with soft morning light streaming in. Add contextual props - fresh ingredients, a knife, kitchen towels. Create a cozy, homey atmosphere. The product must be IN a kitchen setting, not on a plain background.`,
+    'scale_reference': `Product photography of this ${productName} with clear scale reference showing actual size. Close-up composition with human hand partially in frame OR common object for size comparison. Professional studio lighting, clear perspective on product dimensions. Ecommerce photography that reduces size-related returns. High resolution 2k, practical size-accurate presentation.`,
     
-    'lifestyle_table': `CREATE a styled table setting scene: Place the ${productName} on an elegant dining table with complementary items - white plates, cloth napkins, cutlery, perhaps a glass of water or wine. Natural daylight from a window. Magazine editorial quality - this should look like a food/lifestyle photoshoot, completely different from a product-only shot.`,
+    // === CONTEXT/LIFESTYLE SHOTS (6-10) - Conversion-driving ===
     
-    'hand_holding': `GENERATE a lifestyle shot with HUMAN INTERACTION: Show a realistic human hand holding or reaching for the ${productName}. Natural skin tones, casual grip demonstrating scale and usability. Clean, simple background (kitchen or neutral). This adds the human element - a person actually using/touching the product.`,
+    'hero_white': `Clean professional product photo of this ${productName} on pure white background. Studio lighting from multiple angles. Product positioned at slight 45-degree angle showing depth and dimensionality. Soft natural shadow underneath. Centered composition. Amazon and Shopify listing style. High resolution 2k, catalog-quality commercial photography.`,
     
-    'shopping_bag': `CREATE a shopping context scene: Show the ${productName} emerging from or placed next to a brown paper shopping bag or canvas tote. Add other grocery items partially visible. Clean, bright setting suggesting a quality shopping experience. Fresh-from-the-store feeling - the product in a retail/purchase context.`,
+    'inuse_action': `This ${productName} being actively used in real-world scenario. Natural hands interacting with product showing scale and functionality. Authentic everyday setting. Lifestyle photography demonstrating practical application. Candid moment captured. Relatable use-case photography. Natural lighting. High resolution 2k, genuine user experience style.`,
     
-    'social_flatlay': `CREATE an Instagram flat-lay composition: Overhead bird's eye view looking straight down. Place the ${productName} on a marble or light wood surface. Arrange complementary props aesthetically around it - fresh herbs, linen napkin, small decorative items. Modern social media aesthetic with beautiful natural lighting. Pinterest-worthy styled shot - completely different from a standard product photo.`
+    'flatlay_styled': `Flat-lay composition of this ${productName} photographed directly from above. Product styled with complementary accessories and props on neutral surface. Instagram aesthetic with intentional negative space. Natural window lighting. Curated lifestyle arrangement. Social media content style. Balanced composition. High resolution 2k, aspirational product styling.`,
+    
+    'environment_context': `This ${productName} in natural environment relevant to its use. Soft natural lighting showing product in realistic setting. Background slightly blurred to emphasize product as hero. Lifestyle photography creating emotional connection and showing product purpose. Authentic scene composition. High resolution 2k, contextual storytelling style.`,
+    
+    'multi_angle': `This ${productName} shown from three key angles in single composition: front view, side profile, and top-down perspective. Clean white or grey background. Professional studio lighting consistent across all angles. Commercial photography showing complete product understanding. Informative multi-view layout. High resolution 2k, comprehensive product documentation style.`
   }
 }
 
@@ -977,21 +981,21 @@ function getHomePage() {
     }
     
     // All 10 variation definitions for the frontend
-    // 5 CLOSE-UP SHOTS (1-5) + 5 LIFESTYLE SHOTS (6-10)
+    // 5 DETAIL SHOTS (trust-building) + 5 CONTEXT SHOTS (conversion)
     const variationDefs = [
       { field: 'original', label: 'Original', icon: 'fas fa-image', filename: '00-original.jpg', isOriginal: true },
-      // Close-up product shots
-      { field: 'hero_white', label: '1. Hero (White)', icon: 'fas fa-square', filename: '01-hero-white.jpg' },
-      { field: 'hero_grey', label: '2. Hero (Grey)', icon: 'fas fa-square-full', filename: '02-hero-grey.jpg' },
-      { field: 'macro_texture', label: '3. Macro Detail', icon: 'fas fa-search-plus', filename: '03-macro-texture.jpg' },
-      { field: 'angle_detail', label: '4. Angle Shot', icon: 'fas fa-cube', filename: '04-angle-detail.jpg' },
-      { field: 'packaging_closeup', label: '5. Packaging', icon: 'fas fa-box', filename: '05-packaging-closeup.jpg' },
-      // Lifestyle shots
-      { field: 'lifestyle_kitchen', label: '6. Kitchen', icon: 'fas fa-utensils', filename: '06-kitchen-scene.jpg' },
-      { field: 'lifestyle_table', label: '7. Table Setting', icon: 'fas fa-chair', filename: '07-table-setting.jpg' },
-      { field: 'hand_holding', label: '8. Hand Holding', icon: 'fas fa-hand-holding', filename: '08-hand-holding.jpg' },
-      { field: 'shopping_bag', label: '9. Shopping', icon: 'fas fa-shopping-bag', filename: '09-shopping-bag.jpg' },
-      { field: 'social_flatlay', label: '10. Flat-Lay', icon: 'fab fa-instagram', filename: '10-social-flatlay.jpg' }
+      // Detail/Close-up shots (1-5) - Reduce returns
+      { field: 'macro_texture', label: '1. Texture Detail', icon: 'fas fa-search-plus', filename: '01-texture-detail.jpg' },
+      { field: 'label_branding', label: '2. Label & Branding', icon: 'fas fa-tag', filename: '02-label-branding.jpg' },
+      { field: 'construction_detail', label: '3. Construction', icon: 'fas fa-tools', filename: '03-construction-detail.jpg' },
+      { field: 'color_finish', label: '4. Color & Finish', icon: 'fas fa-palette', filename: '04-color-finish.jpg' },
+      { field: 'scale_reference', label: '5. Size Reference', icon: 'fas fa-ruler', filename: '05-size-reference.jpg' },
+      // Context/Lifestyle shots (6-10) - Drive conversion
+      { field: 'hero_white', label: '6. Hero (White BG)', icon: 'fas fa-square', filename: '06-hero-white.jpg' },
+      { field: 'inuse_action', label: '7. In-Use Action', icon: 'fas fa-hand-pointer', filename: '07-inuse-action.jpg' },
+      { field: 'flatlay_styled', label: '8. Flat-Lay Styled', icon: 'fab fa-instagram', filename: '08-flatlay-styled.jpg' },
+      { field: 'environment_context', label: '9. Environment', icon: 'fas fa-tree', filename: '09-environment-context.jpg' },
+      { field: 'multi_angle', label: '10. Multi-Angle', icon: 'fas fa-cube', filename: '10-multi-angle.jpg' }
     ];
     
     let currentLightboxIndex = 0;
@@ -1210,17 +1214,19 @@ function getHomePage() {
       // Add original
       zip.file('00-original.jpg', base64ToBlob(data.originalImage));
       
-      // Add all 10 variations (5 close-ups + 5 lifestyle)
-      if (data.results.hero_white) zip.file('01-hero-white.jpg', base64ToBlob(data.results.hero_white));
-      if (data.results.hero_grey) zip.file('02-hero-grey.jpg', base64ToBlob(data.results.hero_grey));
-      if (data.results.macro_texture) zip.file('03-macro-texture.jpg', base64ToBlob(data.results.macro_texture));
-      if (data.results.angle_detail) zip.file('04-angle-detail.jpg', base64ToBlob(data.results.angle_detail));
-      if (data.results.packaging_closeup) zip.file('05-packaging-closeup.jpg', base64ToBlob(data.results.packaging_closeup));
-      if (data.results.lifestyle_kitchen) zip.file('06-kitchen-scene.jpg', base64ToBlob(data.results.lifestyle_kitchen));
-      if (data.results.lifestyle_table) zip.file('07-table-setting.jpg', base64ToBlob(data.results.lifestyle_table));
-      if (data.results.hand_holding) zip.file('08-hand-holding.jpg', base64ToBlob(data.results.hand_holding));
-      if (data.results.shopping_bag) zip.file('09-shopping-bag.jpg', base64ToBlob(data.results.shopping_bag));
-      if (data.results.social_flatlay) zip.file('10-social-flatlay.jpg', base64ToBlob(data.results.social_flatlay));
+      // Add all 10 variations (5 detail + 5 context)
+      // Detail shots (1-5)
+      if (data.results.macro_texture) zip.file('01-texture-detail.jpg', base64ToBlob(data.results.macro_texture));
+      if (data.results.label_branding) zip.file('02-label-branding.jpg', base64ToBlob(data.results.label_branding));
+      if (data.results.construction_detail) zip.file('03-construction-detail.jpg', base64ToBlob(data.results.construction_detail));
+      if (data.results.color_finish) zip.file('04-color-finish.jpg', base64ToBlob(data.results.color_finish));
+      if (data.results.scale_reference) zip.file('05-size-reference.jpg', base64ToBlob(data.results.scale_reference));
+      // Context shots (6-10)
+      if (data.results.hero_white) zip.file('06-hero-white.jpg', base64ToBlob(data.results.hero_white));
+      if (data.results.inuse_action) zip.file('07-inuse-action.jpg', base64ToBlob(data.results.inuse_action));
+      if (data.results.flatlay_styled) zip.file('08-flatlay-styled.jpg', base64ToBlob(data.results.flatlay_styled));
+      if (data.results.environment_context) zip.file('09-environment-context.jpg', base64ToBlob(data.results.environment_context));
+      if (data.results.multi_angle) zip.file('10-multi-angle.jpg', base64ToBlob(data.results.multi_angle));
       
       const blob = await zip.generateAsync({ type: 'blob' });
       const link = document.createElement('a');
