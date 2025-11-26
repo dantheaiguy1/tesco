@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
+import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 
 type Bindings = {
   TESCO_DB: D1Database;
@@ -8,6 +9,45 @@ type Bindings = {
   VERTEX_PROJECT_ID: string;
   VERTEX_CLIENT_EMAIL: string;
   VERTEX_PRIVATE_KEY: string;
+  // Stripe Configuration
+  STRIPE_SECRET_KEY: string;
+  STRIPE_PUBLISHABLE_KEY: string;
+  STRIPE_WEBHOOK_SECRET: string;
+  STRIPE_PRICE_ID_SUBSCRIPTION: string;
+  STRIPE_PRICE_ID_TOPUP: string;
+  // Session
+  SESSION_SECRET: string;
+}
+
+// User type for authenticated requests
+type User = {
+  id: string;
+  email: string;
+  name: string | null;
+  credits_balance: number;
+  subscription_status: 'free' | 'active' | 'canceled' | 'past_due';
+  subscription_plan: 'free' | 'pro';
+  stripe_customer_id: string | null;
+}
+
+type Variables = {
+  user?: User;
+}
+
+// ============================================================================
+// CREDIT SYSTEM CONFIGURATION
+// ============================================================================
+const CREDITS = {
+  SIGNUP_BONUS: 10,           // Free credits on registration
+  PER_IMAGE: 1,               // Cost per successful image generation
+  SINGLE_REGENERATION: 1,     // Cost for single variation regeneration
+  SUBSCRIPTION_MONTHLY: 300,  // Credits added on Pro subscription
+  TOPUP_PACK: 300,            // Credits in one-time purchase
+}
+
+const PRICING = {
+  SUBSCRIPTION: 39.99,        // £39.99/month
+  TOPUP: 39.99,               // £39.99 one-time
 }
 
 // ============================================================================
@@ -217,13 +257,276 @@ async function generateImageWithVertex(
   return { success: false, error: `Rate limit exceeded after ${maxRetries} retries. Try again in a few minutes. [Model: ${vertexModel}]` };
 }
 
-const app = new Hono<{ Bindings: Bindings }>()
+// ============================================================================
+// PASSWORD HASHING (PBKDF2 - Web Crypto API compatible)
+// ============================================================================
+async function hashPassword(password: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(password),
+    'PBKDF2',
+    false,
+    ['deriveBits']
+  );
+  const hash = await crypto.subtle.deriveBits(
+    {
+      name: 'PBKDF2',
+      salt: salt,
+      iterations: 100000,
+      hash: 'SHA-256'
+    },
+    keyMaterial,
+    256
+  );
+  const hashArray = new Uint8Array(hash);
+  const combined = new Uint8Array(salt.length + hashArray.length);
+  combined.set(salt);
+  combined.set(hashArray, salt.length);
+  return btoa(String.fromCharCode(...combined));
+}
+
+async function verifyPassword(password: string, storedHash: string): Promise<boolean> {
+  try {
+    const encoder = new TextEncoder();
+    const combined = Uint8Array.from(atob(storedHash), c => c.charCodeAt(0));
+    const salt = combined.slice(0, 16);
+    const storedHashBytes = combined.slice(16);
+    
+    const keyMaterial = await crypto.subtle.importKey(
+      'raw',
+      encoder.encode(password),
+      'PBKDF2',
+      false,
+      ['deriveBits']
+    );
+    const hash = await crypto.subtle.deriveBits(
+      {
+        name: 'PBKDF2',
+        salt: salt,
+        iterations: 100000,
+        hash: 'SHA-256'
+      },
+      keyMaterial,
+      256
+    );
+    const hashArray = new Uint8Array(hash);
+    
+    if (hashArray.length !== storedHashBytes.length) return false;
+    for (let i = 0; i < hashArray.length; i++) {
+      if (hashArray[i] !== storedHashBytes[i]) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ============================================================================
+// SESSION MANAGEMENT
+// ============================================================================
+function generateSessionToken(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function createUserSession(db: D1Database, userId: string): Promise<string> {
+  const sessionId = generateSessionToken();
+  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
+  
+  await db.prepare(`
+    INSERT INTO user_sessions (id, user_id, expires_at) VALUES (?, ?, ?)
+  `).bind(sessionId, userId, expiresAt.toISOString()).run();
+  
+  return sessionId;
+}
+
+async function getUserFromSession(db: D1Database, sessionId: string): Promise<User | null> {
+  const session = await db.prepare(`
+    SELECT us.user_id, us.expires_at, u.* 
+    FROM user_sessions us
+    JOIN users u ON u.id = us.user_id
+    WHERE us.id = ?
+  `).bind(sessionId).first() as any;
+  
+  if (!session) return null;
+  if (new Date(session.expires_at) < new Date()) {
+    // Session expired, delete it
+    await db.prepare('DELETE FROM user_sessions WHERE id = ?').bind(sessionId).run();
+    return null;
+  }
+  
+  return {
+    id: session.user_id,
+    email: session.email,
+    name: session.name,
+    credits_balance: session.credits_balance,
+    subscription_status: session.subscription_status,
+    subscription_plan: session.subscription_plan,
+    stripe_customer_id: session.stripe_customer_id
+  };
+}
+
+async function deleteUserSession(db: D1Database, sessionId: string): Promise<void> {
+  await db.prepare('DELETE FROM user_sessions WHERE id = ?').bind(sessionId).run();
+}
+
+// ============================================================================
+// CREDIT MANAGEMENT
+// ============================================================================
+async function deductCredits(
+  db: D1Database, 
+  userId: string, 
+  amount: number, 
+  type: string, 
+  description: string,
+  sessionId?: string
+): Promise<{ success: boolean; newBalance?: number; error?: string }> {
+  // Get current balance
+  const user = await db.prepare('SELECT credits_balance FROM users WHERE id = ?').bind(userId).first() as any;
+  if (!user) return { success: false, error: 'User not found' };
+  
+  if (user.credits_balance < amount) {
+    return { success: false, error: 'Insufficient credits' };
+  }
+  
+  const newBalance = user.credits_balance - amount;
+  const transactionId = generateId();
+  
+  // Update balance and log transaction
+  await db.prepare('UPDATE users SET credits_balance = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+    .bind(newBalance, userId).run();
+  
+  await db.prepare(`
+    INSERT INTO credit_transactions (id, user_id, amount, balance_after, type, description, session_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).bind(transactionId, userId, -amount, newBalance, type, description, sessionId || null).run();
+  
+  return { success: true, newBalance };
+}
+
+async function addCredits(
+  db: D1Database, 
+  userId: string, 
+  amount: number, 
+  type: string, 
+  description: string,
+  stripePaymentId?: string
+): Promise<{ success: boolean; newBalance?: number; error?: string }> {
+  const user = await db.prepare('SELECT credits_balance FROM users WHERE id = ?').bind(userId).first() as any;
+  if (!user) return { success: false, error: 'User not found' };
+  
+  const newBalance = user.credits_balance + amount;
+  const transactionId = generateId();
+  
+  await db.prepare('UPDATE users SET credits_balance = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+    .bind(newBalance, userId).run();
+  
+  await db.prepare(`
+    INSERT INTO credit_transactions (id, user_id, amount, balance_after, type, description, stripe_payment_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).bind(transactionId, userId, amount, newBalance, type, description, stripePaymentId || null).run();
+  
+  return { success: true, newBalance };
+}
+
+async function getCreditBalance(db: D1Database, userId: string): Promise<number> {
+  const user = await db.prepare('SELECT credits_balance FROM users WHERE id = ?').bind(userId).first() as any;
+  return user?.credits_balance || 0;
+}
+
+// ============================================================================
+// STRIPE API HELPERS
+// ============================================================================
+async function stripeRequest(
+  secretKey: string, 
+  endpoint: string, 
+  method: string = 'GET', 
+  body?: Record<string, any>
+): Promise<any> {
+  const url = `https://api.stripe.com/v1${endpoint}`;
+  const headers: Record<string, string> = {
+    'Authorization': `Bearer ${secretKey}`,
+  };
+  
+  let requestBody: string | undefined;
+  if (body) {
+    headers['Content-Type'] = 'application/x-www-form-urlencoded';
+    requestBody = new URLSearchParams(
+      Object.entries(body).flatMap(([key, value]) => {
+        if (typeof value === 'object' && value !== null) {
+          return Object.entries(value).map(([k, v]) => [`${key}[${k}]`, String(v)]);
+        }
+        return [[key, String(value)]];
+      })
+    ).toString();
+  }
+  
+  const response = await fetch(url, { method, headers, body: requestBody });
+  const data = await response.json();
+  
+  if (!response.ok) {
+    throw new Error(data.error?.message || `Stripe error: ${response.status}`);
+  }
+  
+  return data;
+}
+
+async function verifyStripeWebhook(
+  payload: string, 
+  signature: string, 
+  secret: string
+): Promise<any> {
+  const parts = signature.split(',').reduce((acc: any, part) => {
+    const [key, value] = part.split('=');
+    acc[key] = value;
+    return acc;
+  }, {});
+  
+  const timestamp = parts['t'];
+  const v1Signature = parts['v1'];
+  
+  if (!timestamp || !v1Signature) {
+    throw new Error('Invalid signature format');
+  }
+  
+  // Check timestamp is within 5 minutes
+  const currentTime = Math.floor(Date.now() / 1000);
+  if (Math.abs(currentTime - parseInt(timestamp)) > 300) {
+    throw new Error('Webhook timestamp too old');
+  }
+  
+  // Compute expected signature
+  const signedPayload = `${timestamp}.${payload}`;
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const signatureBytes = await crypto.subtle.sign('HMAC', key, encoder.encode(signedPayload));
+  const expectedSignature = Array.from(new Uint8Array(signatureBytes))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+  
+  if (expectedSignature !== v1Signature) {
+    throw new Error('Invalid webhook signature');
+  }
+  
+  return JSON.parse(payload);
+}
+
+const app = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
 app.use('*', cors())
 
 // Auto-migrate database on first request
 async function ensureDatabase(db: D1Database) {
   try {
+    // Sessions table
     await db.prepare(`
       CREATE TABLE IF NOT EXISTS sessions (
         id TEXT PRIMARY KEY,
@@ -238,12 +541,16 @@ async function ensureDatabase(db: D1Database) {
         status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'generating', 'completed', 'failed')),
         error_message TEXT,
         model TEXT DEFAULT 'nano',
+        user_id TEXT,
+        credits_charged INTEGER DEFAULT 0,
+        credits_refunded INTEGER DEFAULT 0,
+        generation_count INTEGER DEFAULT 0,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `).run()
     
-    // Table for generated images (each row is one variation, ~50-100KB each)
+    // Generated images table
     await db.prepare(`
       CREATE TABLE IF NOT EXISTS generated_images (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -257,20 +564,127 @@ async function ensureDatabase(db: D1Database) {
       )
     `).run()
     
+    // Users table
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        email TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        name TEXT,
+        credits_balance INTEGER NOT NULL DEFAULT 10,
+        subscription_status TEXT NOT NULL DEFAULT 'free' CHECK (subscription_status IN ('free', 'active', 'canceled', 'past_due')),
+        stripe_customer_id TEXT,
+        stripe_subscription_id TEXT,
+        subscription_plan TEXT NOT NULL DEFAULT 'free' CHECK (subscription_plan IN ('free', 'pro')),
+        billing_period_start DATETIME,
+        billing_period_end DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `).run()
+    
+    // Credit transactions table
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS credit_transactions (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        amount INTEGER NOT NULL,
+        balance_after INTEGER NOT NULL,
+        type TEXT NOT NULL CHECK (type IN ('signup_bonus', 'subscription', 'topup', 'generation', 'regeneration', 'refund')),
+        description TEXT,
+        session_id TEXT,
+        stripe_payment_id TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `).run()
+    
+    // User sessions table (auth)
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS user_sessions (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        expires_at DATETIME NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `).run()
+    
+    // Stripe events table (idempotency)
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS stripe_events (
+        id TEXT PRIMARY KEY,
+        type TEXT NOT NULL,
+        user_id TEXT,
+        processed INTEGER NOT NULL DEFAULT 0,
+        data TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `).run()
+    
+    // Create indexes
     await db.prepare('CREATE INDEX IF NOT EXISTS idx_sessions_created_at ON sessions(created_at DESC)').run()
     await db.prepare('CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status)').run()
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)').run()
     await db.prepare('CREATE INDEX IF NOT EXISTS idx_generated_images_session ON generated_images(session_id)').run()
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)').run()
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_users_stripe_customer ON users(stripe_customer_id)').run()
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_credit_transactions_user ON credit_transactions(user_id)').run()
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id)').run()
     
-    // Migration: Add model column if it doesn't exist (for existing databases)
-    try {
-      await db.prepare('ALTER TABLE sessions ADD COLUMN model TEXT DEFAULT \'nano\'').run()
-    } catch (e) { /* Column already exists */ }
-    try {
-      await db.prepare('ALTER TABLE generated_images ADD COLUMN model TEXT DEFAULT \'nano\'').run()
-    } catch (e) { /* Column already exists */ }
+    // Migration: Add new columns to sessions if they don't exist
+    try { await db.prepare('ALTER TABLE sessions ADD COLUMN model TEXT DEFAULT \'nano\'').run() } catch (e) {}
+    try { await db.prepare('ALTER TABLE sessions ADD COLUMN user_id TEXT').run() } catch (e) {}
+    try { await db.prepare('ALTER TABLE sessions ADD COLUMN credits_charged INTEGER DEFAULT 0').run() } catch (e) {}
+    try { await db.prepare('ALTER TABLE sessions ADD COLUMN credits_refunded INTEGER DEFAULT 0').run() } catch (e) {}
+    try { await db.prepare('ALTER TABLE sessions ADD COLUMN generation_count INTEGER DEFAULT 0').run() } catch (e) {}
+    try { await db.prepare('ALTER TABLE generated_images ADD COLUMN model TEXT DEFAULT \'nano\'').run() } catch (e) {}
   } catch (err) {
     console.log('Database already initialized or error:', err)
   }
+}
+
+// ============================================================================
+// AUTHENTICATION MIDDLEWARE
+// ============================================================================
+// Middleware to optionally load user from session cookie (all routes)
+app.use('*', async (c, next) => {
+  const sessionId = getCookie(c, 'session');
+  if (sessionId) {
+    const db = c.env.TESCO_DB;
+    const user = await getUserFromSession(db, sessionId);
+    if (user) {
+      c.set('user', user);
+    }
+  }
+  await next();
+});
+
+// Helper to require authentication
+function requireAuth(c: any): User | Response {
+  const user = c.get('user');
+  if (!user) {
+    return c.json({ success: false, error: 'Authentication required' }, 401);
+  }
+  return user;
+}
+
+// Helper to require sufficient credits
+async function requireCredits(c: any, amount: number): Promise<User | Response> {
+  const user = c.get('user');
+  if (!user) {
+    return c.json({ success: false, error: 'Authentication required' }, 401);
+  }
+  if (user.credits_balance < amount) {
+    return c.json({ 
+      success: false, 
+      error: 'Insufficient credits',
+      required: amount,
+      current: user.credits_balance,
+      needsUpgrade: true
+    }, 402);
+  }
+  return user;
 }
 
 // Generate unique ID
@@ -356,7 +770,8 @@ app.get('/api/test-vertex-image', async (c) => {
 
 // Homepage
 app.get('/', (c) => {
-  return c.html(getHomePage())
+  const user = c.get('user')
+  return c.html(getHomePage(user))
 })
 
 // History page - redirect to home (now uses sidebar)
@@ -366,18 +781,62 @@ app.get('/history', (c) => {
 
 // Results page
 app.get('/results/:id', (c) => {
-  return c.html(getResultsPage(c.req.param('id')))
+  const user = c.get('user')
+  return c.html(getResultsPage(c.req.param('id'), user))
 })
 
-// API: Get all sessions
+// Login page
+app.get('/login', (c) => {
+  const user = c.get('user')
+  if (user) return c.redirect('/')
+  return c.html(getLoginPage())
+})
+
+// Register page
+app.get('/register', (c) => {
+  const user = c.get('user')
+  if (user) return c.redirect('/')
+  return c.html(getRegisterPage())
+})
+
+// Dashboard page
+app.get('/dashboard', (c) => {
+  const user = c.get('user')
+  if (!user) return c.redirect('/login')
+  return c.html(getDashboardPage(user))
+})
+
+// Pricing page
+app.get('/pricing', (c) => {
+  const user = c.get('user')
+  return c.html(getPricingPage(user))
+})
+
+// Account page
+app.get('/account', (c) => {
+  const user = c.get('user')
+  if (!user) return c.redirect('/login')
+  return c.html(getAccountPage(user))
+})
+
+// API: Get all sessions (filtered by authenticated user)
 app.get('/api/sessions', async (c) => {
   try {
     const db = c.env.TESCO_DB
     await ensureDatabase(db)
-    const result = await db.prepare(
-      'SELECT * FROM sessions ORDER BY created_at DESC'
-    ).all()
-    return c.json({ success: true, sessions: result.results })
+    
+    const user = c.get('user')
+    
+    // If authenticated, return user's sessions; otherwise return empty (guest mode)
+    if (user) {
+      const result = await db.prepare(
+        'SELECT * FROM sessions WHERE user_id = ? ORDER BY created_at DESC'
+      ).bind(user.id).all()
+      return c.json({ success: true, sessions: result.results })
+    } else {
+      // Guest mode - no sessions
+      return c.json({ success: true, sessions: [] })
+    }
   } catch (error) {
     console.error('Error fetching sessions:', error)
     return c.json({ success: false, error: 'Failed to fetch sessions' }, 500)
@@ -389,9 +848,20 @@ app.get('/api/sessions/:id', async (c) => {
   try {
     const db = c.env.TESCO_DB
     const id = c.req.param('id')
-    const session = await db.prepare(
-      'SELECT * FROM sessions WHERE id = ?'
-    ).bind(id).first()
+    const user = c.get('user')
+    
+    // Build query based on auth status
+    let session
+    if (user) {
+      session = await db.prepare(
+        'SELECT * FROM sessions WHERE id = ? AND user_id = ?'
+      ).bind(id, user.id).first()
+    } else {
+      // Allow viewing session without auth for share links
+      session = await db.prepare(
+        'SELECT * FROM sessions WHERE id = ?'
+      ).bind(id).first()
+    }
     
     if (!session) {
       return c.json({ success: false, error: 'Session not found' }, 404)
@@ -448,13 +918,411 @@ app.post('/api/sessions/:id/images', async (c) => {
   }
 })
 
+// ============================================================================
+// AUTHENTICATION ROUTES
+// ============================================================================
+
+// Register new user
+app.post('/api/auth/register', async (c) => {
+  try {
+    const db = c.env.TESCO_DB;
+    await ensureDatabase(db);
+    
+    const { email, password, name } = await c.req.json();
+    
+    if (!email || !password) {
+      return c.json({ success: false, error: 'Email and password required' }, 400);
+    }
+    
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return c.json({ success: false, error: 'Invalid email format' }, 400);
+    }
+    
+    // Check password strength
+    if (password.length < 6) {
+      return c.json({ success: false, error: 'Password must be at least 6 characters' }, 400);
+    }
+    
+    // Check if user exists
+    const existingUser = await db.prepare('SELECT id FROM users WHERE email = ?').bind(email.toLowerCase()).first();
+    if (existingUser) {
+      return c.json({ success: false, error: 'Email already registered' }, 400);
+    }
+    
+    // Create user
+    const userId = generateId();
+    const passwordHash = await hashPassword(password);
+    
+    await db.prepare(`
+      INSERT INTO users (id, email, password_hash, name, credits_balance)
+      VALUES (?, ?, ?, ?, ?)
+    `).bind(userId, email.toLowerCase(), passwordHash, name || null, CREDITS.SIGNUP_BONUS).run();
+    
+    // Log signup bonus
+    await db.prepare(`
+      INSERT INTO credit_transactions (id, user_id, amount, balance_after, type, description)
+      VALUES (?, ?, ?, ?, 'signup_bonus', 'Welcome bonus credits')
+    `).bind(generateId(), userId, CREDITS.SIGNUP_BONUS, CREDITS.SIGNUP_BONUS).run();
+    
+    // Create session
+    const sessionId = await createUserSession(db, userId);
+    
+    // Set cookie
+    setCookie(c, 'session', sessionId, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'Strict',
+      maxAge: 30 * 24 * 60 * 60, // 30 days
+      path: '/'
+    });
+    
+    return c.json({ 
+      success: true, 
+      user: {
+        id: userId,
+        email: email.toLowerCase(),
+        name: name || null,
+        credits_balance: CREDITS.SIGNUP_BONUS,
+        subscription_status: 'free',
+        subscription_plan: 'free'
+      }
+    });
+  } catch (error) {
+    console.error('Registration error:', error);
+    return c.json({ success: false, error: 'Registration failed' }, 500);
+  }
+});
+
+// Login
+app.post('/api/auth/login', async (c) => {
+  try {
+    const db = c.env.TESCO_DB;
+    await ensureDatabase(db);
+    
+    const { email, password } = await c.req.json();
+    
+    if (!email || !password) {
+      return c.json({ success: false, error: 'Email and password required' }, 400);
+    }
+    
+    const user = await db.prepare(`
+      SELECT id, email, password_hash, name, credits_balance, subscription_status, subscription_plan, stripe_customer_id
+      FROM users WHERE email = ?
+    `).bind(email.toLowerCase()).first() as any;
+    
+    if (!user) {
+      return c.json({ success: false, error: 'Invalid email or password' }, 401);
+    }
+    
+    const validPassword = await verifyPassword(password, user.password_hash);
+    if (!validPassword) {
+      return c.json({ success: false, error: 'Invalid email or password' }, 401);
+    }
+    
+    // Create session
+    const sessionId = await createUserSession(db, user.id);
+    
+    // Set cookie
+    setCookie(c, 'session', sessionId, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'Strict',
+      maxAge: 30 * 24 * 60 * 60,
+      path: '/'
+    });
+    
+    return c.json({
+      success: true,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        credits_balance: user.credits_balance,
+        subscription_status: user.subscription_status,
+        subscription_plan: user.subscription_plan
+      }
+    });
+  } catch (error) {
+    console.error('Login error:', error);
+    return c.json({ success: false, error: 'Login failed' }, 500);
+  }
+});
+
+// Logout
+app.post('/api/auth/logout', async (c) => {
+  const sessionId = getCookie(c, 'session');
+  if (sessionId) {
+    await deleteUserSession(c.env.TESCO_DB, sessionId);
+  }
+  deleteCookie(c, 'session', { path: '/' });
+  return c.json({ success: true });
+});
+
+// Get current user
+app.get('/api/auth/me', async (c) => {
+  const user = c.get('user');
+  if (!user) {
+    return c.json({ success: false, user: null });
+  }
+  return c.json({ success: true, user });
+});
+
+// ============================================================================
+// CREDIT MANAGEMENT ROUTES
+// ============================================================================
+
+// Get credit balance
+app.get('/api/credits/balance', async (c) => {
+  const authResult = requireAuth(c);
+  if (authResult instanceof Response) return authResult;
+  const user = authResult;
+  
+  return c.json({ 
+    success: true, 
+    balance: user.credits_balance,
+    subscription_status: user.subscription_status,
+    subscription_plan: user.subscription_plan
+  });
+});
+
+// Get credit history
+app.get('/api/credits/history', async (c) => {
+  const authResult = requireAuth(c);
+  if (authResult instanceof Response) return authResult;
+  const user = authResult;
+  
+  const db = c.env.TESCO_DB;
+  const transactions = await db.prepare(`
+    SELECT * FROM credit_transactions 
+    WHERE user_id = ? 
+    ORDER BY created_at DESC 
+    LIMIT 50
+  `).bind(user.id).all();
+  
+  return c.json({ success: true, transactions: transactions.results });
+});
+
+// ============================================================================
+// STRIPE BILLING ROUTES
+// ============================================================================
+
+// Create checkout session (subscription or top-up)
+app.post('/api/billing/create-checkout', async (c) => {
+  const authResult = requireAuth(c);
+  if (authResult instanceof Response) return authResult;
+  const user = authResult;
+  
+  const { type } = await c.req.json(); // 'subscription' or 'topup'
+  const db = c.env.TESCO_DB;
+  
+  if (!['subscription', 'topup'].includes(type)) {
+    return c.json({ success: false, error: 'Invalid checkout type' }, 400);
+  }
+  
+  const priceId = type === 'subscription' 
+    ? c.env.STRIPE_PRICE_ID_SUBSCRIPTION 
+    : c.env.STRIPE_PRICE_ID_TOPUP;
+  
+  const mode = type === 'subscription' ? 'subscription' : 'payment';
+  
+  // Get or create Stripe customer
+  let stripeCustomerId = user.stripe_customer_id;
+  if (!stripeCustomerId) {
+    const customer = await stripeRequest(c.env.STRIPE_SECRET_KEY, '/customers', 'POST', {
+      email: user.email,
+      name: user.name || undefined,
+      metadata: { user_id: user.id }
+    });
+    stripeCustomerId = customer.id;
+    await db.prepare('UPDATE users SET stripe_customer_id = ? WHERE id = ?')
+      .bind(stripeCustomerId, user.id).run();
+  }
+  
+  // Get the current URL for success/cancel redirects
+  const origin = new URL(c.req.url).origin;
+  
+  const session = await stripeRequest(c.env.STRIPE_SECRET_KEY, '/checkout/sessions', 'POST', {
+    customer: stripeCustomerId,
+    mode: mode,
+    'line_items[0][price]': priceId,
+    'line_items[0][quantity]': 1,
+    success_url: `${origin}/dashboard?checkout=success&type=${type}`,
+    cancel_url: `${origin}/pricing?checkout=canceled`,
+    client_reference_id: user.id,
+    'metadata[user_id]': user.id,
+    'metadata[type]': type
+  });
+  
+  return c.json({ success: true, url: session.url, sessionId: session.id });
+});
+
+// Stripe webhook handler
+app.post('/api/billing/webhook', async (c) => {
+  const signature = c.req.header('stripe-signature');
+  if (!signature) {
+    return c.json({ error: 'Missing signature' }, 400);
+  }
+  
+  const payload = await c.req.text();
+  
+  let event;
+  try {
+    event = await verifyStripeWebhook(payload, signature, c.env.STRIPE_WEBHOOK_SECRET);
+  } catch (err) {
+    console.error('Webhook verification failed:', err);
+    return c.json({ error: 'Invalid signature' }, 400);
+  }
+  
+  const db = c.env.TESCO_DB;
+  
+  // Check if event already processed (idempotency)
+  const existingEvent = await db.prepare('SELECT id FROM stripe_events WHERE id = ?').bind(event.id).first();
+  if (existingEvent) {
+    return c.json({ received: true, already_processed: true });
+  }
+  
+  // Store event for idempotency
+  await db.prepare(`
+    INSERT INTO stripe_events (id, type, data) VALUES (?, ?, ?)
+  `).bind(event.id, event.type, JSON.stringify(event.data)).run();
+  
+  try {
+    switch (event.type) {
+      case 'checkout.session.completed': {
+        const session = event.data.object;
+        const userId = session.client_reference_id || session.metadata?.user_id;
+        const checkoutType = session.metadata?.type;
+        
+        if (userId && checkoutType) {
+          // Add credits
+          await addCredits(db, userId, CREDITS.SUBSCRIPTION_MONTHLY, checkoutType, 
+            checkoutType === 'subscription' ? 'Pro subscription started' : '300 Credit Pack purchase',
+            session.id);
+          
+          // Update subscription status if subscription
+          if (checkoutType === 'subscription') {
+            await db.prepare(`
+              UPDATE users SET 
+                subscription_status = 'active', 
+                subscription_plan = 'pro',
+                stripe_subscription_id = ?,
+                updated_at = CURRENT_TIMESTAMP
+              WHERE id = ?
+            `).bind(session.subscription, userId).run();
+          }
+          
+          // Update stripe_events with user_id
+          await db.prepare('UPDATE stripe_events SET user_id = ?, processed = 1 WHERE id = ?')
+            .bind(userId, event.id).run();
+        }
+        break;
+      }
+      
+      case 'invoice.payment_succeeded': {
+        const invoice = event.data.object;
+        // Only process renewal payments (not initial subscription)
+        if (invoice.billing_reason === 'subscription_cycle') {
+          const customer = await stripeRequest(
+            c.env.STRIPE_SECRET_KEY, 
+            `/customers/${invoice.customer}`
+          );
+          const userId = customer.metadata?.user_id;
+          
+          if (userId) {
+            await addCredits(db, userId, CREDITS.SUBSCRIPTION_MONTHLY, 'subscription',
+              'Monthly subscription renewal', invoice.id);
+            
+            await db.prepare('UPDATE stripe_events SET user_id = ?, processed = 1 WHERE id = ?')
+              .bind(userId, event.id).run();
+          }
+        }
+        break;
+      }
+      
+      case 'customer.subscription.deleted': {
+        const subscription = event.data.object;
+        const user = await db.prepare(`
+          SELECT id FROM users WHERE stripe_subscription_id = ?
+        `).bind(subscription.id).first() as any;
+        
+        if (user) {
+          await db.prepare(`
+            UPDATE users SET 
+              subscription_status = 'canceled',
+              stripe_subscription_id = NULL,
+              updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+          `).bind(user.id).run();
+          
+          await db.prepare('UPDATE stripe_events SET user_id = ?, processed = 1 WHERE id = ?')
+            .bind(user.id, event.id).run();
+        }
+        break;
+      }
+      
+      case 'invoice.payment_failed': {
+        const invoice = event.data.object;
+        const customer = await stripeRequest(
+          c.env.STRIPE_SECRET_KEY, 
+          `/customers/${invoice.customer}`
+        );
+        const userId = customer.metadata?.user_id;
+        
+        if (userId) {
+          await db.prepare(`
+            UPDATE users SET subscription_status = 'past_due', updated_at = CURRENT_TIMESTAMP WHERE id = ?
+          `).bind(userId).run();
+          
+          await db.prepare('UPDATE stripe_events SET user_id = ?, processed = 1 WHERE id = ?')
+            .bind(userId, event.id).run();
+        }
+        break;
+      }
+    }
+    
+    await db.prepare('UPDATE stripe_events SET processed = 1 WHERE id = ?').bind(event.id).run();
+  } catch (err) {
+    console.error('Webhook processing error:', err);
+    // Don't fail the webhook, just log the error
+  }
+  
+  return c.json({ received: true });
+});
+
+// Customer billing portal
+app.get('/api/billing/portal', async (c) => {
+  const authResult = requireAuth(c);
+  if (authResult instanceof Response) return authResult;
+  const user = authResult;
+  
+  if (!user.stripe_customer_id) {
+    return c.json({ success: false, error: 'No billing account found' }, 400);
+  }
+  
+  const origin = new URL(c.req.url).origin;
+  
+  const session = await stripeRequest(c.env.STRIPE_SECRET_KEY, '/billing_portal/sessions', 'POST', {
+    customer: user.stripe_customer_id,
+    return_url: `${origin}/account`
+  });
+  
+  return c.json({ success: true, url: session.url });
+});
+
+// ============================================================================
+// GENERAL API ROUTES
+// ============================================================================
+
 // API: Health check
 app.get('/api/health', async (c) => {
   return c.json({ 
     status: 'ok',
     hasGeminiKey: !!c.env.GEMINI_API_KEY,
     keyLength: c.env.GEMINI_API_KEY?.length || 0,
-    hasDB: !!c.env.TESCO_DB
+    hasDB: !!c.env.TESCO_DB,
+    hasStripe: !!c.env.STRIPE_SECRET_KEY
   })
 })
 
@@ -470,11 +1338,26 @@ app.post('/api/test-body', async (c) => {
   })
 })
 
-// API: Create session from upload
+// API: Create session from upload (requires auth + credits for full generation)
 app.post('/api/upload', async (c) => {
   try {
     const db = c.env.TESCO_DB
     await ensureDatabase(db)
+    
+    // Check authentication and credits (10 credits for full generation)
+    const user = c.get('user')
+    if (!user) {
+      return c.json({ success: false, error: 'Authentication required', needsAuth: true }, 401)
+    }
+    if (user.credits_balance < CREDITS.PER_IMAGE) {
+      return c.json({ 
+        success: false, 
+        error: 'Insufficient credits. You need at least 1 credit to start.',
+        required: CREDITS.PER_IMAGE,
+        current: user.credits_balance,
+        needsUpgrade: true
+      }, 402)
+    }
     
     const formData = await c.req.formData()
     const file = formData.get('image') as File
@@ -513,24 +1396,45 @@ app.post('/api/upload', async (c) => {
     const productName = file.name.replace(/\.[^.]+$/, '')
     
     // Store thumbnail in D1 (small enough to fit in row limit)
-    // Thumbnail is ~20-40KB, well under D1's 1MB limit
     await db.prepare(`
-      INSERT INTO sessions (id, product_name, source_type, original_image, status, model)
-      VALUES (?, ?, 'upload', ?, 'pending', ?)
-    `).bind(sessionId, productName, thumbnail || '', model).run()
+      INSERT INTO sessions (id, product_name, source_type, original_image, status, model, user_id)
+      VALUES (?, ?, 'upload', ?, 'pending', ?, ?)
+    `).bind(sessionId, productName, thumbnail || '', model, user.id).run()
 
-    return c.json({ success: true, sessionId, originalImage: dataUrl, model })
+    return c.json({ 
+      success: true, 
+      sessionId, 
+      originalImage: dataUrl, 
+      model,
+      credits_balance: user.credits_balance,
+      credits_required: CREDITS.PER_IMAGE
+    })
   } catch (error) {
     console.error('Upload error:', error)
     return c.json({ success: false, error: 'Failed to process upload' }, 500)
   }
 })
 
-// API: Scrape URL
+// API: Scrape URL (requires auth + credits)
 app.post('/api/scrape', async (c) => {
   try {
     const db = c.env.TESCO_DB
     await ensureDatabase(db)
+    
+    // Check authentication and credits (need at least 1 to start)
+    const user = c.get('user')
+    if (!user) {
+      return c.json({ success: false, error: 'Authentication required', needsAuth: true }, 401)
+    }
+    if (user.credits_balance < CREDITS.PER_IMAGE) {
+      return c.json({ 
+        success: false, 
+        error: 'Insufficient credits. You need at least 1 credit to start.',
+        required: CREDITS.PER_IMAGE,
+        current: user.credits_balance,
+        needsUpgrade: true
+      }, 402)
+    }
     
     const body = await c.req.json()
     const { url, model: requestModel } = body
@@ -607,16 +1511,23 @@ app.post('/api/scrape', async (c) => {
     const contentType = imageResponse.headers.get('content-type') || 'image/jpeg'
     const dataUrl = `data:${contentType};base64,${base64}`
 
-    // Create session
+    // Create session with user_id
     const sessionId = generateId()
     
-    // Store only metadata in D1 (base64 images are too large for D1's 1MB row limit)
     await db.prepare(`
-      INSERT INTO sessions (id, product_name, source_type, source_url, original_image, status, model)
-      VALUES (?, ?, 'url', ?, '', 'pending', ?)
-    `).bind(sessionId, productName, url, model).run()
+      INSERT INTO sessions (id, product_name, source_type, source_url, original_image, status, model, user_id)
+      VALUES (?, ?, 'url', ?, '', 'pending', ?, ?)
+    `).bind(sessionId, productName, url, model, user.id).run()
 
-    return c.json({ success: true, sessionId, originalImage: dataUrl, productName, model })
+    return c.json({ 
+      success: true, 
+      sessionId, 
+      originalImage: dataUrl, 
+      productName, 
+      model,
+      credits_balance: user.credits_balance,
+      credits_required: CREDITS.PER_IMAGE
+    })
   } catch (error) {
     console.error('Scrape error:', error)
     return c.json({ success: false, error: 'Failed to scrape URL' }, 500)
@@ -669,10 +1580,29 @@ function getPrompts(productName: string): Record<string, string> {
 }
 
 // API: Generate a single variation (called individually for each)
+// Note: Credits are deducted when completing the full generation, not per-variation
 app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
   const sessionId = c.req.param('sessionId')
   const variationIndex = parseInt(c.req.param('variationIndex'))
   const db = c.env.TESCO_DB
+  
+  // Check authentication and credits
+  const user = c.get('user')
+  if (!user) {
+    return c.json({ success: false, error: 'Authentication required', needsAuth: true }, 401)
+  }
+  
+  // Check if user has at least 1 credit
+  if (user.credits_balance < CREDITS.PER_IMAGE) {
+    return c.json({ 
+      success: false, 
+      error: 'Insufficient credits',
+      required: CREDITS.PER_IMAGE,
+      current: user.credits_balance,
+      needsUpgrade: true,
+      field: variationDefinitions[variationIndex]?.field
+    }, 402)
+  }
   
   // Vertex AI credentials
   const projectId = c.env.VERTEX_PROJECT_ID
@@ -730,10 +1660,25 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
     
     if (!result.success) {
       console.error(`[${variation.field}] API error:`, result.error)
+      // NO credit deduction on failure
       return c.json({ success: false, error: result.error, field: variation.field }, 500)
     }
     
-    console.log(`[${variation.field}] Success!${isCustom ? ' (Custom Prompt)' : ''} [${modelInfo.name}]`)
+    // SUCCESS: Deduct 1 credit for this image
+    const creditResult = await deductCredits(
+      db,
+      user.id,
+      CREDITS.PER_IMAGE,
+      'generation',
+      `Image: ${variation.label}`,
+      sessionId
+    )
+    
+    // Update session stats
+    await db.prepare('UPDATE sessions SET generation_count = generation_count + 1, credits_charged = credits_charged + 1 WHERE id = ?')
+      .bind(sessionId).run()
+    
+    console.log(`[${variation.field}] Success! Credit deducted. New balance: ${creditResult.newBalance}${isCustom ? ' (Custom Prompt)' : ''} [${modelInfo.name}]`)
     return c.json({ 
       success: true, 
       field: variation.field, 
@@ -742,13 +1687,159 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
       elapsed,
       isCustom,
       model: modelKey,
-      modelName: modelInfo.name
+      modelName: modelInfo.name,
+      credits_deducted: CREDITS.PER_IMAGE,
+      credits_remaining: creditResult.newBalance
     })
     
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err)
     console.error(`Error:`, errorMsg)
+    // NO credit deduction on error
     return c.json({ success: false, error: errorMsg, field: variationDefinitions[variationIndex]?.field || 'unknown' }, 500)
+  }
+})
+
+// API: Mark session as complete (credits already deducted per-image)
+app.post('/api/sessions/:id/complete', async (c) => {
+  const sessionId = c.req.param('id')
+  const db = c.env.TESCO_DB
+  
+  const user = c.get('user')
+  if (!user) {
+    return c.json({ success: false, error: 'Authentication required' }, 401)
+  }
+  
+  try {
+    // Get session
+    const session = await db.prepare('SELECT * FROM sessions WHERE id = ? AND user_id = ?')
+      .bind(sessionId, user.id).first() as any
+    
+    if (!session) {
+      return c.json({ success: false, error: 'Session not found' }, 404)
+    }
+    
+    // Just update status to completed (credits already deducted per-image)
+    await db.prepare(`
+      UPDATE sessions SET 
+        status = 'completed',
+        updated_at = CURRENT_TIMESTAMP 
+      WHERE id = ?
+    `).bind(sessionId).run()
+    
+    return c.json({ 
+      success: true, 
+      credits_charged: session.credits_charged,
+      status: 'completed'
+    })
+  } catch (error) {
+    console.error('Complete generation error:', error)
+    return c.json({ success: false, error: 'Failed to complete generation' }, 500)
+  }
+})
+
+// API: Regenerate single variation (costs 1 credit)
+app.post('/api/regenerate/:sessionId/:variationIndex', async (c) => {
+  const sessionId = c.req.param('sessionId')
+  const variationIndex = parseInt(c.req.param('variationIndex'))
+  const db = c.env.TESCO_DB
+  
+  // Check authentication and credits
+  const user = c.get('user')
+  if (!user) {
+    return c.json({ success: false, error: 'Authentication required', needsAuth: true }, 401)
+  }
+  if (user.credits_balance < CREDITS.SINGLE_REGENERATION) {
+    return c.json({ 
+      success: false, 
+      error: 'Insufficient credits for regeneration',
+      required: CREDITS.SINGLE_REGENERATION,
+      current: user.credits_balance,
+      needsUpgrade: true
+    }, 402)
+  }
+  
+  // Verify session belongs to user
+  const session = await db.prepare('SELECT * FROM sessions WHERE id = ? AND user_id = ?')
+    .bind(sessionId, user.id).first()
+  if (!session) {
+    return c.json({ success: false, error: 'Session not found' }, 404)
+  }
+  
+  // Vertex AI credentials
+  const projectId = c.env.VERTEX_PROJECT_ID
+  const clientEmail = c.env.VERTEX_CLIENT_EMAIL
+  const privateKey = c.env.VERTEX_PRIVATE_KEY
+  
+  try {
+    const body = await c.req.json().catch(() => ({}))
+    const originalImage = body.originalImage
+    const productName = body.productName || 'product'
+    const customPrompt = body.customPrompt
+    const modelKey = body.model || DEFAULT_MODEL
+    
+    if (!originalImage || originalImage.length < 100) {
+      return c.json({ success: false, error: 'No image provided' }, 400)
+    }
+    
+    if (!projectId || !clientEmail || !privateKey) {
+      return c.json({ success: false, error: 'Vertex AI credentials not configured' }, 500)
+    }
+
+    const prompts = getPrompts(productName)
+    const variation = variationDefinitions[variationIndex]
+    if (!variation) {
+      return c.json({ success: false, error: 'Invalid variation index' }, 400)
+    }
+    
+    const prompt = customPrompt || prompts[variation.field]
+    const modelInfo = MODEL_INFO[modelKey] || MODEL_INFO[DEFAULT_MODEL]
+    
+    const startTime = Date.now()
+    const mimeType = originalImage.split(';')[0].split(':')[1]
+    const imageBase64 = originalImage.split(',')[1]
+    
+    const result = await generateImageWithVertex(
+      projectId,
+      clientEmail,
+      privateKey,
+      imageBase64,
+      mimeType,
+      prompt,
+      modelKey
+    )
+    
+    const elapsed = Date.now() - startTime
+    
+    if (!result.success) {
+      return c.json({ success: false, error: result.error }, 500)
+    }
+    
+    // Deduct 1 credit for regeneration
+    const creditResult = await deductCredits(
+      db, 
+      user.id, 
+      CREDITS.SINGLE_REGENERATION, 
+      'regeneration',
+      `Regenerate ${variation.label}: ${productName}`,
+      sessionId
+    )
+    
+    return c.json({ 
+      success: true, 
+      field: variation.field, 
+      label: variation.label,
+      image: result.image,
+      elapsed,
+      model: modelKey,
+      modelName: modelInfo.name,
+      credits_charged: CREDITS.SINGLE_REGENERATION,
+      new_balance: creditResult.newBalance
+    })
+    
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err)
+    return c.json({ success: false, error: errorMsg }, 500)
   }
 })
 
@@ -885,7 +1976,233 @@ app.patch('/api/sessions/:id', async (c) => {
 })
 
 // HTML Templates - ShopShot Branded
-function getHomePage() {
+
+// User menu HTML for header
+function getUserMenuHTML(user: User | undefined): string {
+  if (user) {
+    return `
+      <div class="user-menu">
+        <div class="credits-badge" title="Credits remaining">
+          <span class="credits-icon">💳</span>
+          <span class="credits-count">${user.credits_balance}</span>
+        </div>
+        <div class="user-dropdown">
+          <button class="user-btn" onclick="toggleUserMenu()">
+            <span class="user-avatar">${(user.name || user.email)[0].toUpperCase()}</span>
+            <span class="user-name">${user.name || user.email.split('@')[0]}</span>
+            <span class="dropdown-arrow">▼</span>
+          </button>
+          <div class="dropdown-menu" id="userDropdown">
+            <a href="/dashboard" class="dropdown-item">📊 Dashboard</a>
+            <a href="/pricing" class="dropdown-item">💰 Buy Credits</a>
+            <a href="/account" class="dropdown-item">⚙️ Account</a>
+            <hr class="dropdown-divider">
+            <button onclick="logout()" class="dropdown-item logout-btn">🚪 Logout</button>
+          </div>
+        </div>
+      </div>
+    `;
+  } else {
+    return `
+      <div class="auth-buttons">
+        <a href="/login" class="auth-btn login-btn">Log In</a>
+        <a href="/register" class="auth-btn signup-btn">Sign Up Free</a>
+      </div>
+    `;
+  }
+}
+
+// User menu styles
+function getUserMenuStyles(): string {
+  return `
+    .user-menu { display: flex; align-items: center; gap: 12px; }
+    .credits-badge {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 6px 12px;
+      background: linear-gradient(135deg, #F0FDF4 0%, #DCFCE7 100%);
+      border: 1px solid #BBF7D0;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #166534;
+    }
+    .credits-icon { font-size: 14px; }
+    .user-dropdown { position: relative; }
+    .user-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      background: white;
+      border: 1px solid #E5E7EB;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .user-btn:hover { background: #F9FAFB; }
+    .user-avatar {
+      width: 28px;
+      height: 28px;
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: 600;
+      font-size: 12px;
+    }
+    .user-name { font-size: 13px; font-weight: 500; color: #374151; max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dropdown-arrow { font-size: 10px; color: #9CA3AF; }
+    .dropdown-menu {
+      display: none;
+      position: absolute;
+      top: 100%;
+      right: 0;
+      margin-top: 8px;
+      min-width: 180px;
+      background: white;
+      border: 1px solid #E5E7EB;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      z-index: 100;
+      overflow: hidden;
+    }
+    .dropdown-menu.show { display: block; }
+    .dropdown-item {
+      display: block;
+      padding: 10px 16px;
+      font-size: 13px;
+      color: #374151;
+      text-decoration: none;
+      transition: background 0.15s;
+      cursor: pointer;
+      border: none;
+      background: none;
+      width: 100%;
+      text-align: left;
+    }
+    .dropdown-item:hover { background: #F3F4F6; }
+    .dropdown-divider { border: none; border-top: 1px solid #E5E7EB; margin: 4px 0; }
+    .logout-btn { color: #DC2626; }
+    .logout-btn:hover { background: #FEF2F2; }
+    
+    .auth-buttons { display: flex; gap: 8px; }
+    .auth-btn {
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+    .login-btn { color: #374151; border: 1px solid #E5E7EB; background: white; }
+    .login-btn:hover { background: #F9FAFB; }
+    .signup-btn { 
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%); 
+      color: white; 
+      border: none;
+    }
+    .signup-btn:hover { opacity: 0.9; }
+  `;
+}
+
+// Auth page shared styles
+function getAuthPageStyles(): string {
+  return `
+    .auth-container {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #F0F9FF 0%, #E0E7FF 100%);
+      padding: 24px;
+    }
+    .auth-card {
+      width: 100%;
+      max-width: 400px;
+      background: white;
+      border-radius: 16px;
+      padding: 32px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.1);
+    }
+    .auth-logo {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-bottom: 24px;
+    }
+    .auth-logo-icon {
+      width: 40px;
+      height: 40px;
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .auth-logo-text { font-size: 24px; font-weight: 700; color: #1F2937; }
+    .auth-title { font-size: 24px; font-weight: 700; color: #1F2937; text-align: center; margin-bottom: 8px; }
+    .auth-subtitle { font-size: 14px; color: #6B7280; text-align: center; margin-bottom: 24px; }
+    .auth-form { display: flex; flex-direction: column; gap: 16px; }
+    .form-group { display: flex; flex-direction: column; gap: 6px; }
+    .form-label { font-size: 13px; font-weight: 500; color: #374151; }
+    .form-input {
+      padding: 12px 14px;
+      border: 1px solid #E5E7EB;
+      border-radius: 8px;
+      font-size: 14px;
+      transition: border-color 0.2s;
+    }
+    .form-input:focus { outline: none; border-color: #3B82F6; }
+    .auth-btn {
+      padding: 14px;
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .auth-btn:hover { opacity: 0.9; }
+    .auth-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .auth-error {
+      padding: 12px;
+      background: #FEF2F2;
+      border: 1px solid #FECACA;
+      border-radius: 8px;
+      color: #DC2626;
+      font-size: 13px;
+      text-align: center;
+      display: none;
+    }
+    .auth-error.show { display: block; }
+    .auth-footer { margin-top: 20px; text-align: center; font-size: 13px; color: #6B7280; }
+    .auth-footer a { color: #3B82F6; text-decoration: none; font-weight: 500; }
+    .auth-footer a:hover { text-decoration: underline; }
+    .auth-divider {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 20px 0;
+      color: #9CA3AF;
+      font-size: 12px;
+    }
+    .auth-divider::before, .auth-divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: #E5E7EB;
+    }
+  `;
+}
+
+function getHomePage(user?: User) {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1013,6 +2330,65 @@ function getHomePage() {
       font-size: 11px;
       color: #9CA3AF;
     }
+    
+    .credits-indicator {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      margin: 8px;
+      background: linear-gradient(135deg, #F0FDF4 0%, #DCFCE7 100%);
+      border: 1px solid #BBF7D0;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .credits-indicator:hover {
+      background: linear-gradient(135deg, #DCFCE7 0%, #BBF7D0 100%);
+      transform: translateY(-1px);
+    }
+    .credits-indicator.low {
+      background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%);
+      border-color: #FCD34D;
+    }
+    .credits-indicator.empty {
+      background: linear-gradient(135deg, #FEE2E2 0%, #FECACA 100%);
+      border-color: #FCA5A5;
+    }
+    .credits-left {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .credits-label {
+      font-size: 10px;
+      color: #6B7280;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .credits-value {
+      font-size: 18px;
+      font-weight: 700;
+      color: #166534;
+    }
+    .credits-indicator.low .credits-value { color: #92400E; }
+    .credits-indicator.empty .credits-value { color: #DC2626; }
+    .credits-add {
+      background: #10B981;
+      color: white;
+      border: none;
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .credits-add:hover { background: #059669; }
+    .credits-indicator.low .credits-add { background: #F59E0B; }
+    .credits-indicator.low .credits-add:hover { background: #D97706; }
+    .credits-indicator.empty .credits-add { background: #EF4444; }
+    .credits-indicator.empty .credits-add:hover { background: #DC2626; }
     
     /* Main content */
     .main-content {
@@ -1507,6 +2883,57 @@ function getHomePage() {
       .upload-container { padding: 24px 16px; }
       .quality-options { flex-direction: column; }
     }
+    
+    /* Paywall Modal */
+    .paywall-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.6);
+      z-index: 200;
+      display: none;
+      align-items: center;
+      justify-content: center;
+    }
+    .paywall-overlay.show { display: flex; }
+    .paywall-modal {
+      background: white;
+      border-radius: 16px;
+      padding: 32px;
+      max-width: 420px;
+      width: 90%;
+      text-align: center;
+    }
+    .paywall-icon { font-size: 48px; margin-bottom: 16px; }
+    .paywall-title { font-size: 22px; font-weight: 700; color: #1F2937; margin-bottom: 8px; }
+    .paywall-text { font-size: 14px; color: #6B7280; margin-bottom: 24px; line-height: 1.5; }
+    .paywall-credits { display: flex; justify-content: center; gap: 8px; margin-bottom: 24px; }
+    .credits-stat { padding: 12px 20px; background: #F3F4F6; border-radius: 8px; }
+    .credits-stat-label { font-size: 11px; color: #9CA3AF; text-transform: uppercase; }
+    .credits-stat-value { font-size: 20px; font-weight: 700; color: #1F2937; }
+    .paywall-btns { display: flex; flex-direction: column; gap: 12px; }
+    .paywall-btn {
+      padding: 14px 24px;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-decoration: none;
+      display: block;
+    }
+    .paywall-btn-primary {
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      color: white;
+      border: none;
+    }
+    .paywall-btn-secondary {
+      background: white;
+      color: #374151;
+      border: 1px solid #E5E7EB;
+    }
+    .paywall-close { margin-top: 16px; font-size: 13px; color: #9CA3AF; cursor: pointer; }
+    
+    ${getUserMenuStyles()}
   </style>
 </head>
 <body>
@@ -1524,6 +2951,13 @@ function getHomePage() {
       <div style="text-align:center; padding:24px 8px; color:#9CA3AF; font-size:13px;">
         No sessions yet
       </div>
+    </div>
+    <div id="credits-indicator" class="credits-indicator" onclick="window.location.href='/pricing'">
+      <div class="credits-left">
+        <span class="credits-label">Credits</span>
+        <span id="credits-display" class="credits-value">--</span>
+      </div>
+      <button class="credits-add" onclick="event.stopPropagation(); window.location.href='/pricing'">+ Add</button>
     </div>
     <div class="sidebar-footer">
       <span id="session-count">0 generations</span>
@@ -1544,8 +2978,31 @@ function getHomePage() {
         </div>
         <span class="logo-text">ShopShot</span>
       </div>
-      <div id="header-actions"></div>
+      ${getUserMenuHTML(user)}
     </header>
+    
+    <!-- Paywall Modal -->
+    <div id="paywall-modal" class="paywall-overlay">
+      <div class="paywall-modal">
+        <div class="paywall-icon">💳</div>
+        <h2 class="paywall-title">Need More Credits</h2>
+        <p class="paywall-text" id="paywall-text">You need credits to generate product photos.</p>
+        <div class="paywall-credits">
+          <div class="credits-stat">
+            <div class="credits-stat-label">Required</div>
+            <div class="credits-stat-value" id="paywall-required">10</div>
+          </div>
+          <div class="credits-stat">
+            <div class="credits-stat-label">You Have</div>
+            <div class="credits-stat-value" id="paywall-current">${user?.credits_balance || 0}</div>
+          </div>
+        </div>
+        <div class="paywall-btns">
+          <a href="/pricing" class="paywall-btn paywall-btn-primary">Get Credits</a>
+          <button onclick="closePaywall()" class="paywall-btn paywall-btn-secondary">Maybe Later</button>
+        </div>
+      </div>
+    </div>
 
     <!-- Upload Screen -->
     <div id="upload-screen" class="upload-container">
@@ -1658,6 +3115,71 @@ function getHomePage() {
     let lightboxImages = [];
     let currentLightboxIndex = 0;
     let customPrompts = {};
+    let currentUser = ${user ? JSON.stringify({ id: user.id, email: user.email, name: user.name, credits_balance: user.credits_balance }) : 'null'};
+
+    // User Menu Functions
+    function toggleUserMenu() {
+      const menu = document.getElementById('userDropdown');
+      if (menu) menu.classList.toggle('show');
+    }
+    
+    // Close dropdown when clicking outside
+    document.addEventListener('click', (e) => {
+      const dropdown = document.getElementById('userDropdown');
+      const userBtn = e.target.closest('.user-btn');
+      if (dropdown && !userBtn) dropdown.classList.remove('show');
+    });
+    
+    async function logout() {
+      try {
+        await fetch('/api/auth/logout', { method: 'POST' });
+        window.location.href = '/login';
+      } catch (e) {
+        console.error('Logout failed:', e);
+      }
+    }
+    
+    // Paywall Functions
+    function showPaywall(required = 10) {
+      const modal = document.getElementById('paywall-modal');
+      const reqEl = document.getElementById('paywall-required');
+      const curEl = document.getElementById('paywall-current');
+      const textEl = document.getElementById('paywall-text');
+      
+      if (reqEl) reqEl.textContent = required;
+      if (curEl) curEl.textContent = currentUser?.credits_balance || 0;
+      if (textEl) {
+        if (!currentUser) {
+          textEl.textContent = 'Sign up free to get 10 credits and start generating!';
+        } else {
+          textEl.textContent = 'You need ' + required + ' credits to generate product photos.';
+        }
+      }
+      if (modal) modal.classList.add('show');
+    }
+    
+    function closePaywall() {
+      const modal = document.getElementById('paywall-modal');
+      if (modal) modal.classList.remove('show');
+    }
+    
+    // Check if user has enough credits
+    function hasCredits(required = 10) {
+      if (!currentUser) return false;
+      return currentUser.credits_balance >= required;
+    }
+    
+    // Update credits indicator style based on balance
+    function updateCreditsIndicatorStyle(balance) {
+      const indicator = document.getElementById('credits-indicator');
+      if (!indicator) return;
+      indicator.classList.remove('low', 'empty');
+      if (balance === 0) {
+        indicator.classList.add('empty');
+      } else if (balance < 10) {
+        indicator.classList.add('low');
+      }
+    }
 
     // Variation definitions
     const variationDefs = [
@@ -1854,8 +3376,19 @@ function getHomePage() {
         if (data.success) {
           currentSessionId = data.sessionId;
           loadSessions();
+        } else if (data.needsAuth) {
+          // Redirect to login
+          window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname);
+        } else if (data.needsUpgrade) {
+          // Show paywall modal
+          showPaywallModal(data.required, data.current);
+        } else {
+          showError(data.error || 'Upload failed');
         }
-      } catch (e) { console.error('Upload failed:', e); }
+      } catch (e) { 
+        console.error('Upload failed:', e);
+        showError('Upload failed. Please try again.');
+      }
     }
 
     // Generation
@@ -1913,15 +3446,20 @@ function getHomePage() {
         await Promise.allSettled(promises);
       }
       
-      // Update session
+      // Complete session and deduct credits
       try {
-        await fetch('/api/sessions/' + currentSessionId, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: 'completed' })
+        const completeRes = await fetch('/api/sessions/' + currentSessionId + '/complete', {
+          method: 'POST'
         });
+        const completeData = await completeRes.json();
+        if (completeData.success) {
+          console.log('Generation complete. Credits charged:', completeData.credits_charged, 'New balance:', completeData.new_balance);
+        }
         loadSessions();
-      } catch (e) {}
+        updateCreditsDisplay(); // Update the sidebar credits indicator
+      } catch (e) {
+        console.error('Failed to complete session:', e);
+      }
     }
 
     async function generateSingle(index, startTime) {
@@ -1961,6 +3499,16 @@ function getHomePage() {
               '<button onclick="event.stopPropagation(); downloadImage(' + index + ')">⬇️</button>' +
             '</div>' +
             '<div class="card-label">' + v.label + '</div>';
+          // Update credits display after each successful generation
+          if (data.credits_remaining !== undefined) {
+            document.getElementById('credits-display').textContent = data.credits_remaining;
+            updateCreditsIndicatorStyle(data.credits_remaining);
+          }
+        } else if (data.needsUpgrade) {
+          // Out of credits mid-generation
+          card.innerHTML = '<div style="width:100%; aspect-ratio:1; background:#FEF3C7; border-radius:6px; display:flex; align-items:center; justify-content:center; color:#92400E; cursor:pointer" onclick="window.location.href=\\'/pricing\\'">💳 Need Credits</div>' +
+            '<div class="card-label">' + v.label + '</div>';
+          showPaywallModal(data.required, data.current);
         } else {
           card.innerHTML = '<div style="width:100%; aspect-ratio:1; background:#FEE2E2; border-radius:6px; display:flex; align-items:center; justify-content:center; color:#DC2626; cursor:pointer" onclick="regenerate(' + index + ')">⚠️ Retry</div>' +
             '<div class="card-label">' + v.label + '</div>';
@@ -1977,9 +3525,73 @@ function getHomePage() {
       const card = document.getElementById('card-' + index);
       const v = variationDefs[index];
       card.innerHTML = '<div class="card-loading" style="width:100%; aspect-ratio:1; border-radius:6px;"></div>' +
-        '<div class="card-progress"><div class="card-progress-bar" style="width:50%"></div></div>' +
+        '<div class="card-progress"><div class="card-progress-bar" id="progress-' + index + '" style="width:0%"></div></div>' +
         '<div class="card-label">' + v.label + '</div>';
-      await generateSingle(index, Date.now());
+      
+      // Animate progress
+      let progress = 0;
+      const progressBar = document.getElementById('progress-' + index);
+      const interval = setInterval(() => {
+        progress = Math.min(95, progress + 2);
+        if (progressBar) progressBar.style.width = progress + '%';
+      }, 500);
+
+      try {
+        // Use regenerate endpoint (costs 1 credit)
+        const res = await fetch('/api/regenerate/' + currentSessionId + '/' + (index - 1), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            originalImage: currentOriginalImage,
+            productName: document.getElementById('product-name-edit')?.value || 'Product',
+            customPrompt: customPrompts[index],
+            model: selectedModel
+          })
+        });
+
+        clearInterval(interval);
+        const data = await res.json();
+        
+        if (data.needsAuth) {
+          window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname);
+          return;
+        }
+        
+        if (data.needsUpgrade) {
+          showPaywallModal(data.required, data.current);
+          // Restore previous image
+          if (lightboxImages[index]) {
+            card.innerHTML = '<img src="' + lightboxImages[index].src + '" onclick="openLightbox(' + index + ')">' +
+              '<div class="card-overlay">' +
+                '<button onclick="event.stopPropagation(); regenerate(' + index + ')">🔄</button>' +
+                '<button onclick="event.stopPropagation(); downloadImage(' + index + ')">⬇️</button>' +
+              '</div>' +
+              '<div class="card-label">' + v.label + '</div>';
+          }
+          return;
+        }
+        
+        if (data.success && data.image) {
+          lightboxImages[index] = { src: data.image, label: v.label };
+          card.innerHTML = '<img src="' + data.image + '" onclick="openLightbox(' + index + ')">' +
+            '<div class="card-overlay">' +
+              '<button onclick="event.stopPropagation(); regenerate(' + index + ')">🔄</button>' +
+              '<button onclick="event.stopPropagation(); downloadImage(' + index + ')">⬇️</button>' +
+            '</div>' +
+            '<div class="card-label">' + v.label + '</div>';
+          updateCreditsDisplay(); // Update credits after regeneration
+        } else {
+          card.innerHTML = '<div class="card-error">❌</div>' +
+            '<div class="card-label">' + v.label + '</div>';
+          showError(data.error || 'Regeneration failed');
+        }
+      } catch (e) {
+        clearInterval(interval);
+        console.error('Regeneration failed:', e);
+        card.innerHTML = '<div class="card-error">❌</div>' +
+          '<div class="card-label">' + v.label + '</div>';
+        showError('Regeneration failed. Please try again.');
+      }
     }
 
     // Lightbox
@@ -2085,9 +3697,40 @@ function getHomePage() {
       setTimeout(() => document.getElementById('error-toast').classList.remove('show'), 4000);
     }
 
+    // Fetch and update credits display
+    async function updateCreditsDisplay() {
+      try {
+        const res = await fetch('/api/credits/balance');
+        const data = await res.json();
+        const indicator = document.getElementById('credits-indicator');
+        const display = document.getElementById('credits-display');
+        
+        if (data.success) {
+          const balance = data.balance;
+          display.textContent = balance;
+          
+          // Update indicator style based on balance
+          indicator.classList.remove('low', 'empty');
+          if (balance === 0) {
+            indicator.classList.add('empty');
+          } else if (balance < 10) {
+            indicator.classList.add('low');
+          }
+        } else {
+          // Not logged in - show login prompt
+          display.textContent = '0';
+          indicator.classList.add('empty');
+          indicator.onclick = () => window.location.href = '/login';
+        }
+      } catch (e) {
+        console.error('Failed to fetch credits:', e);
+      }
+    }
+
     // Init
     document.addEventListener('DOMContentLoaded', () => {
       loadSessions();
+      updateCreditsDisplay();
     });
 
     // Keyboard
@@ -2106,7 +3749,7 @@ function getHomePage() {
 </body>
 </html>`
 }
-function getResultsPage(sessionId: string) {
+function getResultsPage(sessionId: string, user?: User) {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -2802,6 +4445,622 @@ function getHistoryPage() {
     }
 
     loadHistory();
+  </script>
+</body>
+</html>`
+}
+
+// ============================================================================
+// LOGIN PAGE
+// ============================================================================
+function getLoginPage() {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login - ShopShot</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'><stop offset='0%25' style='stop-color:%233B82F6'/><stop offset='100%25' style='stop-color:%238B5CF6'/></linearGradient></defs><rect width='100' height='100' rx='22' fill='url(%23g)'/><circle cx='50' cy='50' r='28' fill='none' stroke='white' stroke-width='6'/><circle cx='50' cy='50' r='12' fill='white'/></svg>">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { font-family: 'Inter', system-ui, sans-serif; }
+    ${getAuthPageStyles()}
+  </style>
+</head>
+<body>
+  <div class="auth-container">
+    <div class="auth-card">
+      <div class="auth-logo">
+        <div class="auth-logo-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" width="24" height="24">
+            <circle cx="12" cy="12" r="10"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+        </div>
+        <span class="auth-logo-text">ShopShot</span>
+      </div>
+      
+      <h1 class="auth-title">Welcome Back</h1>
+      <p class="auth-subtitle">Log in to continue generating product photos</p>
+      
+      <div id="error-msg" class="auth-error"></div>
+      
+      <form class="auth-form" onsubmit="handleLogin(event)">
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input type="email" id="email" class="form-input" placeholder="you@example.com" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Password</label>
+          <input type="password" id="password" class="form-input" placeholder="Enter your password" required>
+        </div>
+        <button type="submit" id="submit-btn" class="auth-btn">Log In</button>
+      </form>
+      
+      <p class="auth-footer">
+        Don't have an account? <a href="/register">Sign up free</a>
+      </p>
+    </div>
+  </div>
+
+  <script>
+    async function handleLogin(e) {
+      e.preventDefault();
+      const btn = document.getElementById('submit-btn');
+      const errEl = document.getElementById('error-msg');
+      
+      btn.disabled = true;
+      btn.textContent = 'Logging in...';
+      errEl.classList.remove('show');
+      
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: document.getElementById('email').value,
+            password: document.getElementById('password').value
+          })
+        });
+        
+        const data = await res.json();
+        
+        if (data.success) {
+          window.location.href = '/';
+        } else {
+          errEl.textContent = data.error || 'Login failed';
+          errEl.classList.add('show');
+          btn.disabled = false;
+          btn.textContent = 'Log In';
+        }
+      } catch (err) {
+        errEl.textContent = 'Something went wrong. Please try again.';
+        errEl.classList.add('show');
+        btn.disabled = false;
+        btn.textContent = 'Log In';
+      }
+    }
+  </script>
+</body>
+</html>`
+}
+
+// ============================================================================
+// REGISTER PAGE
+// ============================================================================
+function getRegisterPage() {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign Up - ShopShot</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'><stop offset='0%25' style='stop-color:%233B82F6'/><stop offset='100%25' style='stop-color:%238B5CF6'/></linearGradient></defs><rect width='100' height='100' rx='22' fill='url(%23g)'/><circle cx='50' cy='50' r='28' fill='none' stroke='white' stroke-width='6'/><circle cx='50' cy='50' r='12' fill='white'/></svg>">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { font-family: 'Inter', system-ui, sans-serif; }
+    ${getAuthPageStyles()}
+    .bonus-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 6px 12px;
+      background: linear-gradient(135deg, #F0FDF4 0%, #DCFCE7 100%);
+      border: 1px solid #BBF7D0;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #166534;
+      margin-top: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="auth-container">
+    <div class="auth-card">
+      <div class="auth-logo">
+        <div class="auth-logo-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" width="24" height="24">
+            <circle cx="12" cy="12" r="10"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+        </div>
+        <span class="auth-logo-text">ShopShot</span>
+      </div>
+      
+      <h1 class="auth-title">Create Account</h1>
+      <p class="auth-subtitle">Start generating professional product photos</p>
+      <div style="text-align:center;">
+        <span class="bonus-badge">🎁 Get ${CREDITS.SIGNUP_BONUS} free credits on signup!</span>
+      </div>
+      
+      <div id="error-msg" class="auth-error" style="margin-top:16px;"></div>
+      
+      <form class="auth-form" onsubmit="handleRegister(event)" style="margin-top:20px;">
+        <div class="form-group">
+          <label class="form-label">Name (optional)</label>
+          <input type="text" id="name" class="form-input" placeholder="Your name">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input type="email" id="email" class="form-input" placeholder="you@example.com" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Password</label>
+          <input type="password" id="password" class="form-input" placeholder="At least 6 characters" required minlength="6">
+        </div>
+        <button type="submit" id="submit-btn" class="auth-btn">Create Account</button>
+      </form>
+      
+      <p class="auth-footer">
+        Already have an account? <a href="/login">Log in</a>
+      </p>
+    </div>
+  </div>
+
+  <script>
+    async function handleRegister(e) {
+      e.preventDefault();
+      const btn = document.getElementById('submit-btn');
+      const errEl = document.getElementById('error-msg');
+      
+      btn.disabled = true;
+      btn.textContent = 'Creating account...';
+      errEl.classList.remove('show');
+      
+      try {
+        const res = await fetch('/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: document.getElementById('name').value || null,
+            email: document.getElementById('email').value,
+            password: document.getElementById('password').value
+          })
+        });
+        
+        const data = await res.json();
+        
+        if (data.success) {
+          window.location.href = '/?welcome=1';
+        } else {
+          errEl.textContent = data.error || 'Registration failed';
+          errEl.classList.add('show');
+          btn.disabled = false;
+          btn.textContent = 'Create Account';
+        }
+      } catch (err) {
+        errEl.textContent = 'Something went wrong. Please try again.';
+        errEl.classList.add('show');
+        btn.disabled = false;
+        btn.textContent = 'Create Account';
+      }
+    }
+  </script>
+</body>
+</html>`
+}
+
+// ============================================================================
+// PRICING PAGE
+// ============================================================================
+function getPricingPage(user?: User) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pricing - ShopShot</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'><stop offset='0%25' style='stop-color:%233B82F6'/><stop offset='100%25' style='stop-color:%238B5CF6'/></linearGradient></defs><rect width='100' height='100' rx='22' fill='url(%23g)'/><circle cx='50' cy='50' r='28' fill='none' stroke='white' stroke-width='6'/><circle cx='50' cy='50' r='12' fill='white'/></svg>">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { font-family: 'Inter', system-ui, sans-serif; }
+    body { background: linear-gradient(135deg, #F0F9FF 0%, #E0E7FF 100%); min-height: 100vh; }
+    .pricing-container { max-width: 900px; margin: 0 auto; padding: 48px 24px; }
+    .pricing-header { text-align: center; margin-bottom: 48px; }
+    .pricing-title { font-size: 36px; font-weight: 700; color: #1F2937; margin-bottom: 8px; }
+    .pricing-subtitle { font-size: 16px; color: #6B7280; }
+    .current-credits { display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; background: #F3F4F6; border-radius: 20px; margin-top: 16px; }
+    .pricing-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; }
+    .pricing-card {
+      background: white;
+      border-radius: 16px;
+      padding: 32px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+      position: relative;
+    }
+    .pricing-card.featured { border: 2px solid #3B82F6; }
+    .featured-badge {
+      position: absolute;
+      top: -12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      color: white;
+      padding: 4px 16px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .plan-name { font-size: 20px; font-weight: 700; color: #1F2937; margin-bottom: 8px; }
+    .plan-price { font-size: 36px; font-weight: 700; color: #1F2937; margin-bottom: 4px; }
+    .plan-period { font-size: 14px; color: #6B7280; margin-bottom: 16px; }
+    .plan-credits { font-size: 16px; font-weight: 600; color: #3B82F6; margin-bottom: 20px; }
+    .plan-features { list-style: none; padding: 0; margin-bottom: 24px; }
+    .plan-features li { padding: 8px 0; color: #4B5563; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+    .plan-features li::before { content: '✓'; color: #10B981; font-weight: bold; }
+    .plan-btn {
+      width: 100%;
+      padding: 14px;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      border: none;
+    }
+    .plan-btn-primary { background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%); color: white; }
+    .plan-btn-secondary { background: white; color: #374151; border: 1px solid #E5E7EB; }
+    .plan-btn:hover { opacity: 0.9; transform: translateY(-1px); }
+    .plan-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+    .back-link { display: inline-flex; align-items: center; gap: 4px; color: #6B7280; text-decoration: none; margin-bottom: 24px; }
+    .back-link:hover { color: #374151; }
+  </style>
+</head>
+<body>
+  <div class="pricing-container">
+    <a href="/" class="back-link">← Back to ShopShot</a>
+    
+    <div class="pricing-header">
+      <h1 class="pricing-title">Simple, Credit-Based Pricing</h1>
+      <p class="pricing-subtitle">Pay only for what you use. No hidden fees.</p>
+      ${user ? `<div class="current-credits">💳 You have <strong>${user.credits_balance}</strong> credits</div>` : ''}
+    </div>
+    
+    <div class="pricing-grid">
+      <!-- Free Tier -->
+      <div class="pricing-card">
+        <div class="plan-name">Free</div>
+        <div class="plan-price">£0</div>
+        <div class="plan-period">to get started</div>
+        <div class="plan-credits">${CREDITS.SIGNUP_BONUS} credits on signup</div>
+        <ul class="plan-features">
+          <li>1 full product shoot (10 images)</li>
+          <li>Both AI models available</li>
+          <li>Download in high quality</li>
+          <li>No credit card required</li>
+        </ul>
+        ${user ? '<button class="plan-btn plan-btn-secondary" disabled>Your Current Plan</button>' : '<a href="/register" class="plan-btn plan-btn-secondary" style="text-decoration:none;display:block;text-align:center;">Sign Up Free</a>'}
+      </div>
+      
+      <!-- Pro Subscription -->
+      <div class="pricing-card featured">
+        <div class="featured-badge">Most Popular</div>
+        <div class="plan-name">Pro Monthly</div>
+        <div class="plan-price">£${PRICING.SUBSCRIPTION}</div>
+        <div class="plan-period">per month</div>
+        <div class="plan-credits">${CREDITS.SUBSCRIPTION_MONTHLY} credits/month</div>
+        <ul class="plan-features">
+          <li>30 full product shoots</li>
+          <li>Credits roll over</li>
+          <li>Priority generation</li>
+          <li>Cancel anytime</li>
+        </ul>
+        <button class="plan-btn plan-btn-primary" onclick="startCheckout('subscription')" ${!user ? 'disabled title="Please sign up first"' : ''}>
+          ${user?.subscription_status === 'active' ? 'Current Plan' : 'Subscribe Now'}
+        </button>
+      </div>
+      
+      <!-- Credit Pack -->
+      <div class="pricing-card">
+        <div class="plan-name">Credit Pack</div>
+        <div class="plan-price">£${PRICING.TOPUP}</div>
+        <div class="plan-period">one-time</div>
+        <div class="plan-credits">${CREDITS.TOPUP_PACK} credits</div>
+        <ul class="plan-features">
+          <li>30 full product shoots</li>
+          <li>Never expires</li>
+          <li>Stack with subscription</li>
+          <li>Use anytime</li>
+        </ul>
+        <button class="plan-btn plan-btn-secondary" onclick="startCheckout('topup')" ${!user ? 'disabled title="Please sign up first"' : ''}>
+          Buy Credits
+        </button>
+      </div>
+    </div>
+    
+    <div style="text-align:center;margin-top:48px;color:#6B7280;font-size:14px;">
+      <p><strong>How credits work:</strong> 10 credits = 1 full product shoot (10 AI-generated images)</p>
+      <p>1 credit = 1 single image regeneration</p>
+    </div>
+  </div>
+
+  <script>
+    async function startCheckout(type) {
+      ${!user ? 'window.location.href = "/register"; return;' : ''}
+      try {
+        const btn = event.target;
+        btn.disabled = true;
+        btn.textContent = 'Loading...';
+        
+        const res = await fetch('/api/billing/create-checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type })
+        });
+        
+        const data = await res.json();
+        if (data.success && data.url) {
+          window.location.href = data.url;
+        } else {
+          alert(data.error || 'Failed to start checkout');
+          btn.disabled = false;
+          btn.textContent = type === 'subscription' ? 'Subscribe Now' : 'Buy Credits';
+        }
+      } catch (err) {
+        alert('Something went wrong');
+        location.reload();
+      }
+    }
+  </script>
+</body>
+</html>`
+}
+
+// ============================================================================
+// DASHBOARD PAGE
+// ============================================================================
+function getDashboardPage(user: User) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard - ShopShot</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'><stop offset='0%25' style='stop-color:%233B82F6'/><stop offset='100%25' style='stop-color:%238B5CF6'/></linearGradient></defs><rect width='100' height='100' rx='22' fill='url(%23g)'/><circle cx='50' cy='50' r='28' fill='none' stroke='white' stroke-width='6'/><circle cx='50' cy='50' r='12' fill='white'/></svg>">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { font-family: 'Inter', system-ui, sans-serif; }
+    body { background: #F9FAFB; min-height: 100vh; }
+    .dashboard { max-width: 900px; margin: 0 auto; padding: 32px 24px; }
+    .dash-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px; }
+    .dash-title { font-size: 28px; font-weight: 700; color: #1F2937; }
+    .dash-nav { display: flex; gap: 12px; }
+    .dash-nav a { padding: 8px 16px; background: white; border: 1px solid #E5E7EB; border-radius: 8px; color: #374151; text-decoration: none; font-size: 13px; font-weight: 500; }
+    .dash-nav a:hover { background: #F3F4F6; }
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 32px; }
+    .stat-card { background: white; border-radius: 12px; padding: 20px; border: 1px solid #E5E7EB; }
+    .stat-label { font-size: 13px; color: #6B7280; margin-bottom: 4px; }
+    .stat-value { font-size: 28px; font-weight: 700; color: #1F2937; }
+    .stat-sub { font-size: 12px; color: #9CA3AF; margin-top: 4px; }
+    .section-title { font-size: 18px; font-weight: 600; color: #1F2937; margin-bottom: 16px; }
+    .history-list { background: white; border-radius: 12px; border: 1px solid #E5E7EB; overflow: hidden; }
+    .history-item { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid #F3F4F6; }
+    .history-item:last-child { border-bottom: none; }
+    .history-info { display: flex; align-items: center; gap: 12px; }
+    .history-icon { width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 18px; }
+    .history-icon.positive { background: #DCFCE7; }
+    .history-icon.negative { background: #FEE2E2; }
+    .history-text { font-size: 14px; color: #374151; }
+    .history-date { font-size: 12px; color: #9CA3AF; }
+    .history-amount { font-size: 14px; font-weight: 600; }
+    .history-amount.positive { color: #059669; }
+    .history-amount.negative { color: #DC2626; }
+    .empty-state { padding: 48px; text-align: center; color: #9CA3AF; }
+    .action-btn {
+      padding: 12px 24px;
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="dashboard">
+    <div class="dash-header">
+      <h1 class="dash-title">Dashboard</h1>
+      <div class="dash-nav">
+        <a href="/">← Back to Generator</a>
+        <a href="/account">Account</a>
+      </div>
+    </div>
+    
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">Credits Balance</div>
+        <div class="stat-value">${user.credits_balance}</div>
+        <div class="stat-sub">${Math.floor(user.credits_balance / 10)} full shoots remaining</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Plan</div>
+        <div class="stat-value">${user.subscription_plan === 'pro' ? 'Pro' : 'Free'}</div>
+        <div class="stat-sub">${user.subscription_status === 'active' ? 'Active subscription' : 'No subscription'}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Quick Action</div>
+        <a href="/pricing" class="action-btn" style="display:inline-block;margin-top:8px;">Get More Credits</a>
+      </div>
+    </div>
+    
+    <h2 class="section-title">Credit History</h2>
+    <div class="history-list" id="history-list">
+      <div class="empty-state">Loading...</div>
+    </div>
+  </div>
+
+  <script>
+    async function loadHistory() {
+      try {
+        const res = await fetch('/api/credits/history');
+        const data = await res.json();
+        const list = document.getElementById('history-list');
+        
+        if (!data.success || !data.transactions?.length) {
+          list.innerHTML = '<div class="empty-state">No credit transactions yet</div>';
+          return;
+        }
+        
+        list.innerHTML = data.transactions.map(t => {
+          const isPositive = t.amount > 0;
+          const icon = isPositive ? '➕' : '➖';
+          const date = new Date(t.created_at).toLocaleDateString();
+          return \`
+            <div class="history-item">
+              <div class="history-info">
+                <div class="history-icon \${isPositive ? 'positive' : 'negative'}">\${icon}</div>
+                <div>
+                  <div class="history-text">\${t.description || t.type}</div>
+                  <div class="history-date">\${date}</div>
+                </div>
+              </div>
+              <div class="history-amount \${isPositive ? 'positive' : 'negative'}">
+                \${isPositive ? '+' : ''}\${t.amount}
+              </div>
+            </div>
+          \`;
+        }).join('');
+      } catch (e) {
+        console.error('Load history failed:', e);
+      }
+    }
+    loadHistory();
+  </script>
+</body>
+</html>`
+}
+
+// ============================================================================
+// ACCOUNT PAGE
+// ============================================================================
+function getAccountPage(user: User) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Account - ShopShot</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'><stop offset='0%25' style='stop-color:%233B82F6'/><stop offset='100%25' style='stop-color:%238B5CF6'/></linearGradient></defs><rect width='100' height='100' rx='22' fill='url(%23g)'/><circle cx='50' cy='50' r='28' fill='none' stroke='white' stroke-width='6'/><circle cx='50' cy='50' r='12' fill='white'/></svg>">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { font-family: 'Inter', system-ui, sans-serif; }
+    body { background: #F9FAFB; min-height: 100vh; }
+    .account { max-width: 600px; margin: 0 auto; padding: 32px 24px; }
+    .account-header { margin-bottom: 32px; }
+    .account-title { font-size: 28px; font-weight: 700; color: #1F2937; margin-bottom: 8px; }
+    .account-nav { display: flex; gap: 12px; margin-top: 16px; }
+    .account-nav a { padding: 8px 16px; background: white; border: 1px solid #E5E7EB; border-radius: 8px; color: #374151; text-decoration: none; font-size: 13px; }
+    .section { background: white; border-radius: 12px; border: 1px solid #E5E7EB; padding: 24px; margin-bottom: 24px; }
+    .section-title { font-size: 16px; font-weight: 600; color: #1F2937; margin-bottom: 16px; }
+    .info-row { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #F3F4F6; }
+    .info-row:last-child { border-bottom: none; }
+    .info-label { color: #6B7280; font-size: 14px; }
+    .info-value { color: #1F2937; font-size: 14px; font-weight: 500; }
+    .btn { padding: 10px 20px; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.2s; }
+    .btn-primary { background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%); color: white; border: none; }
+    .btn-secondary { background: white; color: #374151; border: 1px solid #E5E7EB; }
+    .btn-danger { background: #FEF2F2; color: #DC2626; border: 1px solid #FECACA; }
+    .btn:hover { opacity: 0.9; }
+  </style>
+</head>
+<body>
+  <div class="account">
+    <div class="account-header">
+      <h1 class="account-title">Account Settings</h1>
+      <div class="account-nav">
+        <a href="/">← Back to Generator</a>
+        <a href="/dashboard">Dashboard</a>
+      </div>
+    </div>
+    
+    <div class="section">
+      <h2 class="section-title">Profile</h2>
+      <div class="info-row">
+        <span class="info-label">Email</span>
+        <span class="info-value">${user.email}</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Name</span>
+        <span class="info-value">${user.name || 'Not set'}</span>
+      </div>
+    </div>
+    
+    <div class="section">
+      <h2 class="section-title">Subscription</h2>
+      <div class="info-row">
+        <span class="info-label">Plan</span>
+        <span class="info-value">${user.subscription_plan === 'pro' ? 'Pro' : 'Free'}</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Status</span>
+        <span class="info-value">${user.subscription_status}</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Credits</span>
+        <span class="info-value">${user.credits_balance}</span>
+      </div>
+      <div style="margin-top:16px;display:flex;gap:12px;">
+        <a href="/pricing" class="btn btn-primary" style="text-decoration:none;">Get More Credits</a>
+        ${user.stripe_customer_id ? '<button class="btn btn-secondary" onclick="openBillingPortal()">Manage Billing</button>' : ''}
+      </div>
+    </div>
+    
+    <div class="section">
+      <h2 class="section-title">Account Actions</h2>
+      <div style="display:flex;gap:12px;">
+        <button class="btn btn-secondary" onclick="logout()">Log Out</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    async function logout() {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      window.location.href = '/login';
+    }
+    
+    async function openBillingPortal() {
+      try {
+        const res = await fetch('/api/billing/portal');
+        const data = await res.json();
+        if (data.success && data.url) {
+          window.location.href = data.url;
+        } else {
+          alert(data.error || 'Failed to open billing portal');
+        }
+      } catch (e) {
+        alert('Something went wrong');
+      }
+    }
   </script>
 </body>
 </html>`
