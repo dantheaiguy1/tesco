@@ -402,8 +402,9 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
     console.log(`[${variation.field}] Generating...`)
     
     const startTime = Date.now()
+    // Using gemini-2.0-flash-preview-image-generation for image generation
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-preview-image-generation:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -431,8 +432,16 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
     
     if (!response.ok) {
       const errorText = await response.text()
-      console.error(`[${variation.field}] API error:`, errorText.substring(0, 200))
-      return c.json({ success: false, error: 'API error', field: variation.field }, 500)
+      console.error(`[${variation.field}] API error (${response.status}):`, errorText.substring(0, 500))
+      // Return more detailed error to frontend
+      let errorMsg = 'API error'
+      try {
+        const errJson = JSON.parse(errorText)
+        errorMsg = errJson.error?.message || errJson.error?.status || 'API error: ' + response.status
+      } catch (e) {
+        errorMsg = 'API error: ' + response.status
+      }
+      return c.json({ success: false, error: errorMsg, field: variation.field, status: response.status }, 500)
     }
     
     const data = await response.json() as any
@@ -502,7 +511,7 @@ app.post('/api/generate/:id', async (c) => {
     for (const variation of variationDefinitions) {
       try {
         const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key=${apiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-preview-image-generation:generateContent?key=${apiKey}`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -975,9 +984,9 @@ function getHomePage() {
   </div>
 
   <!-- Advanced Mode Modal (moved outside all containers) -->
-  <div id="advanced-panel" class="hidden" style="position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;padding:16px;">
-    <div style="background:white;border-radius:16px;width:100%;max-width:640px;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 25px 50px -12px rgba(0,0,0,0.25);">
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #e2e8f0;">
+  <div id="advanced-panel" style="position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(0,0,0,0.6);display:none;align-items:center;justify-content:center;padding:16px;">
+    <div style="background:white;border-radius:16px;width:100%;max-width:640px;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 25px 50px -12px rgba(0,0,0,0.25);overflow:hidden;">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #e2e8f0;flex-shrink:0;">
         <div>
           <p style="font-size:16px;font-weight:600;color:#1e293b;margin:0;">Customize Generation Prompts</p>
           <p style="font-size:12px;color:#64748b;margin:4px 0 0 0;">Edit any prompt to customize that variation</p>
@@ -986,10 +995,10 @@ function getHomePage() {
           <i class="fas fa-xmark" style="color:#64748b;"></i>
         </button>
       </div>
-      <div id="prompt-list" style="flex:1;overflow-y:auto;padding:0;">
+      <div id="prompt-list" style="flex:1;overflow-y:auto;padding:0;min-height:200px;max-height:calc(80vh - 140px);">
         <!-- Prompts populated by JS -->
       </div>
-      <div style="padding:16px 20px;border-top:1px solid #e2e8f0;background:#f8fafc;border-radius:0 0 16px 16px;">
+      <div style="padding:16px 20px;border-top:1px solid #e2e8f0;background:#f8fafc;border-radius:0 0 16px 16px;flex-shrink:0;">
         <button onclick="toggleAdvancedMode()" class="btn-primary" style="width:100%;padding:12px;border-radius:12px;color:white;font-weight:600;border:none;cursor:pointer;">
           <i class="fas fa-check" style="margin-right:8px;"></i>Done - Apply Prompts
         </button>
@@ -1080,15 +1089,15 @@ function getHomePage() {
       const panel = document.getElementById('advanced-panel');
       const icon = document.getElementById('advanced-icon');
       
+      console.log('Toggle advanced mode:', advancedModeEnabled);
+      
       if (advancedModeEnabled) {
+        populatePromptList(); // Populate BEFORE showing
         panel.style.display = 'flex';
-        panel.classList.remove('hidden');
         if (icon) icon.style.transform = 'rotate(90deg)';
         document.body.style.overflow = 'hidden';
-        populatePromptList();
       } else {
         panel.style.display = 'none';
-        panel.classList.add('hidden');
         if (icon) icon.style.transform = 'rotate(0deg)';
         document.body.style.overflow = '';
       }
@@ -1107,6 +1116,10 @@ function getHomePage() {
     
     function populatePromptList() {
       const list = document.getElementById('prompt-list');
+      if (!list) {
+        console.error('prompt-list element not found');
+        return;
+      }
       list.innerHTML = '';
       
       // Skip index 0 (Original) - only show variations 1-10
@@ -1143,6 +1156,7 @@ function getHomePage() {
         \`;
         list.appendChild(item);
       }
+      console.log('Populated prompts, list children:', list.children.length);
     }
     
     function updateCustomPrompt(index, value) {
