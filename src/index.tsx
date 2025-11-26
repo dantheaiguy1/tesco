@@ -24,9 +24,10 @@ type User = {
   id: string;
   email: string;
   name: string | null;
-  credits_balance: number;
+  cheaper_credits: number;    // Flash/Nano Banana credits
+  better_credits: number;     // Pro/Nano Banana Pro credits
   subscription_status: 'free' | 'active' | 'canceled' | 'past_due';
-  subscription_plan: 'free' | 'pro';
+  subscription_plan: 'free' | 'standard' | 'pro';
   stripe_customer_id: string | null;
 }
 
@@ -35,19 +36,53 @@ type Variables = {
 }
 
 // ============================================================================
-// CREDIT SYSTEM CONFIGURATION
+// DUAL CREDIT SYSTEM CONFIGURATION
 // ============================================================================
+// Two types of credits:
+// - CHEAPER: For Flash model (Nano Banana) - £0.031/credit API cost
+// - BETTER: For Pro model (Nano Banana Pro) - £0.107/credit API cost
+
 const CREDITS = {
-  SIGNUP_BONUS: 10,           // Free credits on registration
-  PER_IMAGE: 1,               // Cost per successful image generation
-  SINGLE_REGENERATION: 1,     // Cost for single variation regeneration
-  SUBSCRIPTION_MONTHLY: 300,  // Credits added on Pro subscription
-  TOPUP_PACK: 300,            // Credits in one-time purchase
+  // Signup bonus (free tier)
+  SIGNUP_CHEAPER: 10,         // Free cheaper credits on registration
+  SIGNUP_BETTER: 5,           // Free better credits on registration
+  
+  // Per-image costs (always 1 credit of the appropriate type)
+  PER_IMAGE: 1,
+  
+  // Subscription allocations
+  STANDARD_CHEAPER: 500,      // Standard plan: 500 cheaper credits/month
+  STANDARD_BETTER: 45,        // Standard plan: 45 better credits/month
+  PRO_CHEAPER: 300,           // Pro plan: 300 cheaper credits/month
+  PRO_BETTER: 175,            // Pro plan: 175 better credits/month
+  
+  // Credit pack amounts (for top-ups) - 100% margin pricing
+  PACKS: {
+    CHEAPER: {
+      PACK_25: 400,           // £25 = 400 cheaper credits
+      PACK_50: 800,           // £50 = 800 cheaper credits
+      PACK_75: 1200,          // £75 = 1200 cheaper credits
+      PACK_100: 1600,         // £100 = 1600 cheaper credits
+    },
+    BETTER: {
+      PACK_25: 115,           // £25 = 115 better credits
+      PACK_50: 230,           // £50 = 230 better credits
+      PACK_75: 350,           // £75 = 350 better credits
+      PACK_100: 465,          // £100 = 465 better credits
+    }
+  }
 }
 
 const PRICING = {
-  SUBSCRIPTION: 39.99,        // £39.99/month
-  TOPUP: 39.99,               // £39.99 one-time
+  // Subscriptions (monthly)
+  STANDARD: 39.99,            // £39.99/month - 500 cheaper + 45 better
+  PRO: 59.99,                 // £59.99/month - 300 cheaper + 175 better
+  
+  // Credit packs
+  PACK_25: 25.00,
+  PACK_50: 50.00,
+  PACK_75: 75.00,
+  PACK_100: 100.00,
 }
 
 // ============================================================================
@@ -83,8 +118,8 @@ const MODEL_INFO: Record<string, { name: string; speed: string; quality: string;
   flash: { name: 'Nano Banana', speed: '~2-3s per image', quality: 'Great', totalTime: '~25 seconds' }
 };
 
-// Default model for backwards compatibility
-const DEFAULT_MODEL = 'nano';
+// Default model - flash is faster and more reliable
+const DEFAULT_MODEL = 'flash';
 
 // Generate JWT for Google OAuth2
 async function createJWT(clientEmail: string, privateKey: string): Promise<string> {
@@ -104,11 +139,14 @@ async function createJWT(clientEmail: string, privateKey: string): Promise<strin
   const signatureInput = `${encodedHeader}.${encodedPayload}`;
 
   // Import the private key
+  // Handle both literal \n sequences and actual newline characters
   const pemContents = privateKey
     .replace('-----BEGIN PRIVATE KEY-----', '')
     .replace('-----END PRIVATE KEY-----', '')
-    .replace(/\\n/g, '')
-    .replace(/\s/g, '');
+    .replace(/\\n/g, '')  // literal backslash-n from JSON-style strings
+    .replace(/\n/g, '')   // actual newline characters
+    .replace(/\r/g, '')   // carriage returns
+    .replace(/\s/g, '');  // any remaining whitespace
   
   const binaryKey = Uint8Array.from(atob(pemContents), c => c.charCodeAt(0));
   
@@ -134,20 +172,26 @@ async function createJWT(clientEmail: string, privateKey: string): Promise<strin
 
 // Get OAuth2 access token from Google
 async function getAccessToken(clientEmail: string, privateKey: string): Promise<string> {
+  console.log('[getAccessToken] Creating JWT...');
   const jwt = await createJWT(clientEmail, privateKey);
+  console.log('[getAccessToken] JWT created, length:', jwt.length);
   
+  console.log('[getAccessToken] Fetching token from Google...');
   const response = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${jwt}`
   });
+  console.log('[getAccessToken] Response status:', response.status);
 
   if (!response.ok) {
     const error = await response.text();
+    console.log('[getAccessToken] Error:', error);
     throw new Error(`Failed to get access token: ${error}`);
   }
 
   const data = await response.json() as { access_token: string };
+  console.log('[getAccessToken] Token received, length:', data.access_token?.length);
   return data.access_token;
 }
 
@@ -202,14 +246,23 @@ async function generateImageWithVertex(
       
       console.log(`[Vertex AI] Model: ${modelKey} -> ${vertexModel}, Attempt: ${attempt + 1}/${maxRetries}`);
       
+      // Add timeout controller - model-specific timeout
+      // Pro model (nano) needs longer timeout as it's slower
+      const timeoutMs = modelKey === 'nano' ? 90000 : 60000;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${accessToken}`,
           'Content-Type': 'application/json'
         },
-        body: requestBody
+        body: requestBody,
+        signal: controller.signal
       });
+      
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -249,12 +302,19 @@ async function generateImageWithVertex(
     } catch (err) {
       lastError = err instanceof Error ? err.message : String(err);
       console.error(`[Vertex AI] Attempt ${attempt + 1} failed:`, lastError);
-      // Continue to retry
+      
+      // Check if it was a timeout/abort
+      if (err instanceof Error && err.name === 'AbortError') {
+        lastError = 'Request timed out (60s). The model may be overloaded.';
+        // Don't retry on timeout - just fail fast
+        return { success: false, error: `Request timed out. Try the "Cheaper" option which uses a faster model. [Model: ${vertexModel}]` };
+      }
+      // Continue to retry for other errors
     }
   }
   
   // All retries exhausted
-  return { success: false, error: `Rate limit exceeded after ${maxRetries} retries. Try again in a few minutes. [Model: ${vertexModel}]` };
+  return { success: false, error: `Generation failed after ${maxRetries} attempts. ${lastError} [Model: ${vertexModel}]` };
 }
 
 // ============================================================================
@@ -361,7 +421,8 @@ async function getUserFromSession(db: D1Database, sessionId: string): Promise<Us
     id: session.user_id,
     email: session.email,
     name: session.name,
-    credits_balance: session.credits_balance,
+    cheaper_credits: session.cheaper_credits || 0,
+    better_credits: session.better_credits || 0,
     subscription_status: session.subscription_status,
     subscription_plan: session.subscription_plan,
     stripe_customer_id: session.stripe_customer_id
@@ -373,67 +434,84 @@ async function deleteUserSession(db: D1Database, sessionId: string): Promise<voi
 }
 
 // ============================================================================
-// CREDIT MANAGEMENT
+// DUAL CREDIT MANAGEMENT
 // ============================================================================
+type CreditType = 'cheaper' | 'better';
+
 async function deductCredits(
   db: D1Database, 
   userId: string, 
-  amount: number, 
+  amount: number,
+  creditType: CreditType,
   type: string, 
   description: string,
-  sessionId?: string
-): Promise<{ success: boolean; newBalance?: number; error?: string }> {
+  sessionId?: string,
+  imageData?: string
+): Promise<{ success: boolean; newBalance?: number; error?: string; transactionId?: string }> {
+  const column = creditType === 'better' ? 'better_credits' : 'cheaper_credits';
+  
   // Get current balance
-  const user = await db.prepare('SELECT credits_balance FROM users WHERE id = ?').bind(userId).first() as any;
+  const user = await db.prepare(`SELECT ${column} as balance FROM users WHERE id = ?`).bind(userId).first() as any;
   if (!user) return { success: false, error: 'User not found' };
   
-  if (user.credits_balance < amount) {
-    return { success: false, error: 'Insufficient credits' };
+  if (user.balance < amount) {
+    return { success: false, error: `Insufficient ${creditType} credits` };
   }
   
-  const newBalance = user.credits_balance - amount;
+  const newBalance = user.balance - amount;
   const transactionId = generateId();
   
   // Update balance and log transaction
-  await db.prepare('UPDATE users SET credits_balance = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+  await db.prepare(`UPDATE users SET ${column} = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
     .bind(newBalance, userId).run();
   
   await db.prepare(`
-    INSERT INTO credit_transactions (id, user_id, amount, balance_after, type, description, session_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).bind(transactionId, userId, -amount, newBalance, type, description, sessionId || null).run();
+    INSERT INTO credit_transactions (id, user_id, amount, balance_after, credit_type, type, description, session_id, image_data)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(transactionId, userId, -amount, newBalance, creditType, type, description, sessionId || null, imageData || null).run();
   
-  return { success: true, newBalance };
+  return { success: true, newBalance, transactionId };
 }
 
 async function addCredits(
   db: D1Database, 
   userId: string, 
-  amount: number, 
+  amount: number,
+  creditType: CreditType,
   type: string, 
   description: string,
   stripePaymentId?: string
 ): Promise<{ success: boolean; newBalance?: number; error?: string }> {
-  const user = await db.prepare('SELECT credits_balance FROM users WHERE id = ?').bind(userId).first() as any;
+  const column = creditType === 'better' ? 'better_credits' : 'cheaper_credits';
+  
+  const user = await db.prepare(`SELECT ${column} as balance FROM users WHERE id = ?`).bind(userId).first() as any;
   if (!user) return { success: false, error: 'User not found' };
   
-  const newBalance = user.credits_balance + amount;
+  const newBalance = user.balance + amount;
   const transactionId = generateId();
   
-  await db.prepare('UPDATE users SET credits_balance = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+  await db.prepare(`UPDATE users SET ${column} = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
     .bind(newBalance, userId).run();
   
   await db.prepare(`
-    INSERT INTO credit_transactions (id, user_id, amount, balance_after, type, description, stripe_payment_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).bind(transactionId, userId, amount, newBalance, type, description, stripePaymentId || null).run();
+    INSERT INTO credit_transactions (id, user_id, amount, balance_after, credit_type, type, description, stripe_payment_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(transactionId, userId, amount, newBalance, creditType, type, description, stripePaymentId || null).run();
   
   return { success: true, newBalance };
 }
 
-async function getCreditBalance(db: D1Database, userId: string): Promise<number> {
-  const user = await db.prepare('SELECT credits_balance FROM users WHERE id = ?').bind(userId).first() as any;
-  return user?.credits_balance || 0;
+async function getCreditBalances(db: D1Database, userId: string): Promise<{ cheaper: number; better: number }> {
+  const user = await db.prepare('SELECT cheaper_credits, better_credits FROM users WHERE id = ?').bind(userId).first() as any;
+  return { 
+    cheaper: user?.cheaper_credits || 0, 
+    better: user?.better_credits || 0 
+  };
+}
+
+// Helper to determine credit type from model
+function getCreditTypeForModel(modelKey: string): CreditType {
+  return modelKey === 'nano' ? 'better' : 'cheaper';
 }
 
 // ============================================================================
@@ -564,18 +642,19 @@ async function ensureDatabase(db: D1Database) {
       )
     `).run()
     
-    // Users table
+    // Users table (dual credit system)
     await db.prepare(`
       CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
         email TEXT UNIQUE NOT NULL,
         password_hash TEXT NOT NULL,
         name TEXT,
-        credits_balance INTEGER NOT NULL DEFAULT 10,
+        cheaper_credits INTEGER NOT NULL DEFAULT 10,
+        better_credits INTEGER NOT NULL DEFAULT 5,
         subscription_status TEXT NOT NULL DEFAULT 'free' CHECK (subscription_status IN ('free', 'active', 'canceled', 'past_due')),
         stripe_customer_id TEXT,
         stripe_subscription_id TEXT,
-        subscription_plan TEXT NOT NULL DEFAULT 'free' CHECK (subscription_plan IN ('free', 'pro')),
+        subscription_plan TEXT NOT NULL DEFAULT 'free' CHECK (subscription_plan IN ('free', 'standard', 'pro')),
         billing_period_start DATETIME,
         billing_period_end DATETIME,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -583,21 +662,43 @@ async function ensureDatabase(db: D1Database) {
       )
     `).run()
     
-    // Credit transactions table
+    // Migration: Add dual credit columns if they don't exist (for existing databases)
+    try {
+      await db.prepare('ALTER TABLE users ADD COLUMN cheaper_credits INTEGER NOT NULL DEFAULT 10').run();
+    } catch (e) { /* Column exists */ }
+    try {
+      await db.prepare('ALTER TABLE users ADD COLUMN better_credits INTEGER NOT NULL DEFAULT 5').run();
+    } catch (e) { /* Column exists */ }
+    // Migrate old credits_balance to cheaper_credits if needed
+    try {
+      await db.prepare('UPDATE users SET cheaper_credits = credits_balance WHERE cheaper_credits = 10 AND credits_balance != 10').run();
+    } catch (e) { /* Migration done */ }
+    
+    // Credit transactions table (dual credit system)
     await db.prepare(`
       CREATE TABLE IF NOT EXISTS credit_transactions (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL,
         amount INTEGER NOT NULL,
         balance_after INTEGER NOT NULL,
+        credit_type TEXT NOT NULL DEFAULT 'cheaper' CHECK (credit_type IN ('cheaper', 'better')),
         type TEXT NOT NULL CHECK (type IN ('signup_bonus', 'subscription', 'topup', 'generation', 'regeneration', 'refund')),
         description TEXT,
         session_id TEXT,
         stripe_payment_id TEXT,
+        image_data TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
       )
     `).run()
+    
+    // Add columns if they don't exist (for existing databases)
+    try {
+      await db.prepare('ALTER TABLE credit_transactions ADD COLUMN image_data TEXT').run();
+    } catch (e) { /* Column exists */ }
+    try {
+      await db.prepare('ALTER TABLE credit_transactions ADD COLUMN credit_type TEXT NOT NULL DEFAULT \'cheaper\'').run();
+    } catch (e) { /* Column exists */ }
     
     // User sessions table (auth)
     await db.prepare(`
@@ -669,18 +770,19 @@ function requireAuth(c: any): User | Response {
   return user;
 }
 
-// Helper to require sufficient credits
+// Helper to require sufficient credits (uses total credits for backward compatibility)
 async function requireCredits(c: any, amount: number): Promise<User | Response> {
   const user = c.get('user');
   if (!user) {
     return c.json({ success: false, error: 'Authentication required' }, 401);
   }
-  if (user.credits_balance < amount) {
+  const totalCredits = (user.cheaper_credits || 0) + (user.better_credits || 0);
+  if (totalCredits < amount) {
     return c.json({ 
       success: false, 
       error: 'Insufficient credits',
       required: amount,
-      current: user.credits_balance,
+      current: totalCredits,
       needsUpgrade: true
     }, 402);
   }
@@ -951,20 +1053,26 @@ app.post('/api/auth/register', async (c) => {
       return c.json({ success: false, error: 'Email already registered' }, 400);
     }
     
-    // Create user
+    // Create user with dual credits
     const userId = generateId();
     const passwordHash = await hashPassword(password);
     
     await db.prepare(`
-      INSERT INTO users (id, email, password_hash, name, credits_balance)
-      VALUES (?, ?, ?, ?, ?)
-    `).bind(userId, email.toLowerCase(), passwordHash, name || null, CREDITS.SIGNUP_BONUS).run();
+      INSERT INTO users (id, email, password_hash, name, cheaper_credits, better_credits)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).bind(userId, email.toLowerCase(), passwordHash, name || null, CREDITS.SIGNUP_CHEAPER, CREDITS.SIGNUP_BETTER).run();
     
-    // Log signup bonus
+    // Log signup bonus for cheaper credits
     await db.prepare(`
-      INSERT INTO credit_transactions (id, user_id, amount, balance_after, type, description)
-      VALUES (?, ?, ?, ?, 'signup_bonus', 'Welcome bonus credits')
-    `).bind(generateId(), userId, CREDITS.SIGNUP_BONUS, CREDITS.SIGNUP_BONUS).run();
+      INSERT INTO credit_transactions (id, user_id, amount, balance_after, credit_type, type, description)
+      VALUES (?, ?, ?, ?, 'cheaper', 'signup_bonus', 'Welcome bonus - Recommended credits')
+    `).bind(generateId(), userId, CREDITS.SIGNUP_CHEAPER, CREDITS.SIGNUP_CHEAPER).run();
+    
+    // Log signup bonus for better credits
+    await db.prepare(`
+      INSERT INTO credit_transactions (id, user_id, amount, balance_after, credit_type, type, description)
+      VALUES (?, ?, ?, ?, 'better', 'signup_bonus', 'Welcome bonus - Premium credits')
+    `).bind(generateId(), userId, CREDITS.SIGNUP_BETTER, CREDITS.SIGNUP_BETTER).run();
     
     // Create session
     const sessionId = await createUserSession(db, userId);
@@ -984,7 +1092,8 @@ app.post('/api/auth/register', async (c) => {
         id: userId,
         email: email.toLowerCase(),
         name: name || null,
-        credits_balance: CREDITS.SIGNUP_BONUS,
+        cheaper_credits: CREDITS.SIGNUP_CHEAPER,
+        better_credits: CREDITS.SIGNUP_BETTER,
         subscription_status: 'free',
         subscription_plan: 'free'
       }
@@ -1008,7 +1117,7 @@ app.post('/api/auth/login', async (c) => {
     }
     
     const user = await db.prepare(`
-      SELECT id, email, password_hash, name, credits_balance, subscription_status, subscription_plan, stripe_customer_id
+      SELECT id, email, password_hash, name, cheaper_credits, better_credits, subscription_status, subscription_plan, stripe_customer_id
       FROM users WHERE email = ?
     `).bind(email.toLowerCase()).first() as any;
     
@@ -1039,7 +1148,8 @@ app.post('/api/auth/login', async (c) => {
         id: user.id,
         email: user.email,
         name: user.name,
-        credits_balance: user.credits_balance,
+        cheaper_credits: user.cheaper_credits,
+        better_credits: user.better_credits,
         subscription_status: user.subscription_status,
         subscription_plan: user.subscription_plan
       }
@@ -1073,7 +1183,7 @@ app.get('/api/auth/me', async (c) => {
 // CREDIT MANAGEMENT ROUTES
 // ============================================================================
 
-// Get credit balance
+// Get credit balance (dual credits)
 app.get('/api/credits/balance', async (c) => {
   const authResult = requireAuth(c);
   if (authResult instanceof Response) return authResult;
@@ -1081,7 +1191,8 @@ app.get('/api/credits/balance', async (c) => {
   
   return c.json({ 
     success: true, 
-    balance: user.credits_balance,
+    cheaper_credits: user.cheaper_credits,
+    better_credits: user.better_credits,
     subscription_status: user.subscription_status,
     subscription_plan: user.subscription_plan
   });
@@ -1196,21 +1307,40 @@ app.post('/api/billing/webhook', async (c) => {
         const checkoutType = session.metadata?.type;
         
         if (userId && checkoutType) {
-          // Add credits
-          await addCredits(db, userId, CREDITS.SUBSCRIPTION_MONTHLY, checkoutType, 
-            checkoutType === 'subscription' ? 'Pro subscription started' : '300 Credit Pack purchase',
-            session.id);
+          const planType = session.metadata?.plan_type || 'pro'; // 'standard' or 'pro'
+          const creditPackType = session.metadata?.credit_type || 'cheaper'; // 'cheaper' or 'better'
+          const packAmount = session.metadata?.pack_amount || '25'; // '25', '50', '75', '100'
           
-          // Update subscription status if subscription
           if (checkoutType === 'subscription') {
+            // Add both types of credits for subscription
+            const cheaperCredits = planType === 'pro' ? CREDITS.PRO_CHEAPER : CREDITS.STANDARD_CHEAPER;
+            const betterCredits = planType === 'pro' ? CREDITS.PRO_BETTER : CREDITS.STANDARD_BETTER;
+            
+            await addCredits(db, userId, cheaperCredits, 'cheaper', 'subscription',
+              `${planType === 'pro' ? 'Pro' : 'Standard'} subscription started - Standard credits`,
+              session.id);
+            await addCredits(db, userId, betterCredits, 'better', 'subscription',
+              `${planType === 'pro' ? 'Pro' : 'Standard'} subscription started - Pro credits`,
+              session.id);
+            
             await db.prepare(`
               UPDATE users SET 
                 subscription_status = 'active', 
-                subscription_plan = 'pro',
+                subscription_plan = ?,
                 stripe_subscription_id = ?,
                 updated_at = CURRENT_TIMESTAMP
               WHERE id = ?
-            `).bind(session.subscription, userId).run();
+            `).bind(planType, session.subscription, userId).run();
+          } else if (checkoutType === 'topup') {
+            // Add credits for credit pack purchase
+            const packKey = `PACK_${packAmount}` as keyof typeof CREDITS.PACKS.CHEAPER;
+            const credits = creditPackType === 'better' 
+              ? CREDITS.PACKS.BETTER[packKey]
+              : CREDITS.PACKS.CHEAPER[packKey];
+            
+            await addCredits(db, userId, credits, creditPackType as 'cheaper' | 'better', 'topup',
+              `£${packAmount} Credit Pack purchase - ${creditPackType === 'better' ? 'Pro' : 'Standard'} credits`,
+              session.id);
           }
           
           // Update stripe_events with user_id
@@ -1231,8 +1361,17 @@ app.post('/api/billing/webhook', async (c) => {
           const userId = customer.metadata?.user_id;
           
           if (userId) {
-            await addCredits(db, userId, CREDITS.SUBSCRIPTION_MONTHLY, 'subscription',
-              'Monthly subscription renewal', invoice.id);
+            // Get user's subscription plan to determine credit amounts
+            const user = await db.prepare('SELECT subscription_plan FROM users WHERE id = ?').bind(userId).first() as any;
+            const planType = user?.subscription_plan || 'pro';
+            
+            const cheaperCredits = planType === 'pro' ? CREDITS.PRO_CHEAPER : CREDITS.STANDARD_CHEAPER;
+            const betterCredits = planType === 'pro' ? CREDITS.PRO_BETTER : CREDITS.STANDARD_BETTER;
+            
+            await addCredits(db, userId, cheaperCredits, 'cheaper', 'subscription',
+              'Monthly subscription renewal - Standard credits', invoice.id);
+            await addCredits(db, userId, betterCredits, 'better', 'subscription',
+              'Monthly subscription renewal - Pro credits', invoice.id);
             
             await db.prepare('UPDATE stripe_events SET user_id = ?, processed = 1 WHERE id = ?')
               .bind(userId, event.id).run();
@@ -1344,25 +1483,32 @@ app.post('/api/upload', async (c) => {
     const db = c.env.TESCO_DB
     await ensureDatabase(db)
     
-    // Check authentication and credits (10 credits for full generation)
+    // Check authentication
     const user = c.get('user')
     if (!user) {
       return c.json({ success: false, error: 'Authentication required', needsAuth: true }, 401)
-    }
-    if (user.credits_balance < CREDITS.PER_IMAGE) {
-      return c.json({ 
-        success: false, 
-        error: 'Insufficient credits. You need at least 1 credit to start.',
-        required: CREDITS.PER_IMAGE,
-        current: user.credits_balance,
-        needsUpgrade: true
-      }, 402)
     }
     
     const formData = await c.req.formData()
     const file = formData.get('image') as File
     const thumbnail = formData.get('thumbnail') as string | null
     const model = (formData.get('model') as string) || DEFAULT_MODEL
+    
+    // Determine credit type and check balance
+    const creditType = getCreditTypeForModel(model)
+    const userCredits = creditType === 'better' ? user.better_credits : user.cheaper_credits
+    const creditTypeName = creditType === 'better' ? 'Pro' : 'Standard'
+    
+    if (userCredits < CREDITS.PER_IMAGE) {
+      return c.json({ 
+        success: false, 
+        error: `Insufficient ${creditTypeName} credits. You need at least 1 ${creditTypeName} credit to start.`,
+        required: CREDITS.PER_IMAGE,
+        current: userCredits,
+        creditType,
+        needsUpgrade: true
+      }, 402)
+    }
     
     if (!file) {
       return c.json({ success: false, error: 'No image file provided' }, 400)
@@ -1406,7 +1552,9 @@ app.post('/api/upload', async (c) => {
       sessionId, 
       originalImage: dataUrl, 
       model,
-      credits_balance: user.credits_balance,
+      creditType,
+      cheaper_credits: user.cheaper_credits,
+      better_credits: user.better_credits,
       credits_required: CREDITS.PER_IMAGE
     })
   } catch (error) {
@@ -1426,19 +1574,26 @@ app.post('/api/scrape', async (c) => {
     if (!user) {
       return c.json({ success: false, error: 'Authentication required', needsAuth: true }, 401)
     }
-    if (user.credits_balance < CREDITS.PER_IMAGE) {
-      return c.json({ 
-        success: false, 
-        error: 'Insufficient credits. You need at least 1 credit to start.',
-        required: CREDITS.PER_IMAGE,
-        current: user.credits_balance,
-        needsUpgrade: true
-      }, 402)
-    }
     
     const body = await c.req.json()
     const { url, model: requestModel } = body
     const model = requestModel || DEFAULT_MODEL
+    
+    // Check credits based on selected model
+    const creditType = getCreditTypeForModel(model)
+    const userCredits = creditType === 'better' ? user.better_credits : user.cheaper_credits
+    const creditTypeName = creditType === 'better' ? 'Pro' : 'Standard'
+    
+    if (userCredits < CREDITS.PER_IMAGE) {
+      return c.json({ 
+        success: false, 
+        error: `Insufficient ${creditTypeName} credits. You need at least 1 ${creditTypeName} credit to start.`,
+        required: CREDITS.PER_IMAGE,
+        current: userCredits,
+        creditType,
+        needsUpgrade: true
+      }, 402)
+    }
     
     if (!url) {
       return c.json({ success: false, error: 'No URL provided' }, 400)
@@ -1525,7 +1680,9 @@ app.post('/api/scrape', async (c) => {
       originalImage: dataUrl, 
       productName, 
       model,
-      credits_balance: user.credits_balance,
+      creditType,
+      cheaper_credits: user.cheaper_credits,
+      better_credits: user.better_credits,
       credits_required: CREDITS.PER_IMAGE
     })
   } catch (error) {
@@ -1592,18 +1749,6 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
     return c.json({ success: false, error: 'Authentication required', needsAuth: true }, 401)
   }
   
-  // Check if user has at least 1 credit
-  if (user.credits_balance < CREDITS.PER_IMAGE) {
-    return c.json({ 
-      success: false, 
-      error: 'Insufficient credits',
-      required: CREDITS.PER_IMAGE,
-      current: user.credits_balance,
-      needsUpgrade: true,
-      field: variationDefinitions[variationIndex]?.field
-    }, 402)
-  }
-  
   // Vertex AI credentials
   const projectId = c.env.VERTEX_PROJECT_ID
   const clientEmail = c.env.VERTEX_CLIENT_EMAIL
@@ -1615,6 +1760,24 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
     const productName = body.productName || 'product'
     const customPrompt = body.customPrompt // User-provided custom prompt
     const modelKey = body.model || DEFAULT_MODEL // 'nano' or 'flash'
+    
+    // Determine credit type based on model
+    const creditType = getCreditTypeForModel(modelKey)
+    const userCredits = creditType === 'better' ? user.better_credits : user.cheaper_credits
+    const creditTypeName = creditType === 'better' ? 'Pro' : 'Standard'
+    
+    // Check if user has enough credits for the selected model
+    if (userCredits < CREDITS.PER_IMAGE) {
+      return c.json({ 
+        success: false, 
+        error: `Insufficient ${creditTypeName} credits`,
+        required: CREDITS.PER_IMAGE,
+        current: userCredits,
+        creditType,
+        needsUpgrade: true,
+        field: variationDefinitions[variationIndex]?.field
+      }, 402)
+    }
     
     if (!originalImage || originalImage.length < 100) {
       return c.json({ success: false, error: 'No image provided', field: variationDefinitions[variationIndex]?.field }, 400)
@@ -1636,7 +1799,7 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
     const prompt = customPrompt || prompts[variation.field]
     const isCustom = !!customPrompt
     const modelInfo = MODEL_INFO[modelKey] || MODEL_INFO[DEFAULT_MODEL]
-    console.log(`[${variation.field}] Generating with ${modelInfo.name} (${modelKey})...`)
+    console.log(`[${variation.field}] Generating with ${modelInfo.name} (${modelKey}) using ${creditTypeName} credits...`)
     
     const startTime = Date.now()
     
@@ -1664,21 +1827,23 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
       return c.json({ success: false, error: result.error, field: variation.field }, 500)
     }
     
-    // SUCCESS: Deduct 1 credit for this image
+    // SUCCESS: Deduct 1 credit for this image (and store the generated image)
     const creditResult = await deductCredits(
       db,
       user.id,
       CREDITS.PER_IMAGE,
+      creditType,
       'generation',
-      `Image: ${variation.label}`,
-      sessionId
+      `Image: ${variation.label} (${creditTypeName})`,
+      sessionId,
+      result.image // Store the generated image with the transaction
     )
     
     // Update session stats
     await db.prepare('UPDATE sessions SET generation_count = generation_count + 1, credits_charged = credits_charged + 1 WHERE id = ?')
       .bind(sessionId).run()
     
-    console.log(`[${variation.field}] Success! Credit deducted. New balance: ${creditResult.newBalance}${isCustom ? ' (Custom Prompt)' : ''} [${modelInfo.name}]`)
+    console.log(`[${variation.field}] Success! ${creditTypeName} credit deducted. New balance: ${creditResult.newBalance}${isCustom ? ' (Custom Prompt)' : ''} [${modelInfo.name}]`)
     return c.json({ 
       success: true, 
       field: variation.field, 
@@ -1688,6 +1853,7 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
       isCustom,
       model: modelKey,
       modelName: modelInfo.name,
+      creditType,
       credits_deducted: CREDITS.PER_IMAGE,
       credits_remaining: creditResult.newBalance
     })
@@ -1744,19 +1910,10 @@ app.post('/api/regenerate/:sessionId/:variationIndex', async (c) => {
   const variationIndex = parseInt(c.req.param('variationIndex'))
   const db = c.env.TESCO_DB
   
-  // Check authentication and credits
+  // Check authentication
   const user = c.get('user')
   if (!user) {
     return c.json({ success: false, error: 'Authentication required', needsAuth: true }, 401)
-  }
-  if (user.credits_balance < CREDITS.SINGLE_REGENERATION) {
-    return c.json({ 
-      success: false, 
-      error: 'Insufficient credits for regeneration',
-      required: CREDITS.SINGLE_REGENERATION,
-      current: user.credits_balance,
-      needsUpgrade: true
-    }, 402)
   }
   
   // Verify session belongs to user
@@ -1777,6 +1934,23 @@ app.post('/api/regenerate/:sessionId/:variationIndex', async (c) => {
     const productName = body.productName || 'product'
     const customPrompt = body.customPrompt
     const modelKey = body.model || DEFAULT_MODEL
+    
+    // Determine credit type based on model
+    const creditType = getCreditTypeForModel(modelKey)
+    const userCredits = creditType === 'better' ? user.better_credits : user.cheaper_credits
+    const creditTypeName = creditType === 'better' ? 'Pro' : 'Standard'
+    
+    // Check credits for selected model
+    if (userCredits < CREDITS.PER_IMAGE) {
+      return c.json({ 
+        success: false, 
+        error: `Insufficient ${creditTypeName} credits for regeneration`,
+        required: CREDITS.PER_IMAGE,
+        current: userCredits,
+        creditType,
+        needsUpgrade: true
+      }, 402)
+    }
     
     if (!originalImage || originalImage.length < 100) {
       return c.json({ success: false, error: 'No image provided' }, 400)
@@ -1815,14 +1989,16 @@ app.post('/api/regenerate/:sessionId/:variationIndex', async (c) => {
       return c.json({ success: false, error: result.error }, 500)
     }
     
-    // Deduct 1 credit for regeneration
+    // Deduct 1 credit for regeneration (and store the generated image)
     const creditResult = await deductCredits(
       db, 
       user.id, 
-      CREDITS.SINGLE_REGENERATION, 
+      CREDITS.PER_IMAGE,
+      creditType,
       'regeneration',
-      `Regenerate ${variation.label}: ${productName}`,
-      sessionId
+      `Regenerate ${variation.label}: ${productName} (${creditTypeName})`,
+      sessionId,
+      result.image // Store the generated image with the transaction
     )
     
     return c.json({ 
@@ -1833,7 +2009,8 @@ app.post('/api/regenerate/:sessionId/:variationIndex', async (c) => {
       elapsed,
       model: modelKey,
       modelName: modelInfo.name,
-      credits_charged: CREDITS.SINGLE_REGENERATION,
+      creditType,
+      credits_charged: CREDITS.PER_IMAGE,
       new_balance: creditResult.newBalance
     })
     
@@ -1982,10 +2159,6 @@ function getUserMenuHTML(user: User | undefined): string {
   if (user) {
     return `
       <div class="user-menu">
-        <div class="credits-badge" title="Credits remaining">
-          <span class="credits-icon">💳</span>
-          <span class="credits-count">${user.credits_balance}</span>
-        </div>
         <div class="user-dropdown">
           <button class="user-btn" onclick="toggleUserMenu()">
             <span class="user-avatar">${(user.name || user.email)[0].toUpperCase()}</span>
@@ -2332,63 +2505,75 @@ function getHomePage(user?: User) {
     }
     
     .credits-indicator {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 10px 12px;
       margin: 8px;
-      background: linear-gradient(135deg, #F0FDF4 0%, #DCFCE7 100%);
-      border: 1px solid #BBF7D0;
-      border-radius: 8px;
+      padding: 12px;
+      background: white;
+      border: 1px solid #E5E7EB;
+      border-radius: 10px;
       cursor: pointer;
       transition: all 0.2s;
     }
     .credits-indicator:hover {
-      background: linear-gradient(135deg, #DCFCE7 0%, #BBF7D0 100%);
-      transform: translateY(-1px);
-    }
-    .credits-indicator.low {
-      background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%);
-      border-color: #FCD34D;
+      border-color: #9CA3AF;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.05);
     }
     .credits-indicator.empty {
-      background: linear-gradient(135deg, #FEE2E2 0%, #FECACA 100%);
       border-color: #FCA5A5;
+      background: #FEF2F2;
     }
-    .credits-left {
+    .credits-header {
       display: flex;
-      flex-direction: column;
-      gap: 2px;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
     }
-    .credits-label {
-      font-size: 10px;
+    .credits-title {
+      font-size: 11px;
+      font-weight: 600;
       color: #6B7280;
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
-    .credits-value {
-      font-size: 18px;
-      font-weight: 700;
-      color: #166534;
-    }
-    .credits-indicator.low .credits-value { color: #92400E; }
-    .credits-indicator.empty .credits-value { color: #DC2626; }
     .credits-add {
-      background: #10B981;
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
       color: white;
       border: none;
-      padding: 6px 10px;
+      padding: 4px 10px;
       border-radius: 6px;
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 600;
       cursor: pointer;
-      transition: background 0.2s;
+      transition: all 0.2s;
     }
-    .credits-add:hover { background: #059669; }
-    .credits-indicator.low .credits-add { background: #F59E0B; }
-    .credits-indicator.low .credits-add:hover { background: #D97706; }
-    .credits-indicator.empty .credits-add { background: #EF4444; }
-    .credits-indicator.empty .credits-add:hover { background: #DC2626; }
+    .credits-add:hover { opacity: 0.9; }
+    .credits-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .credit-item {
+      background: #F9FAFB;
+      border-radius: 8px;
+      padding: 8px;
+      text-align: center;
+    }
+    .credit-item.standard { background: linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%); }
+    .credit-item.pro { background: linear-gradient(135deg, #F3E8FF 0%, #E9D5FF 100%); }
+    .credit-item-label {
+      font-size: 9px;
+      color: #6B7280;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    .credit-item-value {
+      font-size: 16px;
+      font-weight: 800;
+    }
+    .credit-item-value.standard { color: #059669; }
+    .credit-item-value.pro { color: #6D28D9; }
+    .credit-item-icon {
+      font-size: 10px;
+    }
     
     /* Main content */
     .main-content {
@@ -2510,22 +2695,39 @@ function getHomePage(user?: User) {
       color: white;
     }
     .quality-btn.active .q-label,
-    .quality-btn.active .q-detail { color: white; }
-    .quality-btn.active .q-detail { opacity: 0.9; }
+    .quality-btn.active .q-detail,
+    .quality-btn.active .q-credits { color: white; }
+    .quality-btn.active .q-detail,
+    .quality-btn.active .q-credits { opacity: 0.9; }
     .q-label { font-size: 14px; font-weight: 600; color: #1F2937; }
     .q-detail { font-size: 12px; color: #6B7280; margin-top: 2px; }
-    .nano-warning {
+    .q-credits { font-size: 11px; color: #9CA3AF; margin-top: 4px; font-weight: 500; }
+    .model-credit-info {
       margin-top: 12px;
       padding: 10px 14px;
-      background: #FEF3C7;
-      border: 1px solid #F59E0B;
+      background: linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%);
+      border: 1px solid #93C5FD;
+      border-radius: 8px;
+      font-size: 12px;
+      color: #1E40AF;
+      text-align: center;
+    }
+    .model-credit-info.standard { background: linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%); border-color: #6EE7B7; color: #065F46; }
+    .model-credit-info.pro { background: linear-gradient(135deg, #F3E8FF 0%, #E9D5FF 100%); border-color: #C4B5FD; color: #5B21B6; }
+    .nano-warning {
+      margin-top: 8px;
+      padding: 10px 14px;
+      background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%);
+      border: 2px solid #F59E0B;
       border-radius: 8px;
       font-size: 12px;
       color: #92400E;
       text-align: center;
       display: none;
+      line-height: 1.5;
     }
-    .nano-warning.show { display: block; }
+    .nano-warning.show { display: block; animation: pulse 2s ease-in-out infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.8; } }
     
     /* Advanced mode link */
     .advanced-link {
@@ -2906,10 +3108,12 @@ function getHomePage(user?: User) {
     .paywall-icon { font-size: 48px; margin-bottom: 16px; }
     .paywall-title { font-size: 22px; font-weight: 700; color: #1F2937; margin-bottom: 8px; }
     .paywall-text { font-size: 14px; color: #6B7280; margin-bottom: 24px; line-height: 1.5; }
-    .paywall-credits { display: flex; justify-content: center; gap: 8px; margin-bottom: 24px; }
+    .paywall-credits { display: flex; justify-content: center; gap: 8px; margin-bottom: 16px; }
     .credits-stat { padding: 12px 20px; background: #F3F4F6; border-radius: 8px; }
     .credits-stat-label { font-size: 11px; color: #9CA3AF; text-transform: uppercase; }
     .credits-stat-value { font-size: 20px; font-weight: 700; color: #1F2937; }
+    .paywall-credit-info { background: #F0F9FF; border-radius: 8px; padding: 12px 16px; margin-bottom: 20px; font-size: 12px; color: #1E40AF; line-height: 1.8; }
+    .paywall-credit-info p { margin: 0; }
     .paywall-btns { display: flex; flex-direction: column; gap: 12px; }
     .paywall-btn {
       padding: 14px 24px;
@@ -2953,11 +3157,20 @@ function getHomePage(user?: User) {
       </div>
     </div>
     <div id="credits-indicator" class="credits-indicator" onclick="window.location.href='/pricing'">
-      <div class="credits-left">
-        <span class="credits-label">Credits</span>
-        <span id="credits-display" class="credits-value">--</span>
+      <div class="credits-header">
+        <span class="credits-title">Credits</span>
+        <button class="credits-add" onclick="event.stopPropagation(); window.location.href='/pricing'">+ Add</button>
       </div>
-      <button class="credits-add" onclick="event.stopPropagation(); window.location.href='/pricing'">+ Add</button>
+      <div class="credits-grid">
+        <div class="credit-item standard">
+          <div class="credit-item-label"><span class="credit-item-icon">⚡</span> Standard</div>
+          <div id="cheaper-credits-display" class="credit-item-value standard">--</div>
+        </div>
+        <div class="credit-item pro">
+          <div class="credit-item-label"><span class="credit-item-icon">✨</span> Pro</div>
+          <div id="better-credits-display" class="credit-item-value pro">--</div>
+        </div>
+      </div>
     </div>
     <div class="sidebar-footer">
       <span id="session-count">0 generations</span>
@@ -2982,25 +3195,32 @@ function getHomePage(user?: User) {
     </header>
     
     <!-- Paywall Modal -->
-    <div id="paywall-modal" class="paywall-overlay">
+    <div id="paywall-modal" class="paywall-overlay" onclick="if(event.target === this) closePaywall()">
       <div class="paywall-modal">
-        <div class="paywall-icon">💳</div>
-        <h2 class="paywall-title">Need More Credits</h2>
-        <p class="paywall-text" id="paywall-text">You need credits to generate product photos.</p>
+        <div class="paywall-icon">🚫</div>
+        <h2 class="paywall-title">Out of Credits!</h2>
+        <p class="paywall-text" id="paywall-text">You've run out of credits. Get more to continue generating images.</p>
         <div class="paywall-credits">
           <div class="credits-stat">
-            <div class="credits-stat-label">Required</div>
-            <div class="credits-stat-value" id="paywall-required">10</div>
+            <div class="credits-stat-label"><span id="paywall-credit-type">Standard</span> Credits Needed</div>
+            <div class="credits-stat-value" id="paywall-required">1</div>
           </div>
           <div class="credits-stat">
-            <div class="credits-stat-label">You Have</div>
-            <div class="credits-stat-value" id="paywall-current">${user?.credits_balance || 0}</div>
+            <div class="credits-stat-label">Your <span id="paywall-credit-type2">Standard</span> Balance</div>
+            <div class="credits-stat-value" id="paywall-current" style="color:#DC2626">0</div>
           </div>
         </div>
-        <div class="paywall-btns">
-          <a href="/pricing" class="paywall-btn paywall-btn-primary">Get Credits</a>
-          <button onclick="closePaywall()" class="paywall-btn paywall-btn-secondary">Maybe Later</button>
+        <div class="paywall-credit-info">
+          <p><strong>Standard Credits</strong> → ⚡ Nano Banana (fast)</p>
+          <p><strong>Pro Credits</strong> → ✨ Nano Banana Pro (best quality)</p>
         </div>
+        <div class="paywall-btns">
+          <a href="/pricing" class="paywall-btn paywall-btn-primary" style="background:linear-gradient(135deg, #7C3AED 0%, #5B21B6 100%)">
+            💳 Get More Credits
+          </a>
+          <button onclick="closePaywall()" class="paywall-btn paywall-btn-secondary">Continue Without Credits</button>
+        </div>
+        <p style="font-size:12px; color:#9CA3AF; margin-top:16px;">Your existing images are safe and won't be deleted.</p>
       </div>
     </div>
 
@@ -3029,19 +3249,26 @@ function getHomePage(user?: User) {
 
       <!-- Quality Selector -->
       <div class="quality-section">
-        <div class="quality-label">Quality:</div>
+        <div class="quality-label">Choose Quality & Credits:</div>
         <div class="quality-options">
-          <button class="quality-btn" data-model="flash" onclick="selectModel('flash')">
-            <div class="q-label">Cheaper</div>
-            <div class="q-detail">Nano Banana · ~25s</div>
+          <button class="quality-btn active" data-model="flash" onclick="selectModel('flash')">
+            <div class="q-label">⚡ Standard</div>
+            <div class="q-detail">Nano Banana · Fast & Reliable</div>
+            <div class="q-credits">Uses Standard Credits</div>
           </button>
-          <button class="quality-btn active" data-model="nano" onclick="selectModel('nano')">
-            <div class="q-label">Better</div>
-            <div class="q-detail">Nano Banana Pro · ~36s</div>
+          <button class="quality-btn" data-model="nano" onclick="selectModel('nano')">
+            <div class="q-label">✨ Pro</div>
+            <div class="q-detail">Nano Banana Pro · Best Quality</div>
+            <div class="q-credits">Uses Pro Credits</div>
           </button>
         </div>
+        <div id="model-credit-info" class="model-credit-info">
+          <span id="selected-credit-type">Standard</span> credits will be used. 
+          You have: <strong id="available-credit-count">--</strong> credits
+        </div>
         <div id="nano-warning" class="nano-warning">
-          ⚠️ Nano Banana Pro is in high demand. If you see errors, try <strong>Cheaper</strong> and come back later.
+          ⚠️ <strong>Pro</strong> model is currently experiencing high latency (60-90+ seconds). 
+          <br>For faster results, use the <strong>Standard</strong> model (~8 seconds per image).
         </div>
       </div>
 
@@ -3109,13 +3336,13 @@ function getHomePage(user?: User) {
     let currentSessionId = null;
     let selectedFile = null;
     let currentOriginalImage = null;
-    let selectedModel = 'nano';
+    let selectedModel = 'flash'; // Default to flash (faster, more reliable)
     let sidebarOpen = false;
     let sessions = [];
     let lightboxImages = [];
     let currentLightboxIndex = 0;
     let customPrompts = {};
-    let currentUser = ${user ? JSON.stringify({ id: user.id, email: user.email, name: user.name, credits_balance: user.credits_balance }) : 'null'};
+    let currentUser = ${user ? JSON.stringify({ id: user.id, email: user.email, name: user.name, cheaper_credits: user.cheaper_credits, better_credits: user.better_credits }) : 'null'};
 
     // User Menu Functions
     function toggleUserMenu() {
@@ -3147,7 +3374,7 @@ function getHomePage(user?: User) {
       const textEl = document.getElementById('paywall-text');
       
       if (reqEl) reqEl.textContent = required;
-      if (curEl) curEl.textContent = currentUser?.credits_balance || 0;
+      if (curEl) curEl.textContent = (currentUser?.cheaper_credits || 0) + (currentUser?.better_credits || 0);
       if (textEl) {
         if (!currentUser) {
           textEl.textContent = 'Sign up free to get 10 credits and start generating!';
@@ -3163,21 +3390,60 @@ function getHomePage(user?: User) {
       if (modal) modal.classList.remove('show');
     }
     
-    // Check if user has enough credits
+    // Show paywall modal with specific required/current values
+    function showPaywallModal(required = 1, current = 0, creditType = 'standard') {
+      const modal = document.getElementById('paywall-modal');
+      const reqEl = document.getElementById('paywall-required');
+      const curEl = document.getElementById('paywall-current');
+      const textEl = document.getElementById('paywall-text');
+      
+      if (reqEl) reqEl.textContent = required;
+      if (curEl) curEl.textContent = current;
+      
+      const typeName = creditType === 'better' ? 'Pro' : 'Standard';
+      
+      // Update credit type labels in the modal
+      const typeEl1 = document.getElementById('paywall-credit-type');
+      const typeEl2 = document.getElementById('paywall-credit-type2');
+      if (typeEl1) typeEl1.textContent = typeName;
+      if (typeEl2) typeEl2.textContent = typeName;
+      
+      if (textEl) {
+        if (current === 0) {
+          textEl.textContent = "You've run out of " + typeName + " credits! Get more to continue generating images.";
+        } else {
+          textEl.textContent = 'You need ' + required + ' ' + typeName + ' credit(s) but only have ' + current + '.';
+        }
+      }
+      
+      // Update credits indicator
+      updateCreditsDisplay();
+      
+      if (modal) modal.classList.add('show');
+    }
+    
+    // Check if user has enough credits for the selected model
     function hasCredits(required = 10) {
       if (!currentUser) return false;
-      return currentUser.credits_balance >= required;
+      const isProModel = selectedModel === 'nano';
+      const availableCredits = isProModel ? (currentUser.better_credits || 0) : (currentUser.cheaper_credits || 0);
+      return availableCredits >= required;
+    }
+    
+    // Get current balance based on selected model
+    function getCurrentBalance() {
+      if (!currentUser) return 0;
+      const isProModel = selectedModel === 'nano';
+      return isProModel ? (currentUser.better_credits || 0) : (currentUser.cheaper_credits || 0);
     }
     
     // Update credits indicator style based on balance
-    function updateCreditsIndicatorStyle(balance) {
+    function updateCreditsIndicatorStyle(cheaper, better) {
       const indicator = document.getElementById('credits-indicator');
       if (!indicator) return;
-      indicator.classList.remove('low', 'empty');
-      if (balance === 0) {
+      indicator.classList.remove('empty');
+      if ((cheaper || 0) === 0 && (better || 0) === 0) {
         indicator.classList.add('empty');
-      } else if (balance < 10) {
-        indicator.classList.add('low');
       }
     }
 
@@ -3290,6 +3556,24 @@ function getHomePage(user?: User) {
       document.querySelectorAll('.quality-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.model === model);
       });
+      
+      // Update credit info display
+      const creditInfo = document.getElementById('model-credit-info');
+      const creditTypeEl = document.getElementById('selected-credit-type');
+      const creditCountEl = document.getElementById('available-credit-count');
+      
+      if (model === 'nano') {
+        // Pro credits
+        if (creditInfo) { creditInfo.classList.remove('standard'); creditInfo.classList.add('pro'); }
+        if (creditTypeEl) creditTypeEl.textContent = 'Pro';
+        if (creditCountEl) creditCountEl.textContent = window.currentBetterCredits || '--';
+      } else {
+        // Standard credits
+        if (creditInfo) { creditInfo.classList.remove('pro'); creditInfo.classList.add('standard'); }
+        if (creditTypeEl) creditTypeEl.textContent = 'Standard';
+        if (creditCountEl) creditCountEl.textContent = window.currentCheaperCredits || '--';
+      }
+      
       // Show warning for Nano Banana Pro (preview model with rate limits)
       const warning = document.getElementById('nano-warning');
       if (warning) {
@@ -3500,10 +3784,7 @@ function getHomePage(user?: User) {
             '</div>' +
             '<div class="card-label">' + v.label + '</div>';
           // Update credits display after each successful generation
-          if (data.credits_remaining !== undefined) {
-            document.getElementById('credits-display').textContent = data.credits_remaining;
-            updateCreditsIndicatorStyle(data.credits_remaining);
-          }
+          updateCreditsDisplay();
         } else if (data.needsUpgrade) {
           // Out of credits mid-generation
           card.innerHTML = '<div style="width:100%; aspect-ratio:1; background:#FEF3C7; border-radius:6px; display:flex; align-items:center; justify-content:center; color:#92400E; cursor:pointer" onclick="window.location.href=\\'/pricing\\'">💳 Need Credits</div>' +
@@ -3581,15 +3862,37 @@ function getHomePage(user?: User) {
             '<div class="card-label">' + v.label + '</div>';
           updateCreditsDisplay(); // Update credits after regeneration
         } else {
-          card.innerHTML = '<div class="card-error">❌</div>' +
+          // Restore previous image if it exists, with retry overlay
+          if (lightboxImages[index] && lightboxImages[index].src) {
+            card.innerHTML = '<div style="position:relative">' +
+              '<img src="' + lightboxImages[index].src + '" style="opacity:0.6" onclick="openLightbox(' + index + ')">' +
+              '<div class="card-overlay" style="opacity:1">' +
+                '<button onclick="event.stopPropagation(); regenerate(' + index + ')">🔄 Retry</button>' +
+              '</div>' +
+            '</div>' +
             '<div class="card-label">' + v.label + '</div>';
+          } else {
+            card.innerHTML = '<div class="card-error" style="cursor:pointer" onclick="regenerate(' + index + ')">⚠️ Retry</div>' +
+              '<div class="card-label">' + v.label + '</div>';
+          }
           showError(data.error || 'Regeneration failed');
         }
       } catch (e) {
         clearInterval(interval);
         console.error('Regeneration failed:', e);
-        card.innerHTML = '<div class="card-error">❌</div>' +
+        // Restore previous image if it exists
+        if (lightboxImages[index] && lightboxImages[index].src) {
+          card.innerHTML = '<div style="position:relative">' +
+            '<img src="' + lightboxImages[index].src + '" style="opacity:0.6" onclick="openLightbox(' + index + ')">' +
+            '<div class="card-overlay" style="opacity:1">' +
+              '<button onclick="event.stopPropagation(); regenerate(' + index + ')">🔄 Retry</button>' +
+            '</div>' +
+          '</div>' +
           '<div class="card-label">' + v.label + '</div>';
+        } else {
+          card.innerHTML = '<div class="card-error" style="cursor:pointer" onclick="regenerate(' + index + ')">⚠️ Retry</div>' +
+            '<div class="card-label">' + v.label + '</div>';
+        }
         showError('Regeneration failed. Please try again.');
       }
     }
@@ -3703,22 +4006,36 @@ function getHomePage(user?: User) {
         const res = await fetch('/api/credits/balance');
         const data = await res.json();
         const indicator = document.getElementById('credits-indicator');
-        const display = document.getElementById('credits-display');
+        const cheaperDisplay = document.getElementById('cheaper-credits-display');
+        const betterDisplay = document.getElementById('better-credits-display');
         
         if (data.success) {
-          const balance = data.balance;
-          display.textContent = balance;
+          const cheaperCredits = data.cheaper_credits || 0;
+          const betterCredits = data.better_credits || 0;
           
-          // Update indicator style based on balance
-          indicator.classList.remove('low', 'empty');
-          if (balance === 0) {
+          if (cheaperDisplay) cheaperDisplay.textContent = cheaperCredits;
+          if (betterDisplay) betterDisplay.textContent = betterCredits;
+          
+          // Update indicator style based on total balance
+          const totalBalance = cheaperCredits + betterCredits;
+          indicator.classList.remove('empty');
+          if (totalBalance === 0) {
             indicator.classList.add('empty');
-          } else if (balance < 10) {
-            indicator.classList.add('low');
+          }
+          
+          // Store current credits for paywall checks
+          window.currentCheaperCredits = cheaperCredits;
+          window.currentBetterCredits = betterCredits;
+          
+          // Update the model-specific credit display
+          const creditCountEl = document.getElementById('available-credit-count');
+          if (creditCountEl) {
+            creditCountEl.textContent = selectedModel === 'nano' ? betterCredits : cheaperCredits;
           }
         } else {
           // Not logged in - show login prompt
-          display.textContent = '0';
+          if (cheaperDisplay) cheaperDisplay.textContent = '0';
+          if (betterDisplay) betterDisplay.textContent = '0';
           indicator.classList.add('empty');
           indicator.onclick = () => window.location.href = '/login';
         }
@@ -4593,7 +4910,7 @@ function getRegisterPage() {
       <h1 class="auth-title">Create Account</h1>
       <p class="auth-subtitle">Start generating professional product photos</p>
       <div style="text-align:center;">
-        <span class="bonus-badge">🎁 Get ${CREDITS.SIGNUP_BONUS} free credits on signup!</span>
+        <span class="bonus-badge">🎁 Get ${CREDITS.SIGNUP_CHEAPER + CREDITS.SIGNUP_BETTER} free credits on signup!</span>
       </div>
       
       <div id="error-msg" class="auth-error" style="margin-top:16px;"></div>
@@ -4667,6 +4984,10 @@ function getRegisterPage() {
 // PRICING PAGE
 // ============================================================================
 function getPricingPage(user?: User) {
+  const userPlan = user?.subscription_plan || 'free';
+  const isStandard = userPlan === 'standard';
+  const isPro = userPlan === 'pro';
+  
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -4677,57 +4998,167 @@ function getPricingPage(user?: User) {
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    * { font-family: 'Inter', system-ui, sans-serif; }
+    * { font-family: 'Inter', system-ui, sans-serif; box-sizing: border-box; }
     body { background: linear-gradient(135deg, #F0F9FF 0%, #E0E7FF 100%); min-height: 100vh; }
-    .pricing-container { max-width: 900px; margin: 0 auto; padding: 48px 24px; }
+    
+    .pricing-container { max-width: 1200px; margin: 0 auto; padding: 48px 24px; }
+    
+    .back-link { display: inline-flex; align-items: center; gap: 4px; color: #6B7280; text-decoration: none; margin-bottom: 24px; font-size: 14px; }
+    .back-link:hover { color: #374151; }
+    
     .pricing-header { text-align: center; margin-bottom: 48px; }
-    .pricing-title { font-size: 36px; font-weight: 700; color: #1F2937; margin-bottom: 8px; }
-    .pricing-subtitle { font-size: 16px; color: #6B7280; }
-    .current-credits { display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; background: #F3F4F6; border-radius: 20px; margin-top: 16px; }
-    .pricing-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; }
-    .pricing-card {
+    .pricing-title { font-size: 42px; font-weight: 800; color: #1F2937; margin-bottom: 12px; background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .pricing-subtitle { font-size: 18px; color: #6B7280; max-width: 600px; margin: 0 auto 24px; }
+    
+    .current-balance { display: inline-flex; align-items: center; gap: 16px; padding: 16px 24px; background: white; border-radius: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+    .balance-item { text-align: center; padding: 0 16px; }
+    .balance-item:not(:last-child) { border-right: 1px solid #E5E7EB; }
+    .balance-label { font-size: 12px; color: #6B7280; margin-bottom: 4px; }
+    .balance-value { font-size: 24px; font-weight: 700; }
+    .balance-value.cheaper { color: #059669; }
+    .balance-value.better { color: #7C3AED; }
+    
+    .section-title { font-size: 28px; font-weight: 700; color: #1F2937; margin: 48px 0 24px; text-align: center; }
+    .section-subtitle { font-size: 14px; color: #6B7280; text-align: center; margin: -16px 0 32px; }
+    
+    /* Subscription Plans Grid */
+    .plans-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-bottom: 64px; }
+    @media (max-width: 900px) { .plans-grid { grid-template-columns: 1fr; } }
+    
+    .plan-card {
       background: white;
-      border-radius: 16px;
+      border-radius: 20px;
       padding: 32px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+      box-shadow: 0 4px 20px rgba(0,0,0,0.05);
       position: relative;
+      transition: transform 0.2s, box-shadow 0.2s;
     }
-    .pricing-card.featured { border: 2px solid #3B82F6; }
-    .featured-badge {
-      position: absolute;
-      top: -12px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
-      color: white;
-      padding: 4px 16px;
-      border-radius: 12px;
-      font-size: 12px;
-      font-weight: 600;
-    }
-    .plan-name { font-size: 20px; font-weight: 700; color: #1F2937; margin-bottom: 8px; }
-    .plan-price { font-size: 36px; font-weight: 700; color: #1F2937; margin-bottom: 4px; }
-    .plan-period { font-size: 14px; color: #6B7280; margin-bottom: 16px; }
-    .plan-credits { font-size: 16px; font-weight: 600; color: #3B82F6; margin-bottom: 20px; }
-    .plan-features { list-style: none; padding: 0; margin-bottom: 24px; }
-    .plan-features li { padding: 8px 0; color: #4B5563; font-size: 14px; display: flex; align-items: center; gap: 8px; }
-    .plan-features li::before { content: '✓'; color: #10B981; font-weight: bold; }
+    .plan-card:hover { transform: translateY(-4px); box-shadow: 0 8px 30px rgba(0,0,0,0.1); }
+    .plan-card.featured { border: 3px solid #7C3AED; }
+    .plan-card.current { border: 3px solid #10B981; }
+    
+    .badge { position: absolute; top: -12px; left: 50%; transform: translateX(-50%); padding: 6px 16px; border-radius: 20px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+    .badge.popular { background: linear-gradient(135deg, #7C3AED 0%, #5B21B6 100%); color: white; }
+    .badge.best { background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%); color: white; }
+    .badge.current { background: #10B981; color: white; }
+    
+    .plan-name { font-size: 24px; font-weight: 700; color: #1F2937; margin-bottom: 8px; margin-top: 8px; }
+    .plan-price { font-size: 48px; font-weight: 800; color: #1F2937; line-height: 1; }
+    .plan-price span { font-size: 18px; font-weight: 500; color: #6B7280; }
+    .plan-period { font-size: 14px; color: #6B7280; margin-bottom: 24px; }
+    
+    .plan-credits { background: #F9FAFB; border-radius: 12px; padding: 16px; margin-bottom: 24px; }
+    .credit-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; }
+    .credit-row:not(:last-child) { border-bottom: 1px solid #E5E7EB; }
+    .credit-type { display: flex; align-items: center; gap: 8px; }
+    .credit-dot { width: 10px; height: 10px; border-radius: 50%; }
+    .credit-dot.cheaper { background: #10B981; }
+    .credit-dot.better { background: #7C3AED; }
+    .credit-label { font-size: 14px; color: #4B5563; }
+    .credit-amount { font-size: 18px; font-weight: 700; color: #1F2937; }
+    
+    .plan-features { list-style: none; padding: 0; margin: 0 0 24px; }
+    .plan-features li { padding: 10px 0; color: #4B5563; font-size: 14px; display: flex; align-items: flex-start; gap: 10px; }
+    .plan-features li::before { content: '✓'; color: #10B981; font-weight: bold; font-size: 16px; flex-shrink: 0; }
+    
     .plan-btn {
       width: 100%;
-      padding: 14px;
-      border-radius: 8px;
-      font-size: 15px;
+      padding: 16px;
+      border-radius: 12px;
+      font-size: 16px;
       font-weight: 600;
       cursor: pointer;
       transition: all 0.2s;
       border: none;
     }
     .plan-btn-primary { background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%); color: white; }
-    .plan-btn-secondary { background: white; color: #374151; border: 1px solid #E5E7EB; }
-    .plan-btn:hover { opacity: 0.9; transform: translateY(-1px); }
-    .plan-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
-    .back-link { display: inline-flex; align-items: center; gap: 4px; color: #6B7280; text-decoration: none; margin-bottom: 24px; }
-    .back-link:hover { color: #374151; }
+    .plan-btn-pro { background: linear-gradient(135deg, #7C3AED 0%, #5B21B6 100%); color: white; }
+    .plan-btn-secondary { background: white; color: #374151; border: 2px solid #E5E7EB; }
+    .plan-btn:hover:not(:disabled) { opacity: 0.9; transform: translateY(-2px); }
+    .plan-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+    
+    /* Credit Packs Section */
+    .packs-section { background: white; border-radius: 24px; padding: 48px; margin-bottom: 48px; }
+    
+    .packs-tabs { display: flex; justify-content: center; gap: 8px; margin-bottom: 32px; }
+    .pack-tab {
+      padding: 12px 24px;
+      border-radius: 12px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      border: 2px solid #E5E7EB;
+      background: white;
+      color: #4B5563;
+      transition: all 0.2s;
+    }
+    .pack-tab:hover { border-color: #9CA3AF; }
+    .pack-tab.active.cheaper { background: #ECFDF5; border-color: #10B981; color: #059669; }
+    .pack-tab.active.better { background: #F3E8FF; border-color: #7C3AED; color: #6D28D9; }
+    
+    .packs-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+    @media (max-width: 800px) { .packs-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 500px) { .packs-grid { grid-template-columns: 1fr; } }
+    
+    .pack-card {
+      background: #F9FAFB;
+      border-radius: 16px;
+      padding: 24px;
+      text-align: center;
+      transition: all 0.2s;
+      cursor: pointer;
+      border: 2px solid transparent;
+    }
+    .pack-card:hover { background: white; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+    .pack-card.cheaper:hover { border-color: #10B981; }
+    .pack-card.better:hover { border-color: #7C3AED; }
+    
+    .pack-price { font-size: 32px; font-weight: 800; color: #1F2937; margin-bottom: 8px; }
+    .pack-credits { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+    .pack-credits.cheaper { color: #059669; }
+    .pack-credits.better { color: #7C3AED; }
+    .pack-per { font-size: 13px; color: #9CA3AF; }
+    .pack-btn {
+      margin-top: 16px;
+      width: 100%;
+      padding: 12px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s;
+    }
+    .pack-btn.cheaper { background: #10B981; color: white; }
+    .pack-btn.cheaper:hover { background: #059669; }
+    .pack-btn.better { background: #7C3AED; color: white; }
+    .pack-btn.better:hover { background: #6D28D9; }
+    .pack-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    
+    .hidden { display: none !important; }
+    
+    /* How It Works */
+    .how-it-works { background: #1F2937; border-radius: 24px; padding: 48px; color: white; margin-bottom: 48px; }
+    .how-title { font-size: 24px; font-weight: 700; margin-bottom: 32px; text-align: center; }
+    .how-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 32px; }
+    @media (max-width: 700px) { .how-grid { grid-template-columns: 1fr; } }
+    
+    .how-card { display: flex; gap: 16px; }
+    .how-icon { width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 24px; flex-shrink: 0; }
+    .how-icon.green { background: rgba(16, 185, 129, 0.2); }
+    .how-icon.purple { background: rgba(124, 58, 237, 0.2); }
+    .how-text h3 { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+    .how-text p { font-size: 14px; color: #9CA3AF; line-height: 1.5; }
+    
+    /* Comparison Table */
+    .compare-table { width: 100%; border-collapse: collapse; margin-top: 24px; }
+    .compare-table th, .compare-table td { padding: 16px; text-align: left; border-bottom: 1px solid #E5E7EB; }
+    .compare-table th { font-weight: 600; color: #1F2937; background: #F9FAFB; }
+    .compare-table td { color: #4B5563; }
+    .compare-table tr:last-child td { border-bottom: none; }
+    .model-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; }
+    .model-badge.cheaper { background: #ECFDF5; color: #059669; }
+    .model-badge.better { background: #F3E8FF; color: #6D28D9; }
   </style>
 </head>
 <body>
@@ -4735,71 +5166,308 @@ function getPricingPage(user?: User) {
     <a href="/" class="back-link">← Back to ShopShot</a>
     
     <div class="pricing-header">
-      <h1 class="pricing-title">Simple, Credit-Based Pricing</h1>
-      <p class="pricing-subtitle">Pay only for what you use. No hidden fees.</p>
-      ${user ? `<div class="current-credits">💳 You have <strong>${user.credits_balance}</strong> credits</div>` : ''}
+      <h1 class="pricing-title">Simple, Transparent Pricing</h1>
+      <p class="pricing-subtitle">Choose your plan and start creating stunning product photos. Two credit types give you flexibility between speed and quality.</p>
+      
+      ${user ? `
+      <div class="current-balance">
+        <div class="balance-item">
+          <div class="balance-label">Standard Credits</div>
+          <div class="balance-value cheaper">${user.cheaper_credits}</div>
+        </div>
+        <div class="balance-item">
+          <div class="balance-label">Pro Credits</div>
+          <div class="balance-value better">${user.better_credits}</div>
+        </div>
+        <div class="balance-item">
+          <div class="balance-label">Current Plan</div>
+          <div class="balance-value" style="font-size:16px;color:#374151;">${userPlan === 'pro' ? 'Pro' : userPlan === 'standard' ? 'Standard' : 'Free'}</div>
+        </div>
+      </div>
+      ` : ''}
     </div>
     
-    <div class="pricing-grid">
+    <!-- Subscription Plans -->
+    <h2 class="section-title">Monthly Subscriptions</h2>
+    <p class="section-subtitle">Get fresh credits every month. Cancel anytime.</p>
+    
+    <div class="plans-grid">
       <!-- Free Tier -->
-      <div class="pricing-card">
+      <div class="plan-card ${!isStandard && !isPro && user ? 'current' : ''}">
+        ${!isStandard && !isPro && user ? '<div class="badge current">Current Plan</div>' : ''}
         <div class="plan-name">Free</div>
         <div class="plan-price">£0</div>
         <div class="plan-period">to get started</div>
-        <div class="plan-credits">${CREDITS.SIGNUP_BONUS} credits on signup</div>
+        
+        <div class="plan-credits">
+          <div class="credit-row">
+            <div class="credit-type">
+              <div class="credit-dot cheaper"></div>
+              <span class="credit-label">Standard Credits</span>
+            </div>
+            <span class="credit-amount">${CREDITS.SIGNUP_CHEAPER}</span>
+          </div>
+          <div class="credit-row">
+            <div class="credit-type">
+              <div class="credit-dot better"></div>
+              <span class="credit-label">Pro Credits</span>
+            </div>
+            <span class="credit-amount">${CREDITS.SIGNUP_BETTER}</span>
+          </div>
+        </div>
+        
         <ul class="plan-features">
-          <li>1 full product shoot (10 images)</li>
           <li>Both AI models available</li>
           <li>Download in high quality</li>
           <li>No credit card required</li>
+          <li>Try before you buy</li>
         </ul>
-        ${user ? '<button class="plan-btn plan-btn-secondary" disabled>Your Current Plan</button>' : '<a href="/register" class="plan-btn plan-btn-secondary" style="text-decoration:none;display:block;text-align:center;">Sign Up Free</a>'}
+        
+        ${user 
+          ? '<button class="plan-btn plan-btn-secondary" disabled>Your Starting Plan</button>' 
+          : '<a href="/register" class="plan-btn plan-btn-secondary" style="text-decoration:none;display:block;text-align:center;">Sign Up Free</a>'}
       </div>
       
-      <!-- Pro Subscription -->
-      <div class="pricing-card featured">
-        <div class="featured-badge">Most Popular</div>
-        <div class="plan-name">Pro Monthly</div>
-        <div class="plan-price">£${PRICING.SUBSCRIPTION}</div>
-        <div class="plan-period">per month</div>
-        <div class="plan-credits">${CREDITS.SUBSCRIPTION_MONTHLY} credits/month</div>
+      <!-- Standard Plan -->
+      <div class="plan-card featured ${isStandard ? 'current' : ''}">
+        ${isStandard ? '<div class="badge current">Current Plan</div>' : '<div class="badge popular">Most Popular</div>'}
+        <div class="plan-name">Standard</div>
+        <div class="plan-price">£${PRICING.STANDARD}<span>/mo</span></div>
+        <div class="plan-period">billed monthly</div>
+        
+        <div class="plan-credits">
+          <div class="credit-row">
+            <div class="credit-type">
+              <div class="credit-dot cheaper"></div>
+              <span class="credit-label">Standard Credits</span>
+            </div>
+            <span class="credit-amount">${CREDITS.STANDARD_CHEAPER}</span>
+          </div>
+          <div class="credit-row">
+            <div class="credit-type">
+              <div class="credit-dot better"></div>
+              <span class="credit-label">Pro Credits</span>
+            </div>
+            <span class="credit-amount">${CREDITS.STANDARD_BETTER}</span>
+          </div>
+        </div>
+        
         <ul class="plan-features">
-          <li>30 full product shoots</li>
-          <li>Credits roll over</li>
-          <li>Priority generation</li>
+          <li>~50 full product shoots/month</li>
+          <li>Access to both AI models</li>
+          <li>Priority generation queue</li>
+          <li>Credits roll over (up to 2x)</li>
           <li>Cancel anytime</li>
         </ul>
-        <button class="plan-btn plan-btn-primary" onclick="startCheckout('subscription')" ${!user ? 'disabled title="Please sign up first"' : ''}>
-          ${user?.subscription_status === 'active' ? 'Current Plan' : 'Subscribe Now'}
+        
+        <button class="plan-btn plan-btn-primary" onclick="startCheckout('standard')" ${!user ? 'disabled title="Please sign up first"' : isStandard ? 'disabled' : ''}>
+          ${isStandard ? 'Current Plan' : 'Get Standard'}
         </button>
       </div>
       
-      <!-- Credit Pack -->
-      <div class="pricing-card">
-        <div class="plan-name">Credit Pack</div>
-        <div class="plan-price">£${PRICING.TOPUP}</div>
-        <div class="plan-period">one-time</div>
-        <div class="plan-credits">${CREDITS.TOPUP_PACK} credits</div>
+      <!-- Pro Plan -->
+      <div class="plan-card ${isPro ? 'current' : ''}">
+        ${isPro ? '<div class="badge current">Current Plan</div>' : '<div class="badge best">Best Value</div>'}
+        <div class="plan-name">Pro</div>
+        <div class="plan-price">£${PRICING.PRO}<span>/mo</span></div>
+        <div class="plan-period">billed monthly</div>
+        
+        <div class="plan-credits">
+          <div class="credit-row">
+            <div class="credit-type">
+              <div class="credit-dot cheaper"></div>
+              <span class="credit-label">Standard Credits</span>
+            </div>
+            <span class="credit-amount">${CREDITS.PRO_CHEAPER}</span>
+          </div>
+          <div class="credit-row">
+            <div class="credit-type">
+              <div class="credit-dot better"></div>
+              <span class="credit-label">Pro Credits</span>
+            </div>
+            <span class="credit-amount">${CREDITS.PRO_BETTER}</span>
+          </div>
+        </div>
+        
         <ul class="plan-features">
-          <li>30 full product shoots</li>
-          <li>Never expires</li>
-          <li>Stack with subscription</li>
-          <li>Use anytime</li>
+          <li>~47 full product shoots/month</li>
+          <li><strong>4x more Pro credits</strong></li>
+          <li>Best quality image generation</li>
+          <li>Priority support</li>
+          <li>Cancel anytime</li>
         </ul>
-        <button class="plan-btn plan-btn-secondary" onclick="startCheckout('topup')" ${!user ? 'disabled title="Please sign up first"' : ''}>
-          Buy Credits
+        
+        <button class="plan-btn plan-btn-pro" onclick="startCheckout('pro')" ${!user ? 'disabled title="Please sign up first"' : isPro ? 'disabled' : ''}>
+          ${isPro ? 'Current Plan' : 'Get Pro'}
         </button>
       </div>
     </div>
     
-    <div style="text-align:center;margin-top:48px;color:#6B7280;font-size:14px;">
-      <p><strong>How credits work:</strong> 10 credits = 1 full product shoot (10 AI-generated images)</p>
-      <p>1 credit = 1 single image regeneration</p>
+    <!-- Credit Packs Section -->
+    <div class="packs-section">
+      <h2 class="section-title" style="margin-top:0;">Top-Up Credit Packs</h2>
+      <p class="section-subtitle" style="margin-bottom:24px;">Need more credits? Buy one-time packs that never expire.</p>
+      
+      <div class="packs-tabs">
+        <button class="pack-tab cheaper active" onclick="switchPackTab('cheaper')">
+          Standard Credits (Fast)
+        </button>
+        <button class="pack-tab better" onclick="switchPackTab('better')">
+          Pro Credits (Best Quality)
+        </button>
+      </div>
+      
+      <!-- Cheaper/Standard Packs -->
+      <div id="packs-cheaper" class="packs-grid">
+        <div class="pack-card cheaper" onclick="!${!user} && startPackCheckout('cheaper', 25)">
+          <div class="pack-price">£25</div>
+          <div class="pack-credits cheaper">${CREDITS.PACKS.CHEAPER.PACK_25} credits</div>
+          <div class="pack-per">£0.063 per credit</div>
+          <button class="pack-btn cheaper" ${!user ? 'disabled' : ''}>Buy Now</button>
+        </div>
+        <div class="pack-card cheaper" onclick="!${!user} && startPackCheckout('cheaper', 50)">
+          <div class="pack-price">£50</div>
+          <div class="pack-credits cheaper">${CREDITS.PACKS.CHEAPER.PACK_50} credits</div>
+          <div class="pack-per">£0.063 per credit</div>
+          <button class="pack-btn cheaper" ${!user ? 'disabled' : ''}>Buy Now</button>
+        </div>
+        <div class="pack-card cheaper" onclick="!${!user} && startPackCheckout('cheaper', 75)">
+          <div class="pack-price">£75</div>
+          <div class="pack-credits cheaper">${CREDITS.PACKS.CHEAPER.PACK_75} credits</div>
+          <div class="pack-per">£0.063 per credit</div>
+          <button class="pack-btn cheaper" ${!user ? 'disabled' : ''}>Buy Now</button>
+        </div>
+        <div class="pack-card cheaper" onclick="!${!user} && startPackCheckout('cheaper', 100)">
+          <div class="pack-price">£100</div>
+          <div class="pack-credits cheaper">${CREDITS.PACKS.CHEAPER.PACK_100} credits</div>
+          <div class="pack-per">£0.063 per credit</div>
+          <button class="pack-btn cheaper" ${!user ? 'disabled' : ''}>Buy Now</button>
+        </div>
+      </div>
+      
+      <!-- Better/Pro Packs -->
+      <div id="packs-better" class="packs-grid hidden">
+        <div class="pack-card better" onclick="!${!user} && startPackCheckout('better', 25)">
+          <div class="pack-price">£25</div>
+          <div class="pack-credits better">${CREDITS.PACKS.BETTER.PACK_25} credits</div>
+          <div class="pack-per">£0.22 per credit</div>
+          <button class="pack-btn better" ${!user ? 'disabled' : ''}>Buy Now</button>
+        </div>
+        <div class="pack-card better" onclick="!${!user} && startPackCheckout('better', 50)">
+          <div class="pack-price">£50</div>
+          <div class="pack-credits better">${CREDITS.PACKS.BETTER.PACK_50} credits</div>
+          <div class="pack-per">£0.22 per credit</div>
+          <button class="pack-btn better" ${!user ? 'disabled' : ''}>Buy Now</button>
+        </div>
+        <div class="pack-card better" onclick="!${!user} && startPackCheckout('better', 75)">
+          <div class="pack-price">£75</div>
+          <div class="pack-credits better">${CREDITS.PACKS.BETTER.PACK_75} credits</div>
+          <div class="pack-per">£0.22 per credit</div>
+          <button class="pack-btn better" ${!user ? 'disabled' : ''}>Buy Now</button>
+        </div>
+        <div class="pack-card better" onclick="!${!user} && startPackCheckout('better', 100)">
+          <div class="pack-price">£100</div>
+          <div class="pack-credits better">${CREDITS.PACKS.BETTER.PACK_100} credits</div>
+          <div class="pack-per">£0.22 per credit</div>
+          <button class="pack-btn better" ${!user ? 'disabled' : ''}>Buy Now</button>
+        </div>
+      </div>
+      
+      ${!user ? '<p style="text-align:center;color:#6B7280;margin-top:24px;font-size:14px;">Please <a href="/register" style="color:#3B82F6;">sign up</a> or <a href="/login" style="color:#3B82F6;">log in</a> to purchase credit packs.</p>' : ''}
+    </div>
+    
+    <!-- How It Works -->
+    <div class="how-it-works">
+      <h2 class="how-title">How Credits Work</h2>
+      <div class="how-grid">
+        <div class="how-card">
+          <div class="how-icon green">⚡</div>
+          <div class="how-text">
+            <h3>Standard Credits (Nano Banana)</h3>
+            <p>Fast, reliable image generation using Gemini 2.5 Flash. Great quality at high speed. 1 credit = 1 image.</p>
+          </div>
+        </div>
+        <div class="how-card">
+          <div class="how-icon purple">✨</div>
+          <div class="how-text">
+            <h3>Pro Credits (Nano Banana Pro)</h3>
+            <p>Best-in-class quality using Gemini 3 Pro. Premium results for professional use. 1 credit = 1 image.</p>
+          </div>
+        </div>
+        <div class="how-card">
+          <div class="how-icon green">📸</div>
+          <div class="how-text">
+            <h3>Full Product Shoot</h3>
+            <p>Upload one product image, get 10 professional variations. Uses 10 credits of either type based on your model choice.</p>
+          </div>
+        </div>
+        <div class="how-card">
+          <div class="how-icon purple">🔄</div>
+          <div class="how-text">
+            <h3>Single Regeneration</h3>
+            <p>Don't like one image? Regenerate just that shot for 1 credit. Keep what works, redo what doesn't.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Comparison Table -->
+    <div style="background:white;border-radius:24px;padding:48px;margin-bottom:48px;">
+      <h2 class="section-title" style="margin-top:0;">Model Comparison</h2>
+      <table class="compare-table">
+        <thead>
+          <tr>
+            <th>Feature</th>
+            <th><span class="model-badge cheaper">Standard (Nano Banana)</span></th>
+            <th><span class="model-badge better">Pro (Nano Banana Pro)</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>AI Model</td>
+            <td>Gemini 2.5 Flash</td>
+            <td>Gemini 3 Pro</td>
+          </tr>
+          <tr>
+            <td>Generation Speed</td>
+            <td>~2-3 seconds per image</td>
+            <td>~3-4 seconds per image</td>
+          </tr>
+          <tr>
+            <td>Image Quality</td>
+            <td>Great (Professional)</td>
+            <td>Best (Premium)</td>
+          </tr>
+          <tr>
+            <td>Best For</td>
+            <td>High-volume listings, quick iterations</td>
+            <td>Hero images, marketing materials</td>
+          </tr>
+          <tr>
+            <td>Cost per Image</td>
+            <td>1 Standard credit</td>
+            <td>1 Pro credit</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    
+    <!-- FAQ -->
+    <div style="text-align:center;padding:32px 0;">
+      <p style="color:#6B7280;font-size:14px;margin-bottom:8px;">Questions? <a href="mailto:support@shopshot.ai" style="color:#3B82F6;">Contact Support</a></p>
+      <p style="color:#9CA3AF;font-size:13px;">All plans include a 7-day money-back guarantee. No questions asked.</p>
     </div>
   </div>
 
   <script>
-    async function startCheckout(type) {
+    function switchPackTab(type) {
+      document.querySelectorAll('.pack-tab').forEach(t => t.classList.remove('active'));
+      document.querySelector('.pack-tab.' + type).classList.add('active');
+      document.getElementById('packs-cheaper').classList.toggle('hidden', type !== 'cheaper');
+      document.getElementById('packs-better').classList.toggle('hidden', type !== 'better');
+    }
+    
+    async function startCheckout(plan) {
       ${!user ? 'window.location.href = "/register"; return;' : ''}
       try {
         const btn = event.target;
@@ -4809,7 +5477,7 @@ function getPricingPage(user?: User) {
         const res = await fetch('/api/billing/create-checkout', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type })
+          body: JSON.stringify({ type: 'subscription', plan })
         });
         
         const data = await res.json();
@@ -4818,11 +5486,31 @@ function getPricingPage(user?: User) {
         } else {
           alert(data.error || 'Failed to start checkout');
           btn.disabled = false;
-          btn.textContent = type === 'subscription' ? 'Subscribe Now' : 'Buy Credits';
+          btn.textContent = plan === 'pro' ? 'Get Pro' : 'Get Standard';
         }
       } catch (err) {
         alert('Something went wrong');
         location.reload();
+      }
+    }
+    
+    async function startPackCheckout(creditType, amount) {
+      ${!user ? 'window.location.href = "/register"; return;' : ''}
+      try {
+        const res = await fetch('/api/billing/create-checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'pack', creditType, amount })
+        });
+        
+        const data = await res.json();
+        if (data.success && data.url) {
+          window.location.href = data.url;
+        } else {
+          alert(data.error || 'Failed to start checkout');
+        }
+      } catch (err) {
+        alert('Something went wrong');
       }
     }
   </script>
@@ -4834,6 +5522,9 @@ function getPricingPage(user?: User) {
 // DASHBOARD PAGE
 // ============================================================================
 function getDashboardPage(user: User) {
+  const planName = user.subscription_plan === 'pro' ? 'Pro' : user.subscription_plan === 'standard' ? 'Standard' : 'Free';
+  const totalCredits = user.cheaper_credits + user.better_credits;
+  
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -4844,34 +5535,53 @@ function getDashboardPage(user: User) {
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    * { font-family: 'Inter', system-ui, sans-serif; }
+    * { font-family: 'Inter', system-ui, sans-serif; box-sizing: border-box; }
     body { background: #F9FAFB; min-height: 100vh; }
-    .dashboard { max-width: 900px; margin: 0 auto; padding: 32px 24px; }
-    .dash-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px; }
+    .dashboard { max-width: 1000px; margin: 0 auto; padding: 32px 24px; }
+    .dash-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px; flex-wrap: wrap; gap: 16px; }
     .dash-title { font-size: 28px; font-weight: 700; color: #1F2937; }
     .dash-nav { display: flex; gap: 12px; }
-    .dash-nav a { padding: 8px 16px; background: white; border: 1px solid #E5E7EB; border-radius: 8px; color: #374151; text-decoration: none; font-size: 13px; font-weight: 500; }
+    .dash-nav a { padding: 8px 16px; background: white; border: 1px solid #E5E7EB; border-radius: 8px; color: #374151; text-decoration: none; font-size: 13px; font-weight: 500; transition: all 0.2s; }
     .dash-nav a:hover { background: #F3F4F6; }
-    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 32px; }
+    
+    /* Credits Overview */
+    .credits-overview { background: white; border-radius: 16px; padding: 24px; margin-bottom: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+    .credits-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+    .credits-title { font-size: 18px; font-weight: 600; color: #1F2937; }
+    .credits-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    @media (max-width: 600px) { .credits-grid { grid-template-columns: 1fr; } }
+    
+    .credit-card { background: #F9FAFB; border-radius: 12px; padding: 20px; text-align: center; border: 2px solid transparent; transition: all 0.2s; }
+    .credit-card:hover { border-color: #E5E7EB; }
+    .credit-card.standard { background: linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%); }
+    .credit-card.pro { background: linear-gradient(135deg, #F3E8FF 0%, #E9D5FF 100%); }
+    .credit-card.total { background: linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%); }
+    
+    .credit-icon { width: 48px; height: 48px; border-radius: 12px; margin: 0 auto 12px; display: flex; align-items: center; justify-content: center; font-size: 24px; }
+    .credit-icon.standard { background: #10B981; }
+    .credit-icon.pro { background: #7C3AED; }
+    .credit-icon.total { background: #3B82F6; }
+    
+    .credit-label { font-size: 13px; color: #6B7280; margin-bottom: 4px; }
+    .credit-value { font-size: 32px; font-weight: 800; }
+    .credit-value.standard { color: #059669; }
+    .credit-value.pro { color: #6D28D9; }
+    .credit-value.total { color: #2563EB; }
+    .credit-sub { font-size: 12px; color: #9CA3AF; margin-top: 4px; }
+    
+    /* Stats Grid */
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 32px; }
     .stat-card { background: white; border-radius: 12px; padding: 20px; border: 1px solid #E5E7EB; }
     .stat-label { font-size: 13px; color: #6B7280; margin-bottom: 4px; }
-    .stat-value { font-size: 28px; font-weight: 700; color: #1F2937; }
+    .stat-value { font-size: 24px; font-weight: 700; color: #1F2937; }
     .stat-sub { font-size: 12px; color: #9CA3AF; margin-top: 4px; }
-    .section-title { font-size: 18px; font-weight: 600; color: #1F2937; margin-bottom: 16px; }
-    .history-list { background: white; border-radius: 12px; border: 1px solid #E5E7EB; overflow: hidden; }
-    .history-item { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid #F3F4F6; }
-    .history-item:last-child { border-bottom: none; }
-    .history-info { display: flex; align-items: center; gap: 12px; }
-    .history-icon { width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 18px; }
-    .history-icon.positive { background: #DCFCE7; }
-    .history-icon.negative { background: #FEE2E2; }
-    .history-text { font-size: 14px; color: #374151; }
-    .history-date { font-size: 12px; color: #9CA3AF; }
-    .history-amount { font-size: 14px; font-weight: 600; }
-    .history-amount.positive { color: #059669; }
-    .history-amount.negative { color: #DC2626; }
-    .empty-state { padding: 48px; text-align: center; color: #9CA3AF; }
+    .stat-badge { display: inline-block; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+    .stat-badge.free { background: #F3F4F6; color: #6B7280; }
+    .stat-badge.standard { background: #ECFDF5; color: #059669; }
+    .stat-badge.pro { background: #F3E8FF; color: #6D28D9; }
+    
     .action-btn {
+      display: inline-block;
       padding: 12px 24px;
       background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
       color: white;
@@ -4881,7 +5591,90 @@ function getDashboardPage(user: User) {
       font-weight: 600;
       cursor: pointer;
       text-decoration: none;
+      transition: all 0.2s;
     }
+    .action-btn:hover { opacity: 0.9; transform: translateY(-1px); }
+    
+    .section-title { font-size: 18px; font-weight: 600; color: #1F2937; margin-bottom: 16px; }
+    
+    /* History List */
+    .history-list { background: white; border-radius: 12px; border: 1px solid #E5E7EB; overflow: hidden; }
+    .history-item { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid #F3F4F6; transition: background 0.2s; }
+    .history-item:last-child { border-bottom: none; }
+    .history-info { display: flex; align-items: center; gap: 12px; }
+    .history-icon { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+    .history-icon.positive { background: #DCFCE7; }
+    .history-icon.negative.standard { background: #ECFDF5; }
+    .history-icon.negative.pro { background: #F3E8FF; }
+    .history-icon.negative { background: #FEE2E2; }
+    .history-text { font-size: 14px; color: #374151; }
+    .history-date { font-size: 12px; color: #9CA3AF; }
+    .history-meta { display: flex; align-items: center; gap: 8px; }
+    .history-amount { font-size: 14px; font-weight: 600; }
+    .history-amount.positive { color: #059669; }
+    .history-amount.negative { color: #DC2626; }
+    .credit-type-badge { padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; text-transform: uppercase; }
+    .credit-type-badge.standard { background: #ECFDF5; color: #059669; }
+    .credit-type-badge.pro { background: #F3E8FF; color: #6D28D9; }
+    .empty-state { padding: 48px; text-align: center; color: #9CA3AF; }
+    
+    .history-item.clickable { cursor: pointer; }
+    .history-item.clickable:hover { background: #F9FAFB; }
+    .history-thumb { width: 40px; height: 40px; border-radius: 8px; object-fit: cover; }
+    .view-hint { font-size: 11px; color: #3B82F6; margin-left: 8px; }
+    
+    /* Modal */
+    .image-modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.85);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+    .image-modal-overlay.show { display: flex; }
+    .image-modal-content {
+      background: white;
+      border-radius: 16px;
+      max-width: 90vw;
+      max-height: 90vh;
+      overflow: hidden;
+      position: relative;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+    .image-modal-content img {
+      max-width: 100%;
+      max-height: 70vh;
+      display: block;
+    }
+    .image-modal-close {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      background: rgba(0,0,0,0.6);
+      color: white;
+      border: none;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      cursor: pointer;
+      font-size: 20px;
+      line-height: 1;
+      transition: background 0.2s;
+    }
+    .image-modal-close:hover { background: rgba(0,0,0,0.8); }
+    .modal-download-btn {
+      display: block;
+      text-align: center;
+      padding: 14px;
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      color: white;
+      text-decoration: none;
+      font-weight: 600;
+      transition: opacity 0.2s;
+    }
+    .modal-download-btn:hover { opacity: 0.9; }
   </style>
 </head>
 <body>
@@ -4891,33 +5684,98 @@ function getDashboardPage(user: User) {
       <div class="dash-nav">
         <a href="/">← Back to Generator</a>
         <a href="/account">Account</a>
+        <a href="/pricing">Get Credits</a>
       </div>
     </div>
     
+    <!-- Credits Overview -->
+    <div class="credits-overview">
+      <div class="credits-header">
+        <h2 class="credits-title">Your Credits</h2>
+        <a href="/pricing" class="action-btn">+ Get More Credits</a>
+      </div>
+      <div class="credits-grid">
+        <div class="credit-card standard">
+          <div class="credit-icon standard">⚡</div>
+          <div class="credit-label">Standard Credits</div>
+          <div class="credit-value standard">${user.cheaper_credits}</div>
+          <div class="credit-sub">Nano Banana (Fast)</div>
+        </div>
+        <div class="credit-card pro">
+          <div class="credit-icon pro">✨</div>
+          <div class="credit-label">Pro Credits</div>
+          <div class="credit-value pro">${user.better_credits}</div>
+          <div class="credit-sub">Nano Banana Pro (Best)</div>
+        </div>
+        <div class="credit-card total">
+          <div class="credit-icon total">📸</div>
+          <div class="credit-label">Total Credits</div>
+          <div class="credit-value total">${totalCredits}</div>
+          <div class="credit-sub">~${Math.floor(totalCredits / 10)} shoots remaining</div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Stats Grid -->
     <div class="stats-grid">
       <div class="stat-card">
-        <div class="stat-label">Credits Balance</div>
-        <div class="stat-value">${user.credits_balance}</div>
-        <div class="stat-sub">${Math.floor(user.credits_balance / 10)} full shoots remaining</div>
+        <div class="stat-label">Current Plan</div>
+        <div class="stat-badge ${user.subscription_plan}">${planName}</div>
+        <div class="stat-sub" style="margin-top:8px;">${user.subscription_status === 'active' ? 'Active subscription' : 'No active subscription'}</div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">Plan</div>
-        <div class="stat-value">${user.subscription_plan === 'pro' ? 'Pro' : 'Free'}</div>
-        <div class="stat-sub">${user.subscription_status === 'active' ? 'Active subscription' : 'No subscription'}</div>
+        <div class="stat-label">Standard Shoots</div>
+        <div class="stat-value">${Math.floor(user.cheaper_credits / 10)}</div>
+        <div class="stat-sub">10 images per shoot</div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">Quick Action</div>
-        <a href="/pricing" class="action-btn" style="display:inline-block;margin-top:8px;">Get More Credits</a>
+        <div class="stat-label">Pro Shoots</div>
+        <div class="stat-value">${Math.floor(user.better_credits / 10)}</div>
+        <div class="stat-sub">Premium quality</div>
       </div>
     </div>
     
     <h2 class="section-title">Credit History</h2>
+    <p style="font-size:13px;color:#6B7280;margin-bottom:16px;">Click on any generated image to view it in full size</p>
     <div class="history-list" id="history-list">
       <div class="empty-state">Loading...</div>
     </div>
   </div>
+  
+  <!-- Image Lightbox Modal -->
+  <div id="image-modal" class="image-modal-overlay" onclick="if(event.target === this) closeImageModal()">
+    <div class="image-modal-content">
+      <button class="image-modal-close" onclick="closeImageModal()">&times;</button>
+      <img id="modal-image" src="" alt="Generated Image">
+      <div id="modal-label" style="text-align:center;padding:16px;color:#374151;font-weight:500;"></div>
+      <a id="modal-download" class="modal-download-btn" download="shopshot-image.png">Download Image</a>
+    </div>
+  </div>
 
   <script>
+    let historyTransactions = [];
+    
+    function openImageModal(transactionId) {
+      const t = historyTransactions.find(x => x.id === transactionId);
+      if (!t || !t.image_data) return;
+      
+      const modal = document.getElementById('image-modal');
+      const img = document.getElementById('modal-image');
+      const label = document.getElementById('modal-label');
+      const download = document.getElementById('modal-download');
+      
+      img.src = t.image_data;
+      label.textContent = t.description || 'Generated Image';
+      download.href = t.image_data;
+      download.download = (t.description || 'shopshot-image').replace(/[^a-z0-9]/gi, '-') + '.png';
+      
+      modal.classList.add('show');
+    }
+    
+    function closeImageModal() {
+      document.getElementById('image-modal').classList.remove('show');
+    }
+    
     async function loadHistory() {
       try {
         const res = await fetch('/api/credits/history');
@@ -4925,31 +5783,48 @@ function getDashboardPage(user: User) {
         const list = document.getElementById('history-list');
         
         if (!data.success || !data.transactions?.length) {
-          list.innerHTML = '<div class="empty-state">No credit transactions yet</div>';
+          list.innerHTML = '<div class="empty-state">No credit transactions yet. Start generating images!</div>';
           return;
         }
         
+        historyTransactions = data.transactions;
+        
         list.innerHTML = data.transactions.map(t => {
           const isPositive = t.amount > 0;
-          const icon = isPositive ? '➕' : '➖';
+          const icon = isPositive ? '➕' : '🖼️';
           const date = new Date(t.created_at).toLocaleDateString();
+          const hasImage = t.image_data && t.image_data.length > 100;
+          const clickable = hasImage ? 'clickable' : '';
+          const onClick = hasImage ? \`onclick="openImageModal('\${t.id}')"\` : '';
+          const thumb = hasImage ? \`<img class="history-thumb" src="\${t.image_data}" alt="Thumbnail">\` : '';
+          const viewHint = hasImage ? '<span class="view-hint">View Image</span>' : '';
+          
+          // Determine credit type from description or type
+          const creditType = t.credit_type || (t.description?.includes('Pro') ? 'pro' : 'standard');
+          const creditBadge = !isPositive ? \`<span class="credit-type-badge \${creditType}">\${creditType}</span>\` : '';
+          const iconClass = !isPositive ? \`negative \${creditType}\` : 'positive';
+          
           return \`
-            <div class="history-item">
+            <div class="history-item \${clickable}" \${onClick}>
               <div class="history-info">
-                <div class="history-icon \${isPositive ? 'positive' : 'negative'}">\${icon}</div>
+                \${thumb || \`<div class="history-icon \${iconClass}">\${icon}</div>\`}
                 <div>
-                  <div class="history-text">\${t.description || t.type}</div>
+                  <div class="history-text">\${t.description || t.type}\${viewHint}</div>
                   <div class="history-date">\${date}</div>
                 </div>
               </div>
-              <div class="history-amount \${isPositive ? 'positive' : 'negative'}">
-                \${isPositive ? '+' : ''}\${t.amount}
+              <div class="history-meta">
+                \${creditBadge}
+                <div class="history-amount \${isPositive ? 'positive' : 'negative'}">
+                  \${isPositive ? '+' : ''}\${t.amount}
+                </div>
               </div>
             </div>
           \`;
         }).join('');
       } catch (e) {
         console.error('Load history failed:', e);
+        document.getElementById('history-list').innerHTML = '<div class="empty-state">Failed to load history</div>';
       }
     }
     loadHistory();
@@ -4962,6 +5837,9 @@ function getDashboardPage(user: User) {
 // ACCOUNT PAGE
 // ============================================================================
 function getAccountPage(user: User) {
+  const planName = user.subscription_plan === 'pro' ? 'Pro' : user.subscription_plan === 'standard' ? 'Standard' : 'Free';
+  const planBadgeClass = user.subscription_plan === 'pro' ? 'pro' : user.subscription_plan === 'standard' ? 'standard' : 'free';
+  
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -4972,24 +5850,56 @@ function getAccountPage(user: User) {
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    * { font-family: 'Inter', system-ui, sans-serif; }
+    * { font-family: 'Inter', system-ui, sans-serif; box-sizing: border-box; }
     body { background: #F9FAFB; min-height: 100vh; }
-    .account { max-width: 600px; margin: 0 auto; padding: 32px 24px; }
+    .account { max-width: 700px; margin: 0 auto; padding: 32px 24px; }
     .account-header { margin-bottom: 32px; }
     .account-title { font-size: 28px; font-weight: 700; color: #1F2937; margin-bottom: 8px; }
-    .account-nav { display: flex; gap: 12px; margin-top: 16px; }
-    .account-nav a { padding: 8px 16px; background: white; border: 1px solid #E5E7EB; border-radius: 8px; color: #374151; text-decoration: none; font-size: 13px; }
-    .section { background: white; border-radius: 12px; border: 1px solid #E5E7EB; padding: 24px; margin-bottom: 24px; }
-    .section-title { font-size: 16px; font-weight: 600; color: #1F2937; margin-bottom: 16px; }
-    .info-row { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #F3F4F6; }
+    .account-nav { display: flex; gap: 12px; margin-top: 16px; flex-wrap: wrap; }
+    .account-nav a { padding: 8px 16px; background: white; border: 1px solid #E5E7EB; border-radius: 8px; color: #374151; text-decoration: none; font-size: 13px; transition: all 0.2s; }
+    .account-nav a:hover { background: #F3F4F6; }
+    
+    .section { background: white; border-radius: 16px; border: 1px solid #E5E7EB; padding: 24px; margin-bottom: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .section-title { font-size: 16px; font-weight: 600; color: #1F2937; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+    .section-icon { width: 24px; height: 24px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+    
+    .info-row { display: flex; justify-content: space-between; align-items: center; padding: 14px 0; border-bottom: 1px solid #F3F4F6; }
     .info-row:last-child { border-bottom: none; }
     .info-label { color: #6B7280; font-size: 14px; }
     .info-value { color: #1F2937; font-size: 14px; font-weight: 500; }
-    .btn { padding: 10px 20px; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.2s; }
+    
+    .plan-badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+    .plan-badge.free { background: #F3F4F6; color: #6B7280; }
+    .plan-badge.standard { background: #ECFDF5; color: #059669; }
+    .plan-badge.pro { background: #F3E8FF; color: #6D28D9; }
+    
+    .status-badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+    .status-badge.active { background: #DCFCE7; color: #166534; }
+    .status-badge.free { background: #F3F4F6; color: #6B7280; }
+    .status-badge.canceled { background: #FEF3C7; color: #92400E; }
+    .status-badge.past_due { background: #FEE2E2; color: #DC2626; }
+    
+    /* Credits Display */
+    .credits-section { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-top: 16px; }
+    @media (max-width: 500px) { .credits-section { grid-template-columns: 1fr; } }
+    
+    .credit-box { background: #F9FAFB; border-radius: 12px; padding: 16px; text-align: center; }
+    .credit-box.standard { background: linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%); }
+    .credit-box.pro { background: linear-gradient(135deg, #F3E8FF 0%, #E9D5FF 100%); }
+    
+    .credit-box-label { font-size: 12px; color: #6B7280; margin-bottom: 4px; }
+    .credit-box-value { font-size: 28px; font-weight: 800; }
+    .credit-box-value.standard { color: #059669; }
+    .credit-box-value.pro { color: #6D28D9; }
+    .credit-box-sub { font-size: 11px; color: #9CA3AF; margin-top: 4px; }
+    
+    .btn { padding: 12px 20px; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
     .btn-primary { background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%); color: white; border: none; }
     .btn-secondary { background: white; color: #374151; border: 1px solid #E5E7EB; }
     .btn-danger { background: #FEF2F2; color: #DC2626; border: 1px solid #FECACA; }
-    .btn:hover { opacity: 0.9; }
+    .btn:hover { opacity: 0.9; transform: translateY(-1px); }
+    
+    .btn-group { margin-top: 20px; display: flex; gap: 12px; flex-wrap: wrap; }
   </style>
 </head>
 <body>
@@ -4999,11 +5909,15 @@ function getAccountPage(user: User) {
       <div class="account-nav">
         <a href="/">← Back to Generator</a>
         <a href="/dashboard">Dashboard</a>
+        <a href="/pricing">Pricing</a>
       </div>
     </div>
     
     <div class="section">
-      <h2 class="section-title">Profile</h2>
+      <h2 class="section-title">
+        <span class="section-icon" style="background:#EFF6FF;">👤</span>
+        Profile
+      </h2>
       <div class="info-row">
         <span class="info-label">Email</span>
         <span class="info-value">${user.email}</span>
@@ -5012,33 +5926,74 @@ function getAccountPage(user: User) {
         <span class="info-label">Name</span>
         <span class="info-value">${user.name || 'Not set'}</span>
       </div>
+      <div class="info-row">
+        <span class="info-label">Member Since</span>
+        <span class="info-value">Recently joined</span>
+      </div>
     </div>
     
     <div class="section">
-      <h2 class="section-title">Subscription</h2>
+      <h2 class="section-title">
+        <span class="section-icon" style="background:#F3E8FF;">💳</span>
+        Subscription & Credits
+      </h2>
       <div class="info-row">
-        <span class="info-label">Plan</span>
-        <span class="info-value">${user.subscription_plan === 'pro' ? 'Pro' : 'Free'}</span>
+        <span class="info-label">Current Plan</span>
+        <span class="plan-badge ${planBadgeClass}">${planName}</span>
       </div>
       <div class="info-row">
         <span class="info-label">Status</span>
-        <span class="info-value">${user.subscription_status}</span>
+        <span class="status-badge ${user.subscription_status}">${user.subscription_status === 'active' ? 'Active' : user.subscription_status === 'free' ? 'Free Tier' : user.subscription_status}</span>
       </div>
-      <div class="info-row">
-        <span class="info-label">Credits</span>
-        <span class="info-value">${user.credits_balance}</span>
+      
+      <div class="credits-section">
+        <div class="credit-box standard">
+          <div class="credit-box-label">Standard Credits</div>
+          <div class="credit-box-value standard">${user.cheaper_credits}</div>
+          <div class="credit-box-sub">⚡ Nano Banana (Fast)</div>
+        </div>
+        <div class="credit-box pro">
+          <div class="credit-box-label">Pro Credits</div>
+          <div class="credit-box-value pro">${user.better_credits}</div>
+          <div class="credit-box-sub">✨ Nano Banana Pro (Best)</div>
+        </div>
       </div>
-      <div style="margin-top:16px;display:flex;gap:12px;">
-        <a href="/pricing" class="btn btn-primary" style="text-decoration:none;">Get More Credits</a>
+      
+      <div class="btn-group">
+        <a href="/pricing" class="btn btn-primary">+ Get More Credits</a>
         ${user.stripe_customer_id ? '<button class="btn btn-secondary" onclick="openBillingPortal()">Manage Billing</button>' : ''}
+        ${user.subscription_plan !== 'free' && user.subscription_plan !== 'pro' ? '<a href="/pricing" class="btn btn-secondary">Upgrade to Pro</a>' : ''}
       </div>
     </div>
     
     <div class="section">
-      <h2 class="section-title">Account Actions</h2>
-      <div style="display:flex;gap:12px;">
+      <h2 class="section-title">
+        <span class="section-icon" style="background:#ECFDF5;">📊</span>
+        Quick Stats
+      </h2>
+      <div class="info-row">
+        <span class="info-label">Standard Shoots Remaining</span>
+        <span class="info-value">${Math.floor(user.cheaper_credits / 10)} shoots</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Pro Shoots Remaining</span>
+        <span class="info-value">${Math.floor(user.better_credits / 10)} shoots</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Total Images Available</span>
+        <span class="info-value">${user.cheaper_credits + user.better_credits} images</span>
+      </div>
+    </div>
+    
+    <div class="section">
+      <h2 class="section-title">
+        <span class="section-icon" style="background:#FEE2E2;">⚙️</span>
+        Account Actions
+      </h2>
+      <div class="btn-group" style="margin-top:0;">
         <button class="btn btn-secondary" onclick="logout()">Log Out</button>
       </div>
+      <p style="font-size:12px;color:#9CA3AF;margin-top:16px;">Need help? Contact <a href="mailto:support@shopshot.ai" style="color:#3B82F6;">support@shopshot.ai</a></p>
     </div>
   </div>
 
