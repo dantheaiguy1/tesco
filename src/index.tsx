@@ -787,278 +787,83 @@ function getHomePage() {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ShopShot - Transform Product Photos into Professional Shots</title>
-  <meta name="description" content="Transform one product photo into 10 professional ecommerce shots in 90 seconds. Reduce returns, increase conversions.">
+  <title>ShopShot - Product Photo Generator</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'><stop offset='0%25' style='stop-color:%233B82F6'/><stop offset='100%25' style='stop-color:%238B5CF6'/></linearGradient></defs><rect width='100' height='100' rx='22' fill='url(%23g)'/><circle cx='50' cy='50' r='28' fill='none' stroke='white' stroke-width='6'/><circle cx='50' cy='50' r='12' fill='white'/><rect x='70' y='25' width='12' height='8' rx='2' fill='white'/></svg>">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
-  <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          fontFamily: {
-            sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
-          },
-          colors: {
-            'brand': {
-              'blue': '#3B82F6',
-              'purple': '#8B5CF6',
-              'indigo': '#6366F1',
-              'dark': '#0F172A',
-              'gray': '#64748B',
-              'light': '#F8FAFC',
-              'muted': '#94A3B8',
-            }
-          }
-        }
-      }
-    }
-  </script>
   <style>
-    * { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+    * { font-family: 'Inter', system-ui, sans-serif; }
     
-    /* Gradient Utilities */
-    .gradient-text {
-      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 50%, #EC4899 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-    }
-    .gradient-bg {
-      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
-    }
-    .gradient-bg-vibrant {
-      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 50%, #EC4899 100%);
-    }
-    
-    /* Hero Background */
-    .hero-bg {
-      background: 
-        radial-gradient(ellipse 80% 50% at 50% -20%, rgba(120, 119, 198, 0.15) 0%, transparent 50%),
-        radial-gradient(ellipse 60% 40% at 80% 50%, rgba(59, 130, 246, 0.1) 0%, transparent 40%),
-        radial-gradient(ellipse 60% 40% at 20% 80%, rgba(139, 92, 246, 0.1) 0%, transparent 40%),
-        #F8FAFC;
-    }
-    
-    /* Glassmorphism */
-    .glass {
-      background: rgba(255, 255, 255, 0.7);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
-      border: 1px solid rgba(255, 255, 255, 0.3);
-    }
-    .glass-dark {
-      background: rgba(15, 23, 42, 0.8);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
-    }
-    
-    /* Cards */
-    .card-3d {
-      background: white;
-      box-shadow: 
-        0 0 0 1px rgba(0,0,0,0.03),
-        0 2px 4px rgba(0,0,0,0.03),
-        0 12px 24px rgba(0,0,0,0.06);
-      transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-    .card-3d:hover {
-      transform: translateY(-8px) scale(1.02);
-      box-shadow: 
-        0 0 0 1px rgba(0,0,0,0.03),
-        0 8px 16px rgba(0,0,0,0.08),
-        0 24px 48px rgba(0,0,0,0.12);
-    }
-    
-    /* Upload Zone */
-    .upload-zone {
-      border: 2px dashed #CBD5E1;
-      background: linear-gradient(180deg, rgba(248,250,252,0.8) 0%, rgba(241,245,249,0.5) 100%);
-      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-    .upload-zone:hover, .upload-zone.dragover {
-      border-color: #8B5CF6;
-      background: linear-gradient(180deg, rgba(139,92,246,0.05) 0%, rgba(59,130,246,0.05) 100%);
-      transform: scale(1.01);
-    }
-    
-    /* Buttons */
-    .btn-primary {
-      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
-      box-shadow: 0 4px 14px 0 rgba(59, 130, 246, 0.4);
-      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-    .btn-primary:hover:not(:disabled) {
-      transform: translateY(-2px);
-      box-shadow: 0 8px 24px 0 rgba(59, 130, 246, 0.5);
-    }
-    .btn-primary:active:not(:disabled) {
-      transform: translateY(0);
-    }
-    .btn-secondary {
-      background: white;
-      border: 1px solid #E2E8F0;
-      transition: all 0.2s ease;
-    }
-    .btn-secondary:hover {
-      border-color: #8B5CF6;
-      background: rgba(139,92,246,0.05);
-    }
-    
-    /* Animations */
-    @keyframes float {
-      0%, 100% { transform: translateY(0px) rotate(-6deg); }
-      50% { transform: translateY(-12px) rotate(-6deg); }
-    }
-    @keyframes float-slow {
-      0%, 100% { transform: translateY(0px); }
-      50% { transform: translateY(-8px); }
-    }
-    @keyframes fadeInUp {
-      from { opacity: 0; transform: translateY(30px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-    @keyframes scaleIn {
-      from { opacity: 0; transform: scale(0.9); }
-      to { opacity: 1; transform: scale(1); }
-    }
-    @keyframes shimmer {
-      0% { background-position: -200% 0; }
-      100% { background-position: 200% 0; }
-    }
-    @keyframes spin {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(360deg); }
-    }
-    @keyframes pulse-ring {
-      0% { transform: scale(0.8); opacity: 0.8; }
-      50% { transform: scale(1); opacity: 0.4; }
-      100% { transform: scale(0.8); opacity: 0.8; }
-    }
-    
-    .animate-float { animation: float 4s ease-in-out infinite; }
-    .animate-float-slow { animation: float-slow 5s ease-in-out infinite; }
-    .animate-fadeInUp { animation: fadeInUp 0.6s ease-out forwards; }
-    .animate-scaleIn { animation: scaleIn 0.4s ease-out forwards; }
-    .animate-spin { animation: spin 1s linear infinite; }
-    .animate-pulse-ring { animation: pulse-ring 2s ease-in-out infinite; }
-    
-    .shimmer {
-      background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
-      background-size: 200% 100%;
-      animation: shimmer 1.5s infinite;
-    }
-    
-    /* Thumbnail Grid */
-    .thumb-card {
-      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-    .thumb-card:hover {
-      transform: translateY(-4px) scale(1.03);
-      box-shadow: 0 12px 24px rgba(0,0,0,0.15);
-    }
-    .thumb-card.loading {
-      background: linear-gradient(135deg, #F1F5F9 0%, #E2E8F0 100%);
-    }
-    .thumb-card.success {
-      border: 2px solid #10B981;
-    }
-    .thumb-card.failed {
-      border: 2px solid #EF4444;
-      opacity: 0.7;
-    }
-    
-    /* Lightbox */
-    .lightbox-backdrop {
-      background: rgba(15, 23, 42, 0.95);
-      backdrop-filter: blur(8px);
-    }
-    
-    /* Model Selector */
-    .model-option {
-      flex: 1;
-      padding: 1rem;
-      border: 2px solid #E5E7EB;
-      border-radius: 1rem;
-      background: white;
-      cursor: pointer;
-      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-      text-align: center;
-    }
-    .model-option:hover {
-      border-color: #8B5CF6;
-      transform: scale(1.02);
-    }
-    .model-option.active {
-      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
-      border-color: transparent;
-      color: white;
-      box-shadow: 0 8px 24px rgba(59, 130, 246, 0.3);
-    }
-    .model-option.active .model-name { color: white; }
-    .model-option.active .model-details { color: rgba(255,255,255,0.9); }
-    .model-option.active .model-meta { color: rgba(255,255,255,0.8); }
-    .model-name { font-weight: 700; font-size: 0.875rem; color: #1F2937; }
-    .model-details { font-size: 0.75rem; color: #6B7280; margin-top: 0.25rem; }
-    .model-meta { font-size: 0.65rem; color: #9CA3AF; margin-top: 0.5rem; }
-    
-    /* Sidebar */
+    /* Sidebar - Compact 180px */
     .sidebar {
       position: fixed;
       left: 0;
       top: 0;
       bottom: 0;
-      width: 280px;
-      background: #F9FAFB;
+      width: 180px;
+      background: white;
       border-right: 1px solid #E5E7EB;
       z-index: 30;
-      overflow-y: auto;
-      transition: transform 0.3s ease;
+      display: flex;
+      flex-direction: column;
     }
     .sidebar-header {
-      padding: 1rem;
+      padding: 12px;
       border-bottom: 1px solid #E5E7EB;
-      background: white;
-      position: sticky;
-      top: 0;
-      z-index: 10;
     }
+    .new-btn {
+      width: 100%;
+      height: 40px;
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+    .new-btn:hover { opacity: 0.9; transform: translateY(-1px); }
+    
     .session-list {
-      padding: 0.5rem;
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px;
     }
+    
+    /* Compact session items - 44px height */
     .session-item {
       display: flex;
       align-items: center;
-      gap: 0.75rem;
-      padding: 0.75rem;
-      border-radius: 0.75rem;
+      gap: 8px;
+      padding: 8px;
+      height: 44px;
+      border-radius: 6px;
       cursor: pointer;
-      transition: all 0.2s;
-      margin-bottom: 0.25rem;
+      transition: background 0.15s;
       position: relative;
     }
-    .session-item:hover {
-      background: #F3F4F6;
-    }
-    .session-item.active {
-      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
-      color: white;
-    }
-    .session-item.active .session-name { color: white; }
-    .session-item.active .session-meta { color: rgba(255,255,255,0.8); }
-    .session-thumb {
-      width: 48px;
-      height: 48px;
-      border-radius: 0.5rem;
-      object-fit: cover;
-      background: #E5E7EB;
+    .session-item:hover { background: #F3F4F6; }
+    .session-item.active { background: #EFF6FF; }
+    .session-item.active .session-name { color: #3B82F6; }
+    
+    .session-icon {
+      width: 20px;
+      height: 20px;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       flex-shrink: 0;
     }
-    .session-info { flex: 1; min-width: 0; }
+    .session-text { flex: 1; min-width: 0; }
     .session-name {
-      font-size: 0.875rem;
+      font-size: 13px;
       font-weight: 500;
       color: #1F2937;
       white-space: nowrap;
@@ -1066,7 +871,7 @@ function getHomePage() {
       text-overflow: ellipsis;
     }
     .session-name-input {
-      font-size: 0.875rem;
+      font-size: 13px;
       font-weight: 500;
       color: #1F2937;
       background: transparent;
@@ -1075,499 +880,648 @@ function getHomePage() {
       width: 100%;
       padding: 0;
     }
-    .session-name-input:focus {
-      background: white;
-      border-radius: 0.25rem;
-      padding: 0.25rem;
-    }
+    .session-name-input:focus { background: white; padding: 2px 4px; border-radius: 3px; }
     .session-meta {
-      font-size: 0.7rem;
+      font-size: 11px;
       color: #9CA3AF;
-      display: flex;
-      gap: 0.5rem;
-      margin-top: 0.25rem;
     }
     .session-delete {
       opacity: 0;
       position: absolute;
-      right: 0.5rem;
+      right: 4px;
       top: 50%;
       transform: translateY(-50%);
-      width: 1.5rem;
-      height: 1.5rem;
-      border-radius: 0.25rem;
+      width: 16px;
+      height: 16px;
+      font-size: 10px;
+      color: #9CA3AF;
+      cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      color: #9CA3AF;
-      transition: all 0.2s;
     }
     .session-item:hover .session-delete { opacity: 1; }
-    .session-delete:hover { color: #EF4444; background: rgba(239,68,68,0.1); }
+    .session-delete:hover { color: #EF4444; }
     
-    /* Main content with sidebar */
-    .with-sidebar {
-      margin-left: 280px;
+    .sidebar-footer {
+      padding: 12px;
+      border-top: 1px solid #E5E7EB;
+      font-size: 11px;
+      color: #9CA3AF;
     }
     
-    /* Mobile sidebar */
+    /* Main content */
+    .main-content {
+      margin-left: 180px;
+      min-height: 100vh;
+      background: #F9FAFB;
+    }
+    
+    /* Header */
+    .header {
+      height: 60px;
+      background: white;
+      border-bottom: 1px solid #E5E7EB;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+    }
+    .logo { display: flex; align-items: center; gap: 8px; }
+    .logo-icon {
+      width: 28px;
+      height: 28px;
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .logo-icon svg { width: 16px; height: 16px; color: white; }
+    .logo-text { font-size: 18px; font-weight: 700; color: #1F2937; }
+    .hamburger { display: none; }
+    
+    /* Upload area - centered, compact */
+    .upload-container {
+      max-width: 440px;
+      margin: 0 auto;
+      padding: 48px 24px;
+    }
+    .upload-header {
+      margin-bottom: 24px;
+    }
+    .upload-header h1 {
+      font-size: 28px;
+      font-weight: 700;
+      color: #1F2937;
+      margin-bottom: 4px;
+    }
+    .upload-header p {
+      font-size: 15px;
+      color: #6B7280;
+    }
+    
+    /* Upload zone - compact */
+    .upload-zone {
+      width: 100%;
+      height: 200px;
+      border: 2px dashed #D1D5DB;
+      border-radius: 12px;
+      background: white;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .upload-zone:hover { border-color: #3B82F6; background: #F0F9FF; }
+    .upload-zone.dragover { border-color: #3B82F6; background: #EFF6FF; }
+    .upload-icon { font-size: 32px; margin-bottom: 12px; }
+    .upload-primary { font-size: 15px; font-weight: 500; color: #374151; }
+    .upload-secondary { font-size: 13px; color: #9CA3AF; margin-top: 4px; }
+    .upload-formats { font-size: 12px; color: #9CA3AF; margin-top: 12px; }
+    
+    /* Image preview */
+    .image-preview {
+      text-align: center;
+      padding: 16px;
+      background: white;
+      border-radius: 12px;
+      border: 1px solid #E5E7EB;
+    }
+    .image-preview img {
+      max-width: 280px;
+      max-height: 200px;
+      border-radius: 8px;
+      margin-bottom: 12px;
+    }
+    .change-image { font-size: 13px; color: #3B82F6; cursor: pointer; }
+    .change-image:hover { text-decoration: underline; }
+    
+    /* Quality selector - inline compact */
+    .quality-section {
+      margin-top: 20px;
+    }
+    .quality-label {
+      font-size: 13px;
+      font-weight: 500;
+      color: #6B7280;
+      margin-bottom: 8px;
+    }
+    .quality-options {
+      display: flex;
+      gap: 12px;
+    }
+    .quality-btn {
+      flex: 1;
+      padding: 12px;
+      border: 1.5px solid #E5E7EB;
+      border-radius: 8px;
+      background: white;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-align: center;
+    }
+    .quality-btn:hover { border-color: #3B82F6; }
+    .quality-btn.active {
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      border-color: transparent;
+      color: white;
+    }
+    .quality-btn.active .q-label,
+    .quality-btn.active .q-detail { color: white; }
+    .quality-btn.active .q-detail { opacity: 0.9; }
+    .q-label { font-size: 14px; font-weight: 600; color: #1F2937; }
+    .q-detail { font-size: 12px; color: #6B7280; margin-top: 2px; }
+    
+    /* Advanced mode link */
+    .advanced-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 16px;
+      font-size: 13px;
+      color: #3B82F6;
+      cursor: pointer;
+    }
+    .advanced-link:hover { text-decoration: underline; }
+    
+    /* Generate button */
+    .generate-btn {
+      width: 100%;
+      height: 52px;
+      margin-top: 20px;
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      color: white;
+      border: none;
+      border-radius: 10px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+      transition: all 0.2s;
+    }
+    .generate-btn:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4); }
+    .generate-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+    
+    /* Results section */
+    .results-container {
+      padding: 24px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    .results-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .product-name-edit {
+      font-size: 24px;
+      font-weight: 700;
+      color: #1F2937;
+      border: none;
+      background: transparent;
+      outline: none;
+      max-width: 400px;
+    }
+    .product-name-edit:focus { border-bottom: 2px solid #3B82F6; }
+    .results-actions { display: flex; gap: 12px; }
+    .download-all-btn {
+      padding: 10px 20px;
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .download-all-btn:hover { opacity: 0.9; }
+    .delete-session-btn {
+      padding: 10px 16px;
+      background: transparent;
+      color: #6B7280;
+      border: 1px solid #E5E7EB;
+      border-radius: 8px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .delete-session-btn:hover { color: #EF4444; border-color: #EF4444; }
+    
+    /* Thumbnail grid - 5 columns */
+    .thumb-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 16px;
+    }
+    @media (max-width: 1200px) { .thumb-grid { grid-template-columns: repeat(4, 1fr); } }
+    @media (max-width: 900px) { .thumb-grid { grid-template-columns: repeat(3, 1fr); } }
+    @media (max-width: 600px) { .thumb-grid { grid-template-columns: repeat(2, 1fr); } }
+    
+    .image-card {
+      background: white;
+      border: 1px solid #E5E7EB;
+      border-radius: 10px;
+      padding: 8px;
+      transition: all 0.2s;
+      position: relative;
+    }
+    .image-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+    .image-card img {
+      width: 100%;
+      aspect-ratio: 1;
+      object-fit: cover;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .card-overlay {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      right: 8px;
+      bottom: 32px;
+      background: rgba(0,0,0,0.5);
+      border-radius: 6px;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+    }
+    .image-card:hover .card-overlay { display: flex; }
+    .card-overlay button {
+      width: 36px;
+      height: 36px;
+      background: white;
+      border: none;
+      border-radius: 50%;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .card-label {
+      font-size: 12px;
+      font-weight: 500;
+      color: #6B7280;
+      text-align: center;
+      margin-top: 8px;
+    }
+    
+    /* Loading state */
+    .card-loading {
+      background: linear-gradient(90deg, #f0f0f0 25%, #e8e8e8 50%, #f0f0f0 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.5s infinite;
+    }
+    @keyframes shimmer {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+    .card-progress {
+      position: absolute;
+      bottom: 40px;
+      left: 12px;
+      right: 12px;
+      height: 4px;
+      background: #E5E7EB;
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .card-progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, #3B82F6, #8B5CF6);
+      transition: width 0.3s;
+    }
+    
+    /* Lightbox */
+    .lightbox {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.9);
+      z-index: 100;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      padding: 20px;
+    }
+    .lightbox.open { display: flex; }
+    .lightbox-close {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      width: 44px;
+      height: 44px;
+      background: rgba(255,255,255,0.1);
+      border: none;
+      border-radius: 50%;
+      color: white;
+      font-size: 20px;
+      cursor: pointer;
+    }
+    .lightbox-title {
+      color: white;
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 16px;
+    }
+    .lightbox-image {
+      max-width: 90vw;
+      max-height: 70vh;
+      border-radius: 12px;
+    }
+    .lightbox-nav {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 44px;
+      height: 44px;
+      background: rgba(255,255,255,0.1);
+      border: none;
+      border-radius: 50%;
+      color: white;
+      font-size: 18px;
+      cursor: pointer;
+    }
+    .lightbox-nav.prev { left: 20px; }
+    .lightbox-nav.next { right: 20px; }
+    .lightbox-download {
+      margin-top: 20px;
+      padding: 12px 24px;
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    
+    /* Error toast */
+    .error-toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: #1F2937;
+      color: white;
+      padding: 16px 20px;
+      border-radius: 10px;
+      display: none;
+      align-items: center;
+      gap: 12px;
+      max-width: 400px;
+      z-index: 200;
+    }
+    .error-toast.show { display: flex; }
+    
+    /* Advanced mode modal */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 100;
+      display: none;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal {
+      background: white;
+      border-radius: 12px;
+      width: 90%;
+      max-width: 600px;
+      max-height: 80vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .modal-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid #E5E7EB;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .modal-header h3 { font-size: 16px; font-weight: 600; color: #1F2937; }
+    .modal-close {
+      width: 32px;
+      height: 32px;
+      background: #F3F4F6;
+      border: none;
+      border-radius: 50%;
+      cursor: pointer;
+    }
+    .modal-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 20px;
+    }
+    .prompt-item {
+      padding: 12px 0;
+      border-bottom: 1px solid #F3F4F6;
+    }
+    .prompt-item:last-child { border-bottom: none; }
+    .prompt-label {
+      font-size: 13px;
+      font-weight: 500;
+      color: #374151;
+      margin-bottom: 6px;
+    }
+    .prompt-input {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid #E5E7EB;
+      border-radius: 6px;
+      font-size: 13px;
+      resize: vertical;
+      min-height: 60px;
+    }
+    .prompt-input:focus { border-color: #3B82F6; outline: none; }
+    .modal-footer {
+      padding: 16px 20px;
+      border-top: 1px solid #E5E7EB;
+    }
+    .modal-done {
+      width: 100%;
+      padding: 12px;
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    
+    /* Mobile */
     @media (max-width: 768px) {
       .sidebar {
         transform: translateX(-100%);
-        width: 100%;
-        max-width: 320px;
+        width: 280px;
+        z-index: 50;
       }
-      .sidebar.open {
-        transform: translateX(0);
-      }
+      .sidebar.open { transform: translateX(0); }
       .sidebar-overlay {
         position: fixed;
         inset: 0;
         background: rgba(0,0,0,0.5);
-        z-index: 25;
-        opacity: 0;
-        pointer-events: none;
-        transition: opacity 0.3s;
+        z-index: 40;
+        display: none;
       }
-      .sidebar-overlay.open {
-        opacity: 1;
-        pointer-events: auto;
+      .sidebar-overlay.open { display: block; }
+      .main-content { margin-left: 0; }
+      .hamburger {
+        display: flex;
+        width: 40px;
+        height: 40px;
+        background: #F3F4F6;
+        border: none;
+        border-radius: 8px;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        margin-right: 12px;
       }
-      .with-sidebar {
-        margin-left: 0;
-      }
-      .hero-title { font-size: 1.875rem !important; }
-      .hero-icon { width: 64px !important; height: 64px !important; }
-    }
-    
-    /* Desktop sidebar always visible */
-    @media (min-width: 769px) {
-      .hamburger-btn { display: none !important; }
-    }
-    
-    /* When results are showing, allow scrolling */
-    body.showing-results {
-      height: auto;
-      overflow: auto;
-    }
-    body.showing-results #main-content {
-      height: auto;
-      min-height: 100vh;
-      padding-top: 5rem;
-      justify-content: flex-start;
-    }
-    
-    /* Full-width layout for upload page */
-    .upload-layout {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 2rem;
-      width: 100%;
-      max-width: 1400px;
-      height: calc(100vh - 5rem);
-      align-items: center;
-    }
-    
-    .upload-left {
-      padding: 2rem;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-    }
-    
-    .upload-right {
-      padding: 2rem;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      background: linear-gradient(135deg, rgba(59,130,246,0.03) 0%, rgba(139,92,246,0.05) 100%);
-      border-left: 1px solid rgba(139,92,246,0.1);
-      height: 100%;
-    }
-    
-    /* Feature cards */
-    .feature-card {
-      background: white;
-      border-radius: 1rem;
-      padding: 1.25rem;
-      border: 1px solid #E5E7EB;
-      transition: all 0.3s ease;
-      margin-bottom: 0.75rem;
-    }
-    .feature-card:hover {
-      border-color: #8B5CF6;
-      box-shadow: 0 4px 12px rgba(139,92,246,0.1);
-      transform: translateX(4px);
-    }
-    .feature-icon {
-      width: 2.5rem;
-      height: 2.5rem;
-      border-radius: 0.75rem;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
-    }
-    
-    /* Stats bar */
-    .stats-bar {
-      display: flex;
-      gap: 1.5rem;
-      padding: 1rem;
-      background: white;
-      border-radius: 1rem;
-      border: 1px solid #E5E7EB;
-      margin-bottom: 1.5rem;
-    }
-    .stat-item {
-      text-align: center;
-      flex: 1;
-    }
-    .stat-value {
-      font-size: 1.5rem;
-      font-weight: 700;
-      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-    }
-    .stat-label {
-      font-size: 0.75rem;
-      color: #6B7280;
-      margin-top: 0.25rem;
-    }
-    
-    /* Mobile responsive */
-    @media (max-width: 1024px) {
-      .upload-layout {
-        grid-template-columns: 1fr;
-        height: auto;
-        gap: 1rem;
-      }
-      .upload-left {
-        padding: 1rem;
-        order: 1;
-      }
-      .upload-right {
-        padding: 1.5rem;
-        order: 2;
-        border-left: none;
-        border-top: 1px solid rgba(139,92,246,0.1);
-        height: auto;
-      }
+      .upload-container { padding: 24px 16px; }
+      .quality-options { flex-direction: column; }
     }
   </style>
 </head>
-<body class="hero-bg h-screen overflow-hidden">
-  <!-- Sidebar Overlay (mobile) -->
+<body>
+  <!-- Sidebar overlay (mobile) -->
   <div id="sidebar-overlay" class="sidebar-overlay" onclick="toggleSidebar()"></div>
   
-  <!-- Left Sidebar -->
+  <!-- Compact Sidebar -->
   <aside id="sidebar" class="sidebar">
     <div class="sidebar-header">
-      <div class="flex items-center justify-between">
-        <h2 class="text-sm font-semibold text-slate-700">Your Sessions</h2>
-        <button onclick="resetToUpload()" class="text-xs gradient-bg text-white px-3 py-1.5 rounded-lg font-medium hover:opacity-90 transition">
-          <i class="fas fa-plus mr-1"></i> New
-        </button>
-      </div>
+      <button class="new-btn" onclick="resetToUpload()">
+        + New Generation
+      </button>
     </div>
     <div id="session-list" class="session-list">
-      <!-- Sessions populated by JS -->
-      <div class="text-center py-8 text-slate-400 text-sm">
-        <i class="fas fa-images text-2xl mb-2 block"></i>
+      <div style="text-align:center; padding:24px 8px; color:#9CA3AF; font-size:13px;">
         No sessions yet
       </div>
     </div>
+    <div class="sidebar-footer">
+      <span id="session-count">0 generations</span>
+    </div>
   </aside>
 
-  <!-- Header -->
-  <header class="glass fixed top-0 left-0 right-0 z-40 border-b border-white/20">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 with-sidebar">
-      <div class="h-14 flex items-center justify-between">
-        <div class="flex items-center gap-3">
-          <!-- Hamburger (mobile only) -->
-          <button onclick="toggleSidebar()" class="hamburger-btn w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center hover:bg-slate-200 transition md:hidden">
-            <i class="fas fa-bars text-slate-600"></i>
-          </button>
-          
-          <a href="/" class="flex items-center gap-2.5 group">
-            <div class="w-9 h-9 gradient-bg rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-xl transition-shadow">
-              <svg class="w-5 h-5 text-white" viewBox="0 0 24 24" fill="currentColor">
-                <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/>
-                <circle cx="12" cy="12" r="4" fill="currentColor"/>
-                <rect x="18" y="6" width="4" height="3" rx="1" fill="currentColor"/>
-              </svg>
-            </div>
-            <span class="text-lg font-bold text-brand-dark">ShopShot</span>
-          </a>
+  <!-- Main Content -->
+  <div class="main-content">
+    <!-- Header -->
+    <header class="header">
+      <div class="logo">
+        <button class="hamburger" onclick="toggleSidebar()">☰</button>
+        <div class="logo-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
         </div>
-        
-        <nav class="flex items-center gap-1">
-          <button onclick="resetToUpload()" class="px-3 py-1.5 rounded-lg text-sm font-medium text-brand-dark hover:bg-brand-purple/10 transition flex items-center gap-2">
-            <i class="fas fa-plus text-brand-purple"></i>
-            <span class="hidden sm:inline">New</span>
-          </button>
-        </nav>
+        <span class="logo-text">ShopShot</span>
       </div>
-    </div>
-  </header>
+      <div id="header-actions"></div>
+    </header>
 
-  <main id="main-content" class="h-screen flex items-center justify-center px-4 sm:px-6 lg:px-8 pt-14 with-sidebar">
-    <!-- Full-Width Upload Layout -->
-    <div id="upload-section" class="upload-layout animate-fadeInUp">
-      <!-- Left Side: Upload Area -->
-      <div class="upload-left">
-        <!-- Hero Section -->
-        <div id="hero-section" class="mb-6">
-          <div class="flex items-center gap-4 mb-4">
-            <div class="animate-float">
-              <div class="hero-icon w-14 h-14 gradient-bg-vibrant rounded-xl flex items-center justify-center shadow-lg transform -rotate-6">
-                <i class="fas fa-camera text-white text-xl"></i>
-              </div>
-            </div>
-            <div>
-              <h1 class="hero-title text-2xl sm:text-3xl font-extrabold tracking-tight">
-                <span class="gradient-text">ShopShot</span>
-              </h1>
-              <p class="text-sm text-brand-gray">
-                Transform one photo into <span class="font-semibold text-brand-dark">10 professional shots</span>
-              </p>
-            </div>
-          </div>
-        </div>
+    <!-- Upload Screen -->
+    <div id="upload-screen" class="upload-container">
+      <div class="upload-header">
+        <h1>ShopShot</h1>
+        <p>Transform one photo into 10 professional shots</p>
+      </div>
 
-        <!-- Upload Card -->
-        <div class="card-3d rounded-2xl overflow-hidden">
-          <div class="p-5">
-        <!-- Upload Zone -->
-        <div id="upload-zone" class="upload-zone rounded-xl sm:rounded-2xl p-6 sm:p-8 text-center cursor-pointer"
-             ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)"
-             onclick="document.getElementById('file-input').click()">
-          <input type="file" id="file-input" accept="image/jpeg,image/png,image/webp" class="hidden" onchange="handleFileSelect(event)">
-          
-          <div id="upload-prompt">
-            <div class="w-14 h-14 sm:w-16 sm:h-16 mx-auto mb-4 rounded-xl bg-gradient-to-br from-brand-blue/10 to-brand-purple/10 flex items-center justify-center">
-              <i class="fas fa-cloud-arrow-up text-2xl sm:text-3xl gradient-text"></i>
-            </div>
-            <p class="text-base sm:text-lg font-semibold text-brand-dark mb-1">Drop your product image here</p>
-            <p class="text-sm text-brand-gray mb-4">or click to browse</p>
-            <div class="inline-flex items-center gap-2 text-xs text-brand-muted bg-brand-light px-3 py-1.5 rounded-full border border-slate-200">
-              <i class="fas fa-image text-brand-purple"></i>
-              JPG, PNG, WebP up to 10MB
-            </div>
-          </div>
-          
-          <div id="upload-preview" class="hidden">
-            <img id="preview-image" class="max-h-40 sm:max-h-48 mx-auto rounded-xl shadow-lg mb-3 border border-slate-200">
-            <p id="preview-filename" class="text-brand-dark font-medium text-sm mb-1"></p>
-            <button onclick="event.stopPropagation(); resetUpload()" class="text-xs text-brand-gray hover:text-brand-purple transition">
-              <i class="fas fa-xmark mr-1"></i> Change image
-            </button>
-          </div>
+      <!-- Upload Zone -->
+      <div id="upload-zone" class="upload-zone" onclick="document.getElementById('file-input').click()"
+           ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)">
+        <input type="file" id="file-input" accept="image/*" style="display:none" onchange="handleFileSelect(event)">
+        <div id="upload-prompt">
+          <div class="upload-icon">☁️</div>
+          <div class="upload-primary">Drop your product image here</div>
+          <div class="upload-secondary">or click to browse</div>
+          <div class="upload-formats">JPG, PNG, WebP up to 10MB</div>
         </div>
-
-        <!-- Model Selector -->
-        <div class="mt-5">
-          <p class="text-xs font-medium text-slate-500 mb-2">Quality Mode:</p>
-          <div class="flex gap-3">
-            <button onclick="selectModel('flash')" id="model-flash" class="model-option">
-              <div class="model-name">CHEAPER</div>
-              <div class="model-details">Flash 2.0</div>
-              <div class="model-meta">~15 seconds | Good quality</div>
-            </button>
-            <button onclick="selectModel('nano')" id="model-nano" class="model-option active">
-              <div class="model-name">BETTER</div>
-              <div class="model-details">Nano Pro</div>
-              <div class="model-meta">~36 seconds | Best quality</div>
-            </button>
-          </div>
-        </div>
-
-        <!-- Advanced Mode Toggle -->
-        <div class="mt-4 flex items-center justify-between">
-          <button id="advanced-toggle" onclick="toggleAdvancedMode()" class="flex items-center gap-2 text-sm text-brand-gray hover:text-brand-purple transition">
-            <i id="advanced-icon" class="fas fa-sliders text-xs"></i>
-            <span>Advanced Mode</span>
-            <span id="custom-count-badge" class="text-xs bg-brand-purple/10 text-brand-purple px-2 py-0.5 rounded-full">Custom Prompts</span>
-          </button>
-        </div>
-
-        <!-- Generate Button -->
-        <div class="mt-5">
-          <button id="generate-btn" onclick="generateVariations()" disabled
-                  class="btn-primary w-full px-6 py-3.5 text-white rounded-xl font-semibold text-base disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none disabled:transform-none">
-            <i class="fas fa-sparkles mr-2"></i>
-            Generate 10 Professional Shots
-          </button>
-          <p id="generate-time-hint" class="text-xs text-brand-muted mt-3 flex items-center justify-center gap-1.5">
-            <i class="fas fa-bolt text-amber-500"></i>
-            Takes about <span id="time-estimate">36 seconds</span> with <span id="model-name-hint">Nano Pro</span>
-          </p>
-        </div>
-          </div>
+        <div id="upload-preview" class="image-preview" style="display:none">
+          <img id="preview-image" src="" alt="Preview">
+          <div class="change-image" onclick="event.stopPropagation(); resetUpload()">Change image</div>
         </div>
       </div>
 
-      <!-- Right Side: Features & Info -->
-      <div class="upload-right">
-        <!-- Stats Bar -->
-        <div class="stats-bar">
-          <div class="stat-item">
-            <div class="stat-value">10</div>
-            <div class="stat-label">Pro Shots</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-value">36s</div>
-            <div class="stat-label">Generation</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-value">AI</div>
-            <div class="stat-label">Powered</div>
-          </div>
-        </div>
-        
-        <!-- What You Get -->
-        <h3 class="text-sm font-semibold text-slate-700 mb-3">What You Get:</h3>
-        
-        <div class="feature-card">
-          <div class="flex items-start gap-3">
-            <div class="feature-icon bg-blue-100">
-              <i class="fas fa-square text-blue-600"></i>
-            </div>
-            <div>
-              <p class="font-semibold text-sm text-slate-800">Hero & White Background</p>
-              <p class="text-xs text-slate-500">Clean, professional product shots for listings</p>
-            </div>
-          </div>
-        </div>
-        
-        <div class="feature-card">
-          <div class="flex items-start gap-3">
-            <div class="feature-icon bg-purple-100">
-              <i class="fas fa-search-plus text-purple-600"></i>
-            </div>
-            <div>
-              <p class="font-semibold text-sm text-slate-800">Detail & Texture Shots</p>
-              <p class="text-xs text-slate-500">Close-ups showing quality and craftsmanship</p>
-            </div>
-          </div>
-        </div>
-        
-        <div class="feature-card">
-          <div class="flex items-start gap-3">
-            <div class="feature-icon bg-green-100">
-              <i class="fas fa-hand-pointer text-green-600"></i>
-            </div>
-            <div>
-              <p class="font-semibold text-sm text-slate-800">Lifestyle & In-Use</p>
-              <p class="text-xs text-slate-500">Products in real-world contexts</p>
-            </div>
-          </div>
-        </div>
-        
-        <div class="feature-card">
-          <div class="flex items-start gap-3">
-            <div class="feature-icon bg-amber-100">
-              <i class="fab fa-instagram text-amber-600"></i>
-            </div>
-            <div>
-              <p class="font-semibold text-sm text-slate-800">Social Ready</p>
-              <p class="text-xs text-slate-500">Flat-lay and styled shots for social media</p>
-            </div>
-          </div>
-        </div>
-        
-        <div class="feature-card">
-          <div class="flex items-start gap-3">
-            <div class="feature-icon bg-pink-100">
-              <i class="fas fa-cube text-pink-600"></i>
-            </div>
-            <div>
-              <p class="font-semibold text-sm text-slate-800">Multi-Angle Views</p>
-              <p class="text-xs text-slate-500">Show your product from all perspectives</p>
-            </div>
-          </div>
-        </div>
-        
-        <!-- Powered By -->
-        <div class="mt-4 pt-4 border-t border-slate-200">
-          <p class="text-xs text-slate-500 flex items-center gap-2">
-            <i class="fas fa-robot text-purple-500"></i>
-            Powered by <span class="font-semibold text-slate-700">Google Gemini Nano Pro</span>
-          </p>
+      <!-- Quality Selector -->
+      <div class="quality-section">
+        <div class="quality-label">Quality:</div>
+        <div class="quality-options">
+          <button class="quality-btn" data-model="flash" onclick="selectModel('flash')">
+            <div class="q-label">Cheaper</div>
+            <div class="q-detail">Flash 2.0 · ~15s</div>
+          </button>
+          <button class="quality-btn active" data-model="nano" onclick="selectModel('nano')">
+            <div class="q-label">Better</div>
+            <div class="q-detail">Nano Pro · ~36s</div>
+          </button>
         </div>
       </div>
-    </div>
 
-    <!-- Results Section (Initially Hidden) -->
-    <div id="results-section" class="hidden"></div>
-  </main>
+      <!-- Advanced Mode -->
+      <div class="advanced-link" onclick="openAdvancedMode()">
+        ⚙️ Advanced Mode (Custom Prompts)
+      </div>
 
-  <!-- Lightbox Modal -->
-  <div id="lightbox" class="hidden fixed inset-0 lightbox-backdrop z-50 flex flex-col items-center justify-center p-4">
-    <button onclick="closeLightbox()" class="absolute top-4 right-4 sm:top-6 sm:right-6 w-10 h-10 sm:w-12 sm:h-12 rounded-full glass flex items-center justify-center text-white hover:bg-white/20 transition z-10">
-      <i class="fas fa-xmark text-xl"></i>
-    </button>
-    
-    <h3 id="lightbox-title" class="text-white text-lg sm:text-xl font-semibold mb-4"></h3>
-    
-    <div class="relative flex-1 flex items-center justify-center w-full max-w-5xl">
-      <!-- Nav Arrows -->
-      <button onclick="navigateLightbox(-1)" class="absolute left-2 sm:left-4 w-10 h-10 sm:w-12 sm:h-12 rounded-full glass flex items-center justify-center text-white hover:bg-white/20 transition z-10">
-        <i class="fas fa-chevron-left text-xl"></i>
+      <!-- Generate Button -->
+      <button id="generate-btn" class="generate-btn" onclick="generateVariations()" disabled>
+        Generate 10 Professional Shots
       </button>
-      <button onclick="navigateLightbox(1)" class="absolute right-2 sm:right-4 w-10 h-10 sm:w-12 sm:h-12 rounded-full glass flex items-center justify-center text-white hover:bg-white/20 transition z-10">
-        <i class="fas fa-chevron-right text-xl"></i>
-      </button>
-      
-      <img id="lightbox-image" class="max-w-full max-h-[60vh] sm:max-h-[70vh] rounded-2xl shadow-2xl object-contain animate-scaleIn">
     </div>
-    
-    <button id="lightbox-download" onclick="downloadCurrentImage()" class="mt-4 sm:mt-6 btn-primary px-6 sm:px-8 py-3 rounded-xl text-white font-semibold flex items-center gap-2">
-      <i class="fas fa-download"></i>
-      <span>Download Image</span>
-    </button>
+
+    <!-- Results Screen (hidden initially) -->
+    <div id="results-screen" class="results-container" style="display:none">
+      <div class="results-header">
+        <input type="text" id="product-name-edit" class="product-name-edit" value="Product" 
+               onblur="saveProductName()" onkeypress="if(event.key==='Enter')this.blur()">
+        <div class="results-actions">
+          <button class="download-all-btn" onclick="downloadAllAsZip()">
+            ⬇️ Download All (ZIP)
+          </button>
+          <button class="delete-session-btn" onclick="deleteCurrentSession()">
+            🗑️ Delete
+          </button>
+        </div>
+      </div>
+      <div id="thumb-grid" class="thumb-grid"></div>
+    </div>
+  </div>
+
+  <!-- Lightbox -->
+  <div id="lightbox" class="lightbox" onclick="closeLightbox()">
+    <button class="lightbox-close" onclick="closeLightbox()">✕</button>
+    <button class="lightbox-nav prev" onclick="event.stopPropagation(); navigateLightbox(-1)">‹</button>
+    <button class="lightbox-nav next" onclick="event.stopPropagation(); navigateLightbox(1)">›</button>
+    <div class="lightbox-title" id="lightbox-title"></div>
+    <img id="lightbox-image" class="lightbox-image" onclick="event.stopPropagation()">
+    <button class="lightbox-download" onclick="event.stopPropagation(); downloadCurrentImage()">⬇️ Download</button>
   </div>
 
   <!-- Error Toast -->
-  <div id="error-toast" class="hidden fixed bottom-4 sm:bottom-6 right-4 sm:right-6 glass-dark text-white px-6 py-4 rounded-2xl shadow-2xl max-w-sm z-50 animate-scaleIn">
-    <div class="flex items-start gap-3">
-      <div class="w-8 h-8 rounded-full bg-red-500/20 flex items-center justify-center flex-shrink-0">
-        <i class="fas fa-exclamation text-red-400"></i>
-      </div>
-      <div class="flex-1">
-        <p class="font-semibold text-sm">Something went wrong</p>
-        <p id="error-message" class="text-sm text-white/70 mt-1"></p>
-      </div>
-      <button onclick="hideError()" class="text-white/50 hover:text-white transition">
-        <i class="fas fa-xmark"></i>
-      </button>
-    </div>
+  <div id="error-toast" class="error-toast">
+    <span>⚠️</span>
+    <span id="error-message"></span>
   </div>
 
-  <!-- Advanced Mode Modal (moved outside all containers) -->
-  <div id="advanced-panel" class="fixed inset-0 z-[9999] bg-black/60 hidden items-center justify-center p-4" style="display:none;">
-    <div class="bg-white rounded-2xl w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl overflow-hidden">
-      <!-- Header -->
-      <div class="flex items-center justify-between px-5 py-4 border-b border-slate-200 flex-shrink-0">
-        <div>
-          <h3 class="text-base font-semibold text-slate-800">Customize Generation Prompts</h3>
-          <p class="text-xs text-slate-500 mt-1">Edit any prompt to customize that variation</p>
-        </div>
-        <button onclick="toggleAdvancedMode()" class="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition">
-          <i class="fas fa-xmark text-slate-500"></i>
-        </button>
+  <!-- Advanced Mode Modal -->
+  <div id="advanced-modal" class="modal-overlay" onclick="closeAdvancedMode()">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h3>Custom Prompts</h3>
+        <button class="modal-close" onclick="closeAdvancedMode()">✕</button>
       </div>
-      <!-- Scrollable Prompt List -->
-      <div id="prompt-list" class="flex-1 overflow-y-auto" style="min-height:200px;">
-        <!-- Prompts populated by JS -->
-      </div>
-      <!-- Footer -->
-      <div class="px-5 py-4 border-t border-slate-200 bg-slate-50 flex-shrink-0">
-        <button onclick="toggleAdvancedMode()" class="btn-primary w-full py-3 rounded-xl text-white font-semibold">
-          <i class="fas fa-check mr-2"></i>Done - Apply Prompts
-        </button>
+      <div class="modal-body" id="prompt-list"></div>
+      <div class="modal-footer">
+        <button class="modal-done" onclick="closeAdvancedMode()">Done</button>
       </div>
     </div>
   </div>
@@ -1577,1020 +1531,439 @@ function getHomePage() {
     let currentSessionId = null;
     let selectedFile = null;
     let currentOriginalImage = null;
-    let currentLightboxIndex = 0;
-    let lightboxImages = [];
-    let selectedModel = 'nano'; // 'nano' (Better) or 'flash' (Cheaper)
+    let selectedModel = 'nano';
     let sidebarOpen = false;
-    let sessions = []; // All sessions for sidebar
-    
-    // Model configurations (must match backend)
-    const MODEL_INFO = {
-      nano: { name: 'Nano Pro', speed: '~3-4s per image', quality: 'Best', totalTime: '~36 seconds', label: 'BETTER' },
-      flash: { name: 'Flash 2.0', speed: '~1-2s per image', quality: 'Good', totalTime: '~15 seconds', label: 'CHEAPER' }
-    };
-    
-    // Variation Definitions with default prompts
-    const variationDefs = [
-      { field: 'original', label: 'Original', icon: 'fas fa-image', filename: '00-original.jpg', isOriginal: true, defaultPrompt: '' },
-      { field: 'macro_texture', label: 'Texture Detail', icon: 'fas fa-search-plus', filename: '01-texture-detail.jpg', defaultPrompt: 'Extreme close-up macro photography showing the material texture and surface detail. Shallow depth of field with soft bokeh background. Professional studio lighting highlighting weave pattern, grain, or surface texture. Rich color saturation, crisp sharp focus on texture details. Commercial product photography emphasizing quality and craftsmanship. High resolution 2k, premium detail shot.' },
-      { field: 'label_branding', label: 'Label & Branding', icon: 'fas fa-tag', filename: '02-label-branding.jpg', defaultPrompt: 'Close-up product photography focused on branding elements, logo, and label details. Professional studio lighting, sharp focus on typography and brand marks. Slight angle showing product dimensionality while keeping text completely readable. Commercial catalog photography style, color-accurate brand presentation. High resolution 2k, editorial detail quality.' },
-      { field: 'construction_detail', label: 'Construction', icon: 'fas fa-tools', filename: '03-construction.jpg', defaultPrompt: 'Detailed close-up showing construction quality - seams, stitching, joints, edges, or assembly details. Professional studio lighting emphasizing craftsmanship. Shallow depth of field isolating key quality indicators. Premium product photography highlighting durability and attention to detail. High resolution 2k, trust-building detail shot.' },
-      { field: 'color_finish', label: 'Color & Finish', icon: 'fas fa-palette', filename: '04-color-finish.jpg', defaultPrompt: 'Close-up photography emphasizing true-to-life color accuracy and surface finish. Professional color-corrected studio lighting. Neutral background to showcase product color without distraction. Lighting angles showing sheen, matte finish, or surface quality. Commercial product photography for accurate buyer expectations. High resolution 2k.' },
-      { field: 'scale_reference', label: 'Size Reference', icon: 'fas fa-ruler', filename: '05-size-reference.jpg', defaultPrompt: 'Product photography with clear scale reference showing actual size. Close-up composition with human hand partially in frame OR common object for size comparison. Professional studio lighting, clear perspective on product dimensions. Ecommerce photography that reduces size-related returns. High resolution 2k.' },
-      { field: 'hero_white', label: 'Hero (White BG)', icon: 'fas fa-square', filename: '06-hero-white.jpg', defaultPrompt: 'Clean professional product photo on pure white background. Studio lighting from multiple angles. Product positioned at slight 45-degree angle showing depth and dimensionality. Soft natural shadow underneath. Centered composition. Amazon and Shopify listing style. High resolution 2k, catalog-quality commercial photography.' },
-      { field: 'inuse_action', label: 'In-Use Action', icon: 'fas fa-hand-pointer', filename: '07-in-use.jpg', defaultPrompt: 'Product being actively used in real-world scenario. Natural hands interacting with product showing scale and functionality. Authentic everyday setting. Lifestyle photography demonstrating practical application. Candid moment captured. Relatable use-case photography. Natural lighting. High resolution 2k.' },
-      { field: 'flatlay_styled', label: 'Flat-Lay', icon: 'fab fa-instagram', filename: '08-flat-lay.jpg', defaultPrompt: 'Flat-lay composition photographed directly from above. Product styled with complementary accessories and props on neutral surface. Instagram aesthetic with intentional negative space. Natural window lighting. Curated lifestyle arrangement. Social media content style. Balanced composition. High resolution 2k.' },
-      { field: 'environment_context', label: 'Environment', icon: 'fas fa-tree', filename: '09-environment.jpg', defaultPrompt: 'Product in natural environment relevant to its use. Soft natural lighting showing product in realistic setting. Background slightly blurred to emphasize product as hero. Lifestyle photography creating emotional connection and showing product purpose. Authentic scene composition. High resolution 2k.' },
-      { field: 'multi_angle', label: 'Multi-Angle', icon: 'fas fa-cube', filename: '10-multi-angle.jpg', defaultPrompt: 'Product shown from three key angles in single composition: front view, side profile, and top-down perspective. Clean white or grey background. Professional studio lighting consistent across all angles. Commercial photography showing complete product understanding. Informative multi-view layout. High resolution 2k.' }
-    ];
-    
-    // Custom prompts storage (index 1-10 maps to variations)
+    let sessions = [];
+    let lightboxImages = [];
+    let currentLightboxIndex = 0;
     let customPrompts = {};
-    let advancedModeEnabled = false;
 
-    // Model Selection Functions
-    function selectModel(model) {
-      selectedModel = model;
-      
-      // Update UI
-      document.getElementById('model-flash').classList.toggle('active', model === 'flash');
-      document.getElementById('model-nano').classList.toggle('active', model === 'nano');
-      
-      // Update time estimate
-      const info = MODEL_INFO[model];
-      document.getElementById('time-estimate').textContent = info.totalTime;
-      document.getElementById('model-name-hint').textContent = info.name;
-      
-      console.log('Selected model:', model, info.name);
-    }
-    
-    // Sidebar Functions
+    // Variation definitions
+    const variationDefs = [
+      { field: 'original', label: 'Original', isOriginal: true },
+      { field: 'macro_texture', label: '1. Texture Detail' },
+      { field: 'label_branding', label: '2. Label & Branding' },
+      { field: 'construction_detail', label: '3. Construction' },
+      { field: 'color_finish', label: '4. Color & Finish' },
+      { field: 'scale_reference', label: '5. Size Reference' },
+      { field: 'hero_white', label: '6. Hero (White BG)' },
+      { field: 'inuse_action', label: '7. In-Use Action' },
+      { field: 'flatlay_styled', label: '8. Flat-Lay' },
+      { field: 'environment_context', label: '9. Environment' },
+      { field: 'multi_angle', label: '10. Multi-Angle' }
+    ];
+
+    const MODEL_INFO = {
+      nano: { name: 'Nano Pro', time: '~36s' },
+      flash: { name: 'Flash 2.0', time: '~15s' }
+    };
+
+    // Sidebar
     function toggleSidebar() {
       sidebarOpen = !sidebarOpen;
       document.getElementById('sidebar').classList.toggle('open', sidebarOpen);
       document.getElementById('sidebar-overlay').classList.toggle('open', sidebarOpen);
     }
-    
+
     async function loadSessions() {
       try {
-        const response = await fetch('/api/sessions');
-        const data = await response.json();
+        const res = await fetch('/api/sessions');
+        const data = await res.json();
         if (data.success) {
           sessions = data.sessions || [];
           renderSessionList();
         }
-      } catch (err) {
-        console.error('Failed to load sessions:', err);
-      }
+      } catch (e) { console.error('Load sessions failed:', e); }
     }
-    
+
     function renderSessionList() {
       const list = document.getElementById('session-list');
-      if (!list) return;
+      const count = document.getElementById('session-count');
+      if (count) count.textContent = sessions.length + ' generation' + (sessions.length !== 1 ? 's' : '');
       
-      if (sessions.length === 0) {
-        list.innerHTML = '<div class="text-center py-8 text-slate-400 text-sm"><i class="fas fa-images text-2xl mb-2 block"></i>No sessions yet</div>';
+      if (!sessions.length) {
+        list.innerHTML = '<div style="text-align:center; padding:24px 8px; color:#9CA3AF; font-size:13px;">No sessions yet</div>';
         return;
       }
       
-      list.innerHTML = sessions.map(session => {
-        const isActive = session.id === currentSessionId;
-        const date = new Date(session.created_at);
-        const timeAgo = getTimeAgo(date);
-        const modelName = MODEL_INFO[session.model || 'nano']?.name || 'Nano Pro';
-        const thumb = session.original_image || '';
-        
-        return '<div class="session-item' + (isActive ? ' active' : '') + '" data-session-id="' + session.id + '" onclick="loadSession(\\'' + session.id + '\\')">' +
-          (thumb ? '<img src="' + thumb + '" class="session-thumb" alt="">' : '<div class="session-thumb flex items-center justify-center"><i class="fas fa-image text-slate-400"></i></div>') +
-          '<div class="session-info">' +
-            '<input type="text" class="session-name-input" value="' + (session.product_name || 'Untitled').replace(/"/g, '&quot;') + '" onclick="event.stopPropagation()" onblur="saveSessionNameSidebar(\\'' + session.id + '\\', this)" onkeypress="if(event.key===\\'Enter\\')this.blur()">' +
-            '<div class="session-meta"><span>' + timeAgo + '</span><span>' + modelName + '</span></div>' +
+      list.innerHTML = sessions.map(s => {
+        const isActive = s.id === currentSessionId;
+        const timeAgo = getTimeAgo(new Date(s.created_at));
+        const model = s.model === 'flash' ? 'Flash' : 'Nano';
+        return '<div class="session-item' + (isActive ? ' active' : '') + '" onclick="loadSession(\\'' + s.id + '\\')">' +
+          '<div class="session-icon">📸</div>' +
+          '<div class="session-text">' +
+            '<input type="text" class="session-name-input" value="' + (s.product_name || 'Untitled').replace(/"/g, '&quot;') + '" ' +
+              'onclick="event.stopPropagation()" onblur="saveSessionName(\\'' + s.id + '\\', this)" onkeypress="if(event.key===\\'Enter\\')this.blur()">' +
+            '<div class="session-meta">' + timeAgo + ' · ' + model + '</div>' +
           '</div>' +
-          '<button class="session-delete" onclick="event.stopPropagation();deleteSession(\\'' + session.id + '\\')" title="Delete"><i class="fas fa-trash-alt text-xs"></i></button>' +
+          '<div class="session-delete" onclick="event.stopPropagation(); deleteSession(\\'' + s.id + '\\')">✕</div>' +
         '</div>';
       }).join('');
     }
-    
+
     function getTimeAgo(date) {
-      const seconds = Math.floor((new Date() - date) / 1000);
-      if (seconds < 60) return 'Just now';
-      if (seconds < 3600) return Math.floor(seconds / 60) + 'm ago';
-      if (seconds < 86400) return Math.floor(seconds / 3600) + 'h ago';
-      if (seconds < 604800) return Math.floor(seconds / 86400) + 'd ago';
-      return date.toLocaleDateString();
+      const s = Math.floor((Date.now() - date) / 1000);
+      if (s < 60) return 'Just now';
+      if (s < 3600) return Math.floor(s / 60) + 'm ago';
+      if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+      return Math.floor(s / 86400) + 'd ago';
     }
-    
-    async function saveSessionNameSidebar(sessionId, input) {
-      const newName = input.value.trim() || 'Untitled';
+
+    async function saveSessionName(id, input) {
+      const name = input.value.trim() || 'Untitled';
       try {
-        await fetch('/api/sessions/' + sessionId, {
+        await fetch('/api/sessions/' + id, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ product_name: newName })
+          body: JSON.stringify({ product_name: name })
         });
-        // Update local sessions array
-        const session = sessions.find(s => s.id === sessionId);
-        if (session) session.product_name = newName;
-      } catch (err) {
-        console.error('Failed to save session name:', err);
-      }
+        const s = sessions.find(x => x.id === id);
+        if (s) s.product_name = name;
+      } catch (e) { console.error('Save name failed:', e); }
     }
-    
-    async function deleteSession(sessionId) {
-      if (!confirm('Delete this session? All generated images will be lost.')) return;
-      
+
+    async function deleteSession(id) {
+      if (!confirm('Delete this session?')) return;
       try {
-        await fetch('/api/sessions/' + sessionId, { method: 'DELETE' });
-        sessions = sessions.filter(s => s.id !== sessionId);
+        await fetch('/api/sessions/' + id, { method: 'DELETE' });
+        sessions = sessions.filter(s => s.id !== id);
         renderSessionList();
-        
-        // If deleted current session, reset to upload
-        if (sessionId === currentSessionId) {
-          resetToUpload();
-        }
-      } catch (err) {
-        console.error('Failed to delete session:', err);
-        showError('Failed to delete session');
-      }
+        if (id === currentSessionId) resetToUpload();
+      } catch (e) { showError('Delete failed'); }
     }
-    
-    async function loadSession(sessionId) {
-      // Navigate to results page
-      window.location.href = '/results/' + sessionId;
+
+    function loadSession(id) {
+      window.location.href = '/results/' + id;
     }
-    
+
     function resetToUpload() {
       window.location.href = '/';
     }
-    
-    // Initialize sidebar on page load
-    document.addEventListener('DOMContentLoaded', () => {
-      loadSessions();
-      // Set default model UI
-      selectModel(selectedModel);
-    });
 
-    // Session Name Editing
-    let currentSessionName = '';
-    
-    function startEditName() {
-      const display = document.getElementById('session-name-display');
-      const input = document.getElementById('session-name-input');
-      if (!display || !input) return;
-      
-      currentSessionName = display.textContent.trim();
-      input.value = currentSessionName;
-      display.classList.add('hidden');
-      input.classList.remove('hidden');
-      input.focus();
-      input.select();
-    }
-    
-    function cancelEditName() {
-      const display = document.getElementById('session-name-display');
-      const input = document.getElementById('session-name-input');
-      if (!display || !input) return;
-      
-      input.classList.add('hidden');
-      display.classList.remove('hidden');
-    }
-    
-    async function saveSessionName() {
-      const display = document.getElementById('session-name-display');
-      const input = document.getElementById('session-name-input');
-      if (!display || !input) return;
-      
-      const newName = input.value.trim() || currentSessionName;
-      display.textContent = newName;
-      input.classList.add('hidden');
-      display.classList.remove('hidden');
-      
-      // Save to database
-      if (currentSessionId && newName !== currentSessionName) {
-        try {
-          await fetch('/api/sessions/' + currentSessionId, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ product_name: newName })
-          });
-          currentSessionName = newName;
-        } catch (err) {
-          console.error('Failed to save session name:', err);
-        }
-      }
+    // Model selection
+    function selectModel(model) {
+      selectedModel = model;
+      document.querySelectorAll('.quality-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.model === model);
+      });
     }
 
-    // Advanced Mode Functions
-    function toggleAdvancedMode() {
-      advancedModeEnabled = !advancedModeEnabled;
-      const panel = document.getElementById('advanced-panel');
-      const icon = document.getElementById('advanced-icon');
-      
-      console.log('Toggle advanced mode:', advancedModeEnabled);
-      
-      if (advancedModeEnabled) {
-        populatePromptList(); // Populate BEFORE showing
-        panel.style.display = 'flex';
-        panel.classList.remove('hidden');
-        if (icon) icon.style.transform = 'rotate(90deg)';
-        document.body.style.overflow = 'hidden';
-      } else {
-        panel.style.display = 'none';
-        panel.classList.add('hidden');
-        if (icon) icon.style.transform = 'rotate(0deg)';
-        document.body.style.overflow = '';
-      }
-    }
-    
-    // Count custom prompts for badge display
-    function getCustomPromptCount() {
-      let count = 0;
-      for (let i = 1; i < variationDefs.length; i++) {
-        if (customPrompts[i] && customPrompts[i] !== variationDefs[i].defaultPrompt) {
-          count++;
-        }
-      }
-      return count;
-    }
-    
-    function populatePromptList() {
-      console.log('populatePromptList called, variationDefs.length:', variationDefs.length);
-      
-      const list = document.getElementById('prompt-list');
-      if (!list) {
-        console.error('prompt-list element not found');
-        return;
-      }
-      list.innerHTML = '';
-      
-      // Skip index 0 (Original) - only show variations 1-10
-      for (let i = 1; i < variationDefs.length; i++) {
-        const v = variationDefs[i];
-        const isCustom = customPrompts[i] && customPrompts[i] !== v.defaultPrompt;
-        const currentPrompt = customPrompts[i] || v.defaultPrompt;
-        
-        const item = document.createElement('div');
-        item.className = 'p-4 border-b border-slate-100';
-        item.innerHTML = \`
-          <div class="flex items-center justify-between mb-2">
-            <div class="flex items-center gap-2">
-              <div class="w-7 h-7 rounded-lg bg-purple-100 flex items-center justify-center">
-                <i class="\${v.icon} text-purple-600 text-xs"></i>
-              </div>
-              <span class="text-sm font-medium text-slate-800">\${v.label}</span>
-              <span id="item-badge-\${i}" class="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-medium \${isCustom ? '' : 'hidden'}">CUSTOM</span>
-            </div>
-            <button onclick="resetPrompt(\${i})" class="text-xs text-slate-500 hover:text-purple-600 transition \${isCustom ? '' : 'hidden'}" id="reset-btn-\${i}">
-              <i class="fas fa-undo mr-1"></i>Reset
-            </button>
-          </div>
-          <textarea 
-            id="prompt-\${i}" 
-            rows="3" 
-            class="w-full text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded-lg p-3 resize-none focus:border-purple-500 focus:bg-white focus:outline-none transition"
-            onchange="updateCustomPrompt(\${i}, this.value)"
-            oninput="updateCustomPrompt(\${i}, this.value)"
-            placeholder="Enter custom prompt..."
-          >\${currentPrompt}</textarea>
-        \`;
-        list.appendChild(item);
-      }
-      console.log('Populated prompts, list children:', list.children.length);
-    }
-    
-    function updateCustomPrompt(index, value) {
-      const v = variationDefs[index];
-      const isCustom = value.trim() !== v.defaultPrompt;
-      customPrompts[index] = value.trim();
-      
-      // Update custom badge visibility in list
-      const resetBtn = document.getElementById('reset-btn-' + index);
-      const itemBadge = document.getElementById('item-badge-' + index);
-      if (resetBtn) {
-        resetBtn.style.display = isCustom ? 'inline' : 'none';
-      }
-      if (itemBadge) {
-        itemBadge.style.display = isCustom ? 'inline' : 'none';
-      }
-      
-      // Update main toggle badge
-      updateCustomCountBadge();
-    }
-    
-    function updateCustomCountBadge() {
-      const count = getCustomPromptCount();
-      const badge = document.getElementById('custom-count-badge');
-      if (badge) {
-        if (count > 0) {
-          badge.textContent = count + ' Custom';
-          badge.className = 'text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium';
-        } else {
-          badge.textContent = 'Custom Prompts';
-          badge.className = 'text-xs bg-brand-purple/10 text-brand-purple px-2 py-0.5 rounded-full';
-        }
-      }
-    }
-    
-    function resetPrompt(index) {
-      const v = variationDefs[index];
-      customPrompts[index] = v.defaultPrompt;
-      
-      const textarea = document.getElementById('prompt-' + index);
-      if (textarea) {
-        textarea.value = v.defaultPrompt;
-      }
-      
-      const resetBtn = document.getElementById('reset-btn-' + index);
-      const itemBadge = document.getElementById('item-badge-' + index);
-      if (resetBtn) {
-        resetBtn.style.display = 'none';
-      }
-      if (itemBadge) {
-        itemBadge.style.display = 'none';
-      }
-      
-      // Update main toggle badge
-      updateCustomCountBadge();
-    }
-    
-    function getPromptForVariation(index) {
-      const v = variationDefs[index];
-      if (customPrompts[index] && customPrompts[index].trim()) {
-        return customPrompts[index];
-      }
-      return null; // Return null to use server default
-    }
-    
-    function isCustomPrompt(index) {
-      const v = variationDefs[index];
-      return customPrompts[index] && customPrompts[index].trim() !== v.defaultPrompt;
-    }
-
-    // Drag & Drop Handlers
+    // File handling
     function handleDragOver(e) {
       e.preventDefault();
-      document.getElementById('upload-zone').classList.add('dragover');
+      e.currentTarget.classList.add('dragover');
     }
-
     function handleDragLeave(e) {
-      e.preventDefault();
-      document.getElementById('upload-zone').classList.remove('dragover');
+      e.currentTarget.classList.remove('dragover');
     }
-
     function handleDrop(e) {
       e.preventDefault();
-      document.getElementById('upload-zone').classList.remove('dragover');
-      if (e.dataTransfer.files.length > 0) {
-        processFile(e.dataTransfer.files[0]);
-      }
+      e.currentTarget.classList.remove('dragover');
+      const file = e.dataTransfer.files[0];
+      if (file && file.type.startsWith('image/')) processFile(file);
+    }
+    function handleFileSelect(e) {
+      const file = e.target.files[0];
+      if (file) processFile(file);
     }
 
-    function handleFileSelect(e) {
-      if (e.target.files.length > 0) {
-        processFile(e.target.files[0]);
+    function processFile(file) {
+      if (file.size > 10 * 1024 * 1024) {
+        showError('File too large (max 10MB)');
+        return;
       }
+      selectedFile = file;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        currentOriginalImage = e.target.result;
+        document.getElementById('preview-image').src = currentOriginalImage;
+        document.getElementById('upload-prompt').style.display = 'none';
+        document.getElementById('upload-preview').style.display = 'block';
+        document.getElementById('upload-zone').style.height = 'auto';
+        document.getElementById('generate-btn').disabled = false;
+        
+        // Upload immediately
+        uploadImage();
+      };
+      reader.readAsDataURL(file);
     }
 
     function resetUpload() {
-      document.getElementById('file-input').value = '';
-      document.getElementById('upload-prompt').classList.remove('hidden');
-      document.getElementById('upload-preview').classList.add('hidden');
-      document.getElementById('generate-btn').disabled = true;
       selectedFile = null;
       currentOriginalImage = null;
       currentSessionId = null;
+      document.getElementById('upload-prompt').style.display = 'block';
+      document.getElementById('upload-preview').style.display = 'none';
+      document.getElementById('upload-zone').style.height = '200px';
+      document.getElementById('generate-btn').disabled = true;
+      document.getElementById('file-input').value = '';
     }
 
-    // Create thumbnail for History page (150x150, JPEG, ~10-30KB)
-    function createThumbnail(file) {
-      return new Promise((resolve) => {
-        const img = new Image();
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          const size = 150;
-          canvas.width = size;
-          canvas.height = size;
-          const ctx = canvas.getContext('2d');
-          
-          // Calculate crop to make square
-          const minDim = Math.min(img.width, img.height);
-          const sx = (img.width - minDim) / 2;
-          const sy = (img.height - minDim) / 2;
-          
-          ctx.drawImage(img, sx, sy, minDim, minDim, 0, 0, size, size);
-          resolve(canvas.toDataURL('image/jpeg', 0.7));
-        };
-        img.onerror = () => resolve('');
-        img.src = URL.createObjectURL(file);
-      });
-    }
-    
-    // Compress image for storage (max 800px, JPEG quality 0.8, ~50-150KB)
-    function compressImageForStorage(base64Data) {
-      return new Promise((resolve) => {
-        const img = new Image();
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          const maxSize = 800;
-          let width = img.width;
-          let height = img.height;
-          
-          // Scale down if larger than maxSize
-          if (width > maxSize || height > maxSize) {
-            if (width > height) {
-              height = (height / width) * maxSize;
-              width = maxSize;
-            } else {
-              width = (width / height) * maxSize;
-              height = maxSize;
-            }
-          }
-          
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0, width, height);
-          resolve(canvas.toDataURL('image/jpeg', 0.8));
-        };
-        img.onerror = () => resolve(base64Data); // Return original if error
-        img.src = base64Data;
-      });
-    }
-    
-    // Save generated image to database
-    async function saveGeneratedImage(sessionId, variationType, variationIndex, imageData) {
-      try {
-        // Compress image before saving
-        const compressed = await compressImageForStorage(imageData);
-        
-        await fetch('/api/sessions/' + sessionId + '/images', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            variation_type: variationType,
-            variation_index: variationIndex,
-            image_data: compressed
-          })
-        });
-        console.log('[' + variationIndex + '] Image saved to database');
-      } catch (err) {
-        console.error('[' + variationIndex + '] Failed to save image:', err);
-      }
-    }
-    
-    // Regenerate a single variation
-    async function regenerateVariation(cardIndex) {
-      if (cardIndex === 0) return; // Can't regenerate original
+    async function uploadImage() {
+      if (!selectedFile) return;
       
-      const varDef = variationDefs[cardIndex];
-      const variationIndex = cardIndex - 1; // API uses 0-indexed
-      
-      // Show loading
-      const loadingEl = document.getElementById('regen-loading-' + cardIndex);
-      if (loadingEl) loadingEl.classList.remove('hidden');
-      
-      // Check for custom prompt
-      const customPrompt = getPromptForVariation(cardIndex);
-      const isCustom = isCustomPrompt(cardIndex);
-      
-      try {
-        const response = await fetch('/api/generate-single/' + currentSessionId + '/' + variationIndex, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            originalImage: currentOriginalImage,
-            productName: document.getElementById('session-name-display')?.textContent || 'product',
-            customPrompt: customPrompt
-          })
-        });
-        
-        const data = await response.json();
-        
-        if (data.success && data.image) {
-          // Re-render the entire card to update Custom badge if needed
-          updateThumbnail(cardIndex, data.image, true, isCustom || data.isCustom);
-          
-          // Update in results store
-          window.currentResults.results[varDef.field] = data.image;
-          
-          // Save to database
-          saveGeneratedImage(currentSessionId, varDef.field, cardIndex, data.image);
-          
-          console.log('[' + cardIndex + '] Regenerated successfully' + (isCustom ? ' (Custom Prompt)' : ''));
-        } else {
-          alert('Regeneration failed: ' + (data.error || 'Unknown error'));
-          if (loadingEl) loadingEl.classList.add('hidden');
-        }
-      } catch (err) {
-        console.error('Regeneration error:', err);
-        alert('Failed to regenerate. Please try again.');
-        if (loadingEl) loadingEl.classList.add('hidden');
-      }
-    }
-
-    async function processFile(file) {
-      const validTypes = ['image/jpeg', 'image/png', 'image/webp'];
-      if (!validTypes.includes(file.type)) {
-        showError('Invalid file type. Please upload JPG, PNG, or WebP.');
-        return;
-      }
-      if (file.size > 10 * 1024 * 1024) {
-        showError('File too large. Maximum size is 10MB.');
-        return;
-      }
-
-      selectedFile = file;
-
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        document.getElementById('preview-image').src = e.target.result;
-        document.getElementById('preview-filename').textContent = file.name;
-        document.getElementById('upload-prompt').classList.add('hidden');
-        document.getElementById('upload-preview').classList.remove('hidden');
-      };
-      reader.readAsDataURL(file);
-
-      // Create thumbnail for History page
-      const thumbnail = await createThumbnail(file);
-
       const formData = new FormData();
-      formData.append('image', file);
-      formData.append('thumbnail', thumbnail);
+      formData.append('image', selectedFile);
       formData.append('model', selectedModel);
+      
+      // Create thumbnail
+      const canvas = document.createElement('canvas');
+      const img = new Image();
+      img.src = currentOriginalImage;
+      await new Promise(r => img.onload = r);
+      const size = 200;
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      const scale = Math.max(size / img.width, size / img.height);
+      const w = img.width * scale;
+      const h = img.height * scale;
+      ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+      formData.append('thumbnail', canvas.toDataURL('image/jpeg', 0.7));
 
       try {
-        const response = await fetch('/api/upload', { method: 'POST', body: formData });
-        const data = await response.json();
-        
+        const res = await fetch('/api/upload', { method: 'POST', body: formData });
+        const data = await res.json();
         if (data.success) {
           currentSessionId = data.sessionId;
-          currentOriginalImage = data.originalImage;
-          document.getElementById('generate-btn').disabled = false;
-          // Reload sessions to show new one in sidebar
           loadSessions();
-        } else {
-          showError(data.error || 'Upload failed');
         }
-      } catch (error) {
-        showError('Failed to upload image. Please try again.');
-      }
+      } catch (e) { console.error('Upload failed:', e); }
     }
 
+    // Generation
     async function generateVariations() {
-      if (!currentSessionId) {
+      if (!currentSessionId || !currentOriginalImage) {
         showError('Please upload an image first');
         return;
       }
 
-      // Hide upload UI, show results grid
-      document.getElementById('hero-section').classList.add('hidden');
-      document.getElementById('upload-section').classList.add('hidden');
-      document.body.classList.add('showing-results');
+      // Switch to results view
+      document.getElementById('upload-screen').style.display = 'none';
+      document.getElementById('results-screen').style.display = 'block';
+      document.getElementById('product-name-edit').value = selectedFile?.name?.replace(/\\.[^.]+$/, '') || 'Product';
+
+      // Build grid with loading states
+      const grid = document.getElementById('thumb-grid');
+      lightboxImages = [];
       
-      // Store results
-      window.currentResults = {
-        originalImage: currentOriginalImage,
-        productName: 'Product',
-        results: {}
-      };
-      
-      // Build and show results grid
-      showProgressiveResults();
-      
-      // Update session status to generating
-      try {
-        await fetch('/api/sessions/' + currentSessionId, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: 'generating' })
-        });
-      } catch (e) {
-        console.error('Failed to update session status:', e);
-      }
-      
-      // Start all 10 generations in parallel
+      grid.innerHTML = variationDefs.map((v, i) => {
+        if (v.isOriginal) {
+          lightboxImages.push({ src: currentOriginalImage, label: 'Original' });
+          return '<div class="image-card" id="card-' + i + '">' +
+            '<img src="' + currentOriginalImage + '" onclick="openLightbox(' + i + ')">' +
+            '<div class="card-label">Original</div>' +
+          '</div>';
+        }
+        return '<div class="image-card" id="card-' + i + '">' +
+          '<div class="card-loading" style="width:100%; aspect-ratio:1; border-radius:6px;"></div>' +
+          '<div class="card-progress"><div class="card-progress-bar" id="progress-' + i + '" style="width:0%"></div></div>' +
+          '<div class="card-label">' + v.label + '</div>' +
+        '</div>';
+      }).join('');
+
+      // Generate each variation
       const startTime = Date.now();
       const promises = [];
-      for (let i = 0; i < 10; i++) {
-        promises.push(generateSingleVariation(i, startTime));
+      
+      for (let i = 1; i < variationDefs.length; i++) {
+        promises.push(generateSingle(i, startTime));
       }
       
       await Promise.allSettled(promises);
       
-      // Update session status to completed
+      // Update session
       try {
         await fetch('/api/sessions/' + currentSessionId, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ status: 'completed' })
         });
-      } catch (e) {
-        console.error('Failed to update session status:', e);
-      }
-      
-      // Update header with completion time
-      const totalTime = Math.floor((Date.now() - startTime) / 1000);
-      const subtitle = document.querySelector('#results-header-subtitle');
-      if (subtitle) {
-        subtitle.textContent = 'Completed in ' + totalTime + 's - ' + lightboxImages.length + ' images ready';
-      }
+        loadSessions();
+      } catch (e) {}
     }
-    
-    async function generateSingleVariation(index, startTime) {
-      const field = variationDefs[index + 1]?.field;
-      if (!field) return;
+
+    async function generateSingle(index, startTime) {
+      const v = variationDefs[index];
+      const progressBar = document.getElementById('progress-' + index);
       
-      const cardIndex = index + 1;
-      const requestStart = Date.now();
-      console.log('[' + index + '] Starting ' + field + '...');
-      
-      // Start progress animation - shows real elapsed time
-      updateProgressState(cardIndex, 'connecting', 0);
-      
-      // Animate progress bar over 45 seconds (linear fill)
-      let progressInterval = setInterval(() => {
-        const elapsed = (Date.now() - requestStart) / 1000;
-        const currentCard = document.getElementById('card-' + cardIndex);
-        if (currentCard && !currentCard.dataset.complete) {
-          const progressBar = document.getElementById('progress-' + cardIndex);
-          if (progressBar) {
-            // Linear fill: 0% at 0s, 95% at 45s
-            const fillPercent = Math.min(95, (elapsed / 45) * 95);
-            progressBar.style.width = fillPercent + '%';
-          }
-        }
-      }, 100);
-      
+      // Animate progress
+      let progress = 0;
+      const interval = setInterval(() => {
+        progress = Math.min(95, progress + 2);
+        if (progressBar) progressBar.style.width = progress + '%';
+      }, 500);
+
       try {
-        // Check for custom prompt
-        const customPrompt = getPromptForVariation(index + 1);
-        
-        const response = await fetch('/api/generate-single/' + currentSessionId + '/' + index, {
+        const res = await fetch('/api/generate-single/' + currentSessionId + '/' + (index - 1), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
+          body: JSON.stringify({
             originalImage: currentOriginalImage,
-            productName: 'Product',
-            customPrompt: customPrompt,
+            productName: document.getElementById('product-name-edit')?.value || 'Product',
+            customPrompt: customPrompts[index],
             model: selectedModel
           })
         });
-        
-        // Stop the time tracking interval
-        clearInterval(progressInterval);
-        const totalTime = Math.round((Date.now() - requestStart) / 1000);
-        
-        console.log('[' + index + '] Response status: ' + response.status + ' after ' + totalTime + 's');
-        
-        if (!response.ok) {
-          markCardComplete(cardIndex);
-          updateProgressState(cardIndex, 'failed', totalTime);
-          updateThumbnail(cardIndex, null, false);
-          return;
-        }
-        
-        // Response headers received - server finished, downloading data
-        updateProgressState(cardIndex, 'downloading', totalTime);
-        
-        const data = await response.json();
-        
-        console.log('[' + index + '] Response data:', data.success ? 'SUCCESS' : 'FAILED - ' + (data.error || 'unknown'));
+
+        clearInterval(interval);
+        const data = await res.json();
+        const card = document.getElementById('card-' + index);
         
         if (data.success && data.image) {
-          markCardComplete(cardIndex);
-          updateProgressState(cardIndex, 'complete', totalTime);
-          window.currentResults.results[field] = data.image;
-          // Pass isCustom flag to show badge
-          setTimeout(() => updateThumbnail(cardIndex, data.image, true, data.isCustom || isCustomPrompt(cardIndex)), 300);
-          
-          // Save image to database for History page
-          saveGeneratedImage(currentSessionId, field, cardIndex, data.image);
+          lightboxImages[index] = { src: data.image, label: v.label };
+          card.innerHTML = '<img src="' + data.image + '" onclick="openLightbox(' + index + ')">' +
+            '<div class="card-overlay">' +
+              '<button onclick="event.stopPropagation(); regenerate(' + index + ')">🔄</button>' +
+              '<button onclick="event.stopPropagation(); downloadImage(' + index + ')">⬇️</button>' +
+            '</div>' +
+            '<div class="card-label">' + v.label + '</div>';
         } else {
-          console.error('[' + index + '] Generation failed:', data.error);
-          markCardComplete(cardIndex);
-          updateProgressState(cardIndex, 'failed', totalTime);
-          updateThumbnail(cardIndex, null, false);
+          card.innerHTML = '<div style="width:100%; aspect-ratio:1; background:#FEE2E2; border-radius:6px; display:flex; align-items:center; justify-content:center; color:#DC2626; cursor:pointer" onclick="regenerate(' + index + ')">⚠️ Retry</div>' +
+            '<div class="card-label">' + v.label + '</div>';
         }
-      } catch (err) {
-        clearInterval(progressInterval);
-        const totalTime = Math.round((Date.now() - requestStart) / 1000);
-        console.error('[' + index + '] Fetch error after ' + totalTime + 's:', err);
-        markCardComplete(cardIndex);
-        updateProgressState(cardIndex, 'error', totalTime);
-        updateThumbnail(cardIndex, null, false);
+      } catch (e) {
+        clearInterval(interval);
+        const card = document.getElementById('card-' + index);
+        card.innerHTML = '<div style="width:100%; aspect-ratio:1; background:#FEE2E2; border-radius:6px; display:flex; align-items:center; justify-content:center; color:#DC2626; cursor:pointer" onclick="regenerate(' + index + ')">⚠️ Retry</div>' +
+          '<div class="card-label">' + variationDefs[index].label + '</div>';
       }
     }
-    
-    function updateProgressState(cardIndex, state, time) {
-      const progressBar = document.getElementById('progress-' + cardIndex);
-      const statusEl = document.getElementById('status-' + cardIndex);
-      
-      if (!progressBar) return;
-      
-      switch(state) {
-        case 'connecting':
-          if (statusEl) statusEl.innerHTML = '<i class="fas fa-circle-notch fa-spin text-[10px] mr-1"></i>Generating';
-          break;
-        case 'downloading':
-          progressBar.style.width = '96%';
-          if (statusEl) statusEl.innerHTML = '<i class="fas fa-download text-[10px] mr-1"></i>Almost done';
-          break;
-        case 'complete':
-          progressBar.style.width = '100%';
-          progressBar.style.background = 'linear-gradient(90deg, #22c55e, #16a34a)';
-          if (statusEl) statusEl.innerHTML = '<i class="fas fa-check text-[10px] mr-1"></i>Ready';
-          break;
-        case 'failed':
-        case 'error':
-          progressBar.style.width = '100%';
-          progressBar.style.background = '#ef4444';
-          if (statusEl) statusEl.innerHTML = '<i class="fas fa-times text-[10px] mr-1"></i>Failed';
-          break;
-      }
-    }
-    
-    function markCardComplete(cardIndex) {
-      const card = document.getElementById('card-' + cardIndex);
-      if (card) {
-        card.dataset.complete = 'true';
-      }
-    }
-    
-    function showProgressiveResults() {
-      const section = document.getElementById('results-section');
-      section.classList.remove('hidden');
-      section.innerHTML = '';
-      
-      // Get initial product name from file
-      const initialName = selectedFile ? selectedFile.name.replace(/\\.[^.]+$/, '') : 'Product';
-      
-      // Header with editable name
-      const header = document.createElement('div');
-      header.className = 'flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4';
-      header.innerHTML = \`
-        <div>
-          <div class="flex items-center gap-2 group">
-            <h2 id="session-name-display" class="text-2xl sm:text-3xl font-bold text-brand-dark cursor-pointer hover:text-brand-purple transition" onclick="startEditName()" title="Click to rename">
-              \${initialName}
-            </h2>
-            <button onclick="startEditName()" class="text-brand-gray hover:text-brand-purple transition opacity-0 group-hover:opacity-100">
-              <i class="fas fa-pencil text-sm"></i>
-            </button>
-          </div>
-          <input type="text" id="session-name-input" class="hidden text-2xl sm:text-3xl font-bold text-brand-dark bg-transparent border-b-2 border-brand-purple outline-none w-full max-w-md"
-                 onblur="saveSessionName()" onkeydown="if(event.key==='Enter')saveSessionName();if(event.key==='Escape')cancelEditName()">
-          <p id="results-header-subtitle" class="text-brand-gray mt-1 text-sm">Generating 10 variations...</p>
-        </div>
-        <div class="flex items-center gap-3">
-          <button onclick="window.location.reload()" class="btn-secondary px-4 py-2.5 rounded-xl font-medium text-brand-dark flex items-center gap-2 text-sm">
-            <i class="fas fa-plus"></i>
-            <span>New</span>
-          </button>
-          <button onclick="downloadAllImages()" class="btn-primary px-4 py-2.5 rounded-xl font-medium text-white flex items-center gap-2 text-sm">
-            <i class="fas fa-download"></i>
-            <span>Download All</span>
-          </button>
-        </div>
-      \`;
-      section.appendChild(header);
-      
-      // Thumbnail Grid - 5 cols desktop, 4 tablet, 2 mobile
-      const grid = document.createElement('div');
-      grid.id = 'results-grid';
-      grid.className = 'grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4';
-      
-      // Original image (already loaded)
-      const originalCard = createThumbCard(0, currentOriginalImage, true, variationDefs[0]);
-      grid.appendChild(originalCard);
-      
-      // 10 loading placeholders
-      for (let i = 1; i <= 10; i++) {
-        const card = createThumbCard(i, null, false, variationDefs[i]);
-        grid.appendChild(card);
-      }
-      
-      section.appendChild(grid);
-      
-      // Initialize lightbox images with original
-      lightboxImages = [{ src: currentOriginalImage, label: 'Original', filename: '00-original.jpg' }];
-    }
-    
-    function createThumbCard(index, imgSrc, isLoaded, varDef) {
-      const card = document.createElement('div');
-      card.id = 'card-' + index;
-      card.className = 'thumb-card card-3d rounded-xl sm:rounded-2xl overflow-hidden cursor-pointer';
-      
-      if (isLoaded && imgSrc) {
-        card.innerHTML = \`
-          <div class="aspect-square overflow-hidden bg-slate-100">
-            <img src="\${imgSrc}" class="w-full h-full object-cover" loading="lazy">
-          </div>
-          <div class="p-2 sm:p-3 text-center bg-white border-t border-slate-100">
-            <p class="text-xs text-brand-dark truncate font-medium flex items-center justify-center gap-1.5">
-              <i class="\${varDef.icon} text-brand-purple text-[10px]"></i>
-              \${varDef.label}
-            </p>
-          </div>
-        \`;
-        card.onclick = () => openLightbox(index);
-      } else {
-        card.classList.add('loading');
-        card.innerHTML = \`
-          <div class="aspect-square flex flex-col items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 p-4">
-            <div class="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-white/80 shadow-inner flex items-center justify-center mb-4">
-              <i class="\${varDef.icon} text-2xl text-brand-purple/60"></i>
-            </div>
-            <div class="w-full max-w-[85%] bg-slate-300 rounded-full h-2.5 overflow-hidden shadow-inner">
-              <div id="progress-\${index}" class="h-full bg-gradient-to-r from-brand-blue to-brand-purple rounded-full transition-all duration-200 ease-linear" style="width: 0%"></div>
-            </div>
-            <p id="status-\${index}" class="text-xs text-brand-muted mt-3 flex items-center"><i class="fas fa-circle-notch fa-spin text-[10px] mr-1"></i>Generating</p>
-          </div>
-          <div class="p-2 sm:p-3 text-center bg-slate-50 border-t border-slate-200">
-            <p class="text-xs text-brand-muted truncate flex items-center justify-center gap-1.5">
-              <i class="\${varDef.icon} text-[10px]"></i>
-              \${varDef.label}
-            </p>
-          </div>
-        \`;
-      }
-      
-      return card;
-    }
-    
-    function updateThumbnail(index, imgSrc, success, isCustom = false) {
+
+    async function regenerate(index) {
       const card = document.getElementById('card-' + index);
-      if (!card) return;
-      
-      const varDef = variationDefs[index];
-      card.classList.remove('loading');
-      
-      if (success && imgSrc) {
-        card.classList.add('success');
-        const customBadge = isCustom ? '<span class="absolute top-2 left-2 text-[9px] bg-amber-500 text-white px-1.5 py-0.5 rounded font-bold shadow">CUSTOM</span>' : '';
-        card.innerHTML = \`
-          <div class="aspect-square overflow-hidden bg-slate-100 relative group/img">
-            <img id="img-\${index}" src="\${imgSrc}" class="w-full h-full object-cover animate-scaleIn" loading="lazy">
-            \${customBadge}
-            <button onclick="event.stopPropagation(); regenerateVariation(\${index})" 
-                    class="absolute top-2 right-2 w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-white shadow-lg flex items-center justify-center text-brand-purple hover:bg-brand-purple hover:text-white transition-all border-2 border-brand-purple/30 hover:border-brand-purple"
-                    title="Regenerate this image">
-              <i class="fas fa-arrows-rotate text-sm"></i>
-            </button>
-            <div id="regen-loading-\${index}" class="hidden absolute inset-0 bg-white/90 flex flex-col items-center justify-center z-10">
-              <div class="w-8 h-8 rounded-full border-3 border-brand-purple/30 border-t-brand-purple animate-spin mb-2"></div>
-              <p class="text-xs text-brand-gray">Regenerating...</p>
-            </div>
-          </div>
-          <div class="p-2 sm:p-3 text-center \${isCustom ? 'bg-amber-50 border-t border-amber-100' : 'bg-green-50 border-t border-green-100'}">
-            <p class="text-xs text-brand-dark truncate font-medium flex items-center justify-center gap-1.5">
-              <i class="\${varDef.icon} \${isCustom ? 'text-amber-600' : 'text-green-600'} text-[10px]"></i>
-              \${varDef.label}
-            </p>
-          </div>
-        \`;
-        card.onclick = () => openLightbox(index);
-      } else {
-        card.classList.add('failed');
-        card.innerHTML = \`
-          <div class="aspect-square flex items-center justify-center bg-red-50 relative">
-            <div class="text-center text-red-400 p-2">
-              <i class="fas fa-exclamation-triangle text-xl sm:text-2xl mb-1"></i>
-              <p class="text-xs">Failed</p>
-            </div>
-            <button onclick="event.stopPropagation(); regenerateVariation(\${index})" 
-                    class="absolute top-2 right-2 w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-white shadow-lg flex items-center justify-center text-red-500 hover:bg-red-500 hover:text-white transition-all border-2 border-red-300 hover:border-red-500"
-                    title="Retry this image">
-              <i class="fas fa-arrows-rotate text-sm"></i>
-            </button>
-            <div id="regen-loading-\${index}" class="hidden absolute inset-0 bg-white/90 flex flex-col items-center justify-center z-10">
-              <div class="w-8 h-8 rounded-full border-3 border-brand-purple/30 border-t-brand-purple animate-spin mb-2"></div>
-              <p class="text-xs text-brand-gray">Regenerating...</p>
-            </div>
-          </div>
-          <div class="p-2 sm:p-3 text-center bg-red-50 border-t border-red-100">
-            <p class="text-xs text-red-500 truncate flex items-center justify-center gap-1.5">
-              <i class="\${varDef.icon} text-[10px]"></i>
-              \${varDef.label}
-            </p>
-          </div>
-        \`;
-      }
+      const v = variationDefs[index];
+      card.innerHTML = '<div class="card-loading" style="width:100%; aspect-ratio:1; border-radius:6px;"></div>' +
+        '<div class="card-progress"><div class="card-progress-bar" style="width:50%"></div></div>' +
+        '<div class="card-label">' + v.label + '</div>';
+      await generateSingle(index, Date.now());
     }
 
-    // Lightbox Functions
+    // Lightbox
     function openLightbox(index) {
-      // Build lightbox array in grid order (not completion order)
-      lightboxImages = [];
-      for (let i = 0; i < variationDefs.length; i++) {
-        const v = variationDefs[i];
-        const src = v.isOriginal ? window.currentResults?.originalImage : window.currentResults?.results?.[v.field];
-        if (src) {
-          lightboxImages.push({ src: src, label: v.label, filename: v.filename, gridIndex: i });
-        }
-      }
-      
-      // Find the clicked image in the ordered array
-      const clickedItem = lightboxImages.find(img => img.gridIndex === index);
-      currentLightboxIndex = clickedItem ? lightboxImages.indexOf(clickedItem) : 0;
-      
-      renderLightbox();
+      if (!lightboxImages[index]) return;
+      currentLightboxIndex = index;
+      document.getElementById('lightbox-title').textContent = lightboxImages[index].label;
+      document.getElementById('lightbox-image').src = lightboxImages[index].src;
+      document.getElementById('lightbox').classList.add('open');
     }
-    
-    function renderLightbox() {
-      if (lightboxImages.length === 0) return;
-      
-      const img = lightboxImages[currentLightboxIndex];
-      if (!img) return;
-      
-      document.getElementById('lightbox-title').textContent = img.label + ' (' + (currentLightboxIndex + 1) + '/' + lightboxImages.length + ')';
-      document.getElementById('lightbox-image').src = img.src;
-      document.getElementById('lightbox').classList.remove('hidden');
-      
-      document.addEventListener('keydown', lightboxKeyHandler);
-    }
-    
+
     function closeLightbox() {
-      document.getElementById('lightbox').classList.add('hidden');
-      document.removeEventListener('keydown', lightboxKeyHandler);
+      document.getElementById('lightbox').classList.remove('open');
     }
-    
-    function navigateLightbox(direction) {
-      currentLightboxIndex = (currentLightboxIndex + direction + lightboxImages.length) % lightboxImages.length;
-      renderLightbox();
-    }
-    
-    function lightboxKeyHandler(e) {
-      if (e.key === 'Escape') closeLightbox();
-      if (e.key === 'ArrowLeft') navigateLightbox(-1);
-      if (e.key === 'ArrowRight') navigateLightbox(1);
-    }
-    
-    function downloadCurrentImage() {
-      const img = lightboxImages[currentLightboxIndex];
-      const link = document.createElement('a');
-      link.href = img.src;
-      link.download = 'shopshot-' + img.filename;
-      link.click();
-    }
-    
-    async function downloadAllImages() {
-      if (!window.JSZip || !window.currentResults) return;
-      
-      const zip = new JSZip();
-      const data = window.currentResults;
-      
-      function base64ToBlob(base64) {
-        if (!base64) return null;
-        try {
-          const parts = base64.split(',');
-          const byteString = atob(parts[1]);
-          const mimeString = parts[0].split(':')[1].split(';')[0];
-          const ab = new ArrayBuffer(byteString.length);
-          const ia = new Uint8Array(ab);
-          for (let i = 0; i < byteString.length; i++) {
-            ia[i] = byteString.charCodeAt(i);
-          }
-          return new Blob([ab], { type: mimeString });
-        } catch (e) {
-          return null;
-        }
+
+    function navigateLightbox(dir) {
+      let next = currentLightboxIndex + dir;
+      while (next >= 0 && next < lightboxImages.length && !lightboxImages[next]) next += dir;
+      if (next >= 0 && next < lightboxImages.length && lightboxImages[next]) {
+        openLightbox(next);
       }
-      
-      // Add all images
-      if (data.originalImage) zip.file('00-original.jpg', base64ToBlob(data.originalImage));
-      if (data.results.macro_texture) zip.file('01-texture-detail.jpg', base64ToBlob(data.results.macro_texture));
-      if (data.results.label_branding) zip.file('02-label-branding.jpg', base64ToBlob(data.results.label_branding));
-      if (data.results.construction_detail) zip.file('03-construction.jpg', base64ToBlob(data.results.construction_detail));
-      if (data.results.color_finish) zip.file('04-color-finish.jpg', base64ToBlob(data.results.color_finish));
-      if (data.results.scale_reference) zip.file('05-size-reference.jpg', base64ToBlob(data.results.scale_reference));
-      if (data.results.hero_white) zip.file('06-hero-white.jpg', base64ToBlob(data.results.hero_white));
-      if (data.results.inuse_action) zip.file('07-in-use.jpg', base64ToBlob(data.results.inuse_action));
-      if (data.results.flatlay_styled) zip.file('08-flat-lay.jpg', base64ToBlob(data.results.flatlay_styled));
-      if (data.results.environment_context) zip.file('09-environment.jpg', base64ToBlob(data.results.environment_context));
-      if (data.results.multi_angle) zip.file('10-multi-angle.jpg', base64ToBlob(data.results.multi_angle));
-      
+    }
+
+    function downloadCurrentImage() {
+      if (!lightboxImages[currentLightboxIndex]) return;
+      downloadDataUrl(lightboxImages[currentLightboxIndex].src, lightboxImages[currentLightboxIndex].label + '.png');
+    }
+
+    function downloadImage(index) {
+      if (!lightboxImages[index]) return;
+      downloadDataUrl(lightboxImages[index].src, lightboxImages[index].label + '.png');
+    }
+
+    function downloadDataUrl(dataUrl, filename) {
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      a.download = filename;
+      a.click();
+    }
+
+    async function downloadAllAsZip() {
+      const zip = new JSZip();
+      lightboxImages.forEach((img, i) => {
+        if (img && img.src) {
+          const base64 = img.src.split(',')[1];
+          zip.file(img.label.replace(/[^a-z0-9]/gi, '_') + '.png', base64, { base64: true });
+        }
+      });
       const blob = await zip.generateAsync({ type: 'blob' });
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = 'shopshot-images-' + Date.now() + '.zip';
-      link.click();
+      const url = URL.createObjectURL(blob);
+      downloadDataUrl(url, 'shopshot-images.zip');
+      URL.revokeObjectURL(url);
     }
 
-    // Error Handling
-    function showError(message) {
-      document.getElementById('error-message').textContent = message;
-      document.getElementById('error-toast').classList.remove('hidden');
-      setTimeout(hideError, 5000);
+    // Product name
+    async function saveProductName() {
+      if (!currentSessionId) return;
+      const name = document.getElementById('product-name-edit').value.trim();
+      try {
+        await fetch('/api/sessions/' + currentSessionId, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ product_name: name })
+        });
+        loadSessions();
+      } catch (e) {}
     }
 
-    function hideError() {
-      document.getElementById('error-toast').classList.add('hidden');
+    async function deleteCurrentSession() {
+      if (!currentSessionId || !confirm('Delete this session?')) return;
+      try {
+        await fetch('/api/sessions/' + currentSessionId, { method: 'DELETE' });
+        resetToUpload();
+      } catch (e) { showError('Delete failed'); }
     }
+
+    // Advanced mode
+    function openAdvancedMode() {
+      const list = document.getElementById('prompt-list');
+      list.innerHTML = variationDefs.slice(1).map((v, i) => {
+        const idx = i + 1;
+        return '<div class="prompt-item">' +
+          '<div class="prompt-label">' + v.label + '</div>' +
+          '<textarea class="prompt-input" id="prompt-' + idx + '" placeholder="Custom prompt (leave empty for default)">' + (customPrompts[idx] || '') + '</textarea>' +
+        '</div>';
+      }).join('');
+      document.getElementById('advanced-modal').classList.add('open');
+    }
+
+    function closeAdvancedMode() {
+      variationDefs.slice(1).forEach((v, i) => {
+        const idx = i + 1;
+        const textarea = document.getElementById('prompt-' + idx);
+        if (textarea) customPrompts[idx] = textarea.value.trim();
+      });
+      document.getElementById('advanced-modal').classList.remove('open');
+    }
+
+    // Error
+    function showError(msg) {
+      document.getElementById('error-message').textContent = msg;
+      document.getElementById('error-toast').classList.add('show');
+      setTimeout(() => document.getElementById('error-toast').classList.remove('show'), 4000);
+    }
+
+    // Init
+    document.addEventListener('DOMContentLoaded', () => {
+      loadSessions();
+    });
+
+    // Keyboard
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeLightbox();
+        closeAdvancedMode();
+        if (sidebarOpen) toggleSidebar();
+      }
+      if (document.getElementById('lightbox').classList.contains('open')) {
+        if (e.key === 'ArrowLeft') navigateLightbox(-1);
+        if (e.key === 'ArrowRight') navigateLightbox(1);
+      }
+    });
   </script>
 </body>
 </html>`
 }
-
 function getResultsPage(sessionId: string) {
   return `<!DOCTYPE html>
 <html lang="en">
