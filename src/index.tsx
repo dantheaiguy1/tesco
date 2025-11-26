@@ -31,8 +31,8 @@ const VERTEX_REGION = 'global';
 
 // Model configurations
 const MODELS: Record<string, string> = {
-  nano: 'gemini-3-pro-image-preview',              // BETTER - Nano Banana Pro (default)
-  flash: 'gemini-2.5-flash-preview-image-generation'  // CHEAPER - Flash 2.5 (stable)
+  nano: 'gemini-3-pro-image-preview',   // BETTER - Nano Banana Pro (default)
+  flash: 'gemini-2.5-flash-image'       // CHEAPER - Flash 2.5 (stable, aka "Nano Banana")
 };
 
 const MODEL_INFO: Record<string, { name: string; speed: string; quality: string; totalTime: string }> = {
