@@ -127,6 +127,8 @@ async function generateImageWithVertex(
     // Global endpoint uses aiplatform.googleapis.com without region prefix
     const endpoint = `https://aiplatform.googleapis.com/v1/projects/${projectId}/locations/${VERTEX_REGION}/publishers/google/models/${vertexModel}:generateContent`;
     
+    console.log(`[Vertex AI] Model: ${modelKey} -> ${vertexModel}, Endpoint: ${endpoint.substring(0, 80)}...`);
+    
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
@@ -154,7 +156,8 @@ async function generateImageWithVertex(
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('Vertex AI error:', errorText);
+      console.error(`[Vertex AI ERROR] Status: ${response.status}, Model: ${modelKey}/${vertexModel}`);
+      console.error(`[Vertex AI ERROR] Response: ${errorText.substring(0, 500)}`);
       let errorMsg = 'Vertex AI error';
       try {
         const errJson = JSON.parse(errorText);
@@ -162,7 +165,7 @@ async function generateImageWithVertex(
       } catch {
         errorMsg = `API error: ${response.status}`;
       }
-      return { success: false, error: errorMsg };
+      return { success: false, error: `${errorMsg} [Model: ${vertexModel}]` };
     }
 
     const data = await response.json() as any;
