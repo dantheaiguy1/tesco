@@ -11,21 +11,37 @@ type Bindings = {
 }
 
 // ============================================================================
-// VERTEX AI MODEL CONFIGURATION - DO NOT CHANGE
+// VERTEX AI MODEL CONFIGURATION
 // ============================================================================
-// MODEL: Nano Banana Pro (gemini-3-pro-image-preview)
-// 
-// WARNING TO AI ASSISTANTS (Claude, GPT, etc.):
-// DO NOT change VERTEX_MODEL under ANY circumstances.
-// DO NOT suggest gemini-2.0-flash, gemini-2.5-flash, or any other model.
-// This app is SPECIFICALLY built for Nano Banana Pro image generation.
-// The model name "gemini-3-pro-image-preview" is CORRECT and FINAL.
+// DUAL MODEL SUPPORT: Users can choose between quality vs speed
 //
-// ENDPOINT: Must use GLOBAL endpoint (not us-central1, europe-west4, etc.)
-// Gemini 3 Pro Image Preview ONLY works on the global endpoint.
+// BETTER (Default): Nano Banana Pro - gemini-3-pro-image-preview
+//   - Best quality image generation
+//   - ~3-4 seconds per image (~36 seconds for 10)
+//   - Cost: ~$0.03-0.05 per product shoot
+//
+// CHEAPER: Flash 2.0 - gemini-2.0-flash-exp  
+//   - Good quality, significantly faster
+//   - ~1-2 seconds per image (~15 seconds for 10)
+//   - Cost: ~$0.01-0.02 per product shoot
+//
+// ENDPOINT: Must use GLOBAL endpoint for both models
 // ============================================================================
-const VERTEX_REGION = 'global'; // DO NOT CHANGE - global endpoint required
-const VERTEX_MODEL = 'gemini-3-pro-image-preview'; // DO NOT CHANGE - Nano Banana Pro
+const VERTEX_REGION = 'global';
+
+// Model configurations
+const MODELS: Record<string, string> = {
+  nano: 'gemini-3-pro-image-preview',  // BETTER - Nano Banana Pro (default)
+  flash: 'gemini-2.0-flash-exp'        // CHEAPER - Flash 2.0
+};
+
+const MODEL_INFO: Record<string, { name: string; speed: string; quality: string; totalTime: string }> = {
+  nano: { name: 'Nano Pro', speed: '~3-4s per image', quality: 'Best', totalTime: '~36 seconds' },
+  flash: { name: 'Flash 2.0', speed: '~1-2s per image', quality: 'Good', totalTime: '~15 seconds' }
+};
+
+// Default model for backwards compatibility
+const DEFAULT_MODEL = 'nano';
 
 // Generate JWT for Google OAuth2
 async function createJWT(clientEmail: string, privateKey: string): Promise<string> {
@@ -99,15 +115,17 @@ async function generateImageWithVertex(
   privateKey: string,
   imageBase64: string,
   mimeType: string,
-  prompt: string
+  prompt: string,
+  modelKey: string = DEFAULT_MODEL // 'nano' or 'flash'
 ): Promise<{ success: boolean; image?: string; error?: string }> {
   try {
     const accessToken = await getAccessToken(clientEmail, privateKey);
     
+    // Get the actual model name from the key
+    const vertexModel = MODELS[modelKey] || MODELS[DEFAULT_MODEL];
+    
     // Global endpoint uses aiplatform.googleapis.com without region prefix
-    const endpoint = VERTEX_REGION === 'global'
-      ? `https://aiplatform.googleapis.com/v1/projects/${projectId}/locations/${VERTEX_REGION}/publishers/google/models/${VERTEX_MODEL}:generateContent`
-      : `https://${VERTEX_REGION}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${VERTEX_REGION}/publishers/google/models/${VERTEX_MODEL}:generateContent`;
+    const endpoint = `https://aiplatform.googleapis.com/v1/projects/${projectId}/locations/${VERTEX_REGION}/publishers/google/models/${vertexModel}:generateContent`;
     
     const response = await fetch(endpoint, {
       method: 'POST',
@@ -188,6 +206,7 @@ async function ensureDatabase(db: D1Database) {
         macro_image TEXT,
         status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'generating', 'completed', 'failed')),
         error_message TEXT,
+        model TEXT DEFAULT 'nano',
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
@@ -201,6 +220,7 @@ async function ensureDatabase(db: D1Database) {
         variation_type TEXT NOT NULL,
         variation_index INTEGER NOT NULL,
         image_data TEXT NOT NULL,
+        model TEXT DEFAULT 'nano',
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
       )
@@ -209,6 +229,14 @@ async function ensureDatabase(db: D1Database) {
     await db.prepare('CREATE INDEX IF NOT EXISTS idx_sessions_created_at ON sessions(created_at DESC)').run()
     await db.prepare('CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status)').run()
     await db.prepare('CREATE INDEX IF NOT EXISTS idx_generated_images_session ON generated_images(session_id)').run()
+    
+    // Migration: Add model column if it doesn't exist (for existing databases)
+    try {
+      await db.prepare('ALTER TABLE sessions ADD COLUMN model TEXT DEFAULT \'nano\'').run()
+    } catch (e) { /* Column already exists */ }
+    try {
+      await db.prepare('ALTER TABLE generated_images ADD COLUMN model TEXT DEFAULT \'nano\'').run()
+    } catch (e) { /* Column already exists */ }
   } catch (err) {
     console.log('Database already initialized or error:', err)
   }
@@ -224,9 +252,9 @@ app.get('/', (c) => {
   return c.html(getHomePage())
 })
 
-// History page
+// History page - redirect to home (now uses sidebar)
 app.get('/history', (c) => {
-  return c.html(getHistoryPage())
+  return c.redirect('/')
 })
 
 // Results page
@@ -344,6 +372,7 @@ app.post('/api/upload', async (c) => {
     const formData = await c.req.formData()
     const file = formData.get('image') as File
     const thumbnail = formData.get('thumbnail') as string | null
+    const model = (formData.get('model') as string) || DEFAULT_MODEL
     
     if (!file) {
       return c.json({ success: false, error: 'No image file provided' }, 400)
@@ -379,11 +408,11 @@ app.post('/api/upload', async (c) => {
     // Store thumbnail in D1 (small enough to fit in row limit)
     // Thumbnail is ~20-40KB, well under D1's 1MB limit
     await db.prepare(`
-      INSERT INTO sessions (id, product_name, source_type, original_image, status)
-      VALUES (?, ?, 'upload', ?, 'pending')
-    `).bind(sessionId, productName, thumbnail || '').run()
+      INSERT INTO sessions (id, product_name, source_type, original_image, status, model)
+      VALUES (?, ?, 'upload', ?, 'pending', ?)
+    `).bind(sessionId, productName, thumbnail || '', model).run()
 
-    return c.json({ success: true, sessionId, originalImage: dataUrl })
+    return c.json({ success: true, sessionId, originalImage: dataUrl, model })
   } catch (error) {
     console.error('Upload error:', error)
     return c.json({ success: false, error: 'Failed to process upload' }, 500)
@@ -396,7 +425,9 @@ app.post('/api/scrape', async (c) => {
     const db = c.env.TESCO_DB
     await ensureDatabase(db)
     
-    const { url } = await c.req.json()
+    const body = await c.req.json()
+    const { url, model: requestModel } = body
+    const model = requestModel || DEFAULT_MODEL
     
     if (!url) {
       return c.json({ success: false, error: 'No URL provided' }, 400)
@@ -474,11 +505,11 @@ app.post('/api/scrape', async (c) => {
     
     // Store only metadata in D1 (base64 images are too large for D1's 1MB row limit)
     await db.prepare(`
-      INSERT INTO sessions (id, product_name, source_type, source_url, original_image, status)
-      VALUES (?, ?, 'url', ?, '', 'pending')
-    `).bind(sessionId, productName, url).run()
+      INSERT INTO sessions (id, product_name, source_type, source_url, original_image, status, model)
+      VALUES (?, ?, 'url', ?, '', 'pending', ?)
+    `).bind(sessionId, productName, url, model).run()
 
-    return c.json({ success: true, sessionId, originalImage: dataUrl, productName })
+    return c.json({ success: true, sessionId, originalImage: dataUrl, productName, model })
   } catch (error) {
     console.error('Scrape error:', error)
     return c.json({ success: false, error: 'Failed to scrape URL' }, 500)
@@ -546,6 +577,7 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
     const originalImage = body.originalImage
     const productName = body.productName || 'product'
     const customPrompt = body.customPrompt // User-provided custom prompt
+    const modelKey = body.model || DEFAULT_MODEL // 'nano' or 'flash'
     
     if (!originalImage || originalImage.length < 100) {
       return c.json({ success: false, error: 'No image provided', field: variationDefinitions[variationIndex]?.field }, 400)
@@ -566,7 +598,8 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
     // Use custom prompt if provided, otherwise use default
     const prompt = customPrompt || prompts[variation.field]
     const isCustom = !!customPrompt
-    console.log(`[${variation.field}] Generating with Vertex AI...`)
+    const modelInfo = MODEL_INFO[modelKey] || MODEL_INFO[DEFAULT_MODEL]
+    console.log(`[${variation.field}] Generating with ${modelInfo.name} (${modelKey})...`)
     
     const startTime = Date.now()
     
@@ -574,14 +607,15 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
     const mimeType = originalImage.split(';')[0].split(':')[1]
     const imageBase64 = originalImage.split(',')[1]
     
-    // Call Vertex AI
+    // Call Vertex AI with selected model
     const result = await generateImageWithVertex(
       projectId,
       clientEmail,
       privateKey,
       imageBase64,
       mimeType,
-      prompt
+      prompt,
+      modelKey
     )
     
     const elapsed = Date.now() - startTime
@@ -592,14 +626,16 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
       return c.json({ success: false, error: result.error, field: variation.field }, 500)
     }
     
-    console.log(`[${variation.field}] Success!${isCustom ? ' (Custom Prompt)' : ''}`)
+    console.log(`[${variation.field}] Success!${isCustom ? ' (Custom Prompt)' : ''} [${modelInfo.name}]`)
     return c.json({ 
       success: true, 
       field: variation.field, 
       label: variation.label,
       image: result.image,
       elapsed,
-      isCustom
+      isCustom,
+      model: modelKey,
+      modelName: modelInfo.name
     })
     
   } catch (err) {
@@ -937,10 +973,173 @@ function getHomePage() {
       backdrop-filter: blur(8px);
     }
     
-    /* Responsive */
+    /* Model Selector */
+    .model-option {
+      flex: 1;
+      padding: 1rem;
+      border: 2px solid #E5E7EB;
+      border-radius: 1rem;
+      background: white;
+      cursor: pointer;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      text-align: center;
+    }
+    .model-option:hover {
+      border-color: #8B5CF6;
+      transform: scale(1.02);
+    }
+    .model-option.active {
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      border-color: transparent;
+      color: white;
+      box-shadow: 0 8px 24px rgba(59, 130, 246, 0.3);
+    }
+    .model-option.active .model-name { color: white; }
+    .model-option.active .model-details { color: rgba(255,255,255,0.9); }
+    .model-option.active .model-meta { color: rgba(255,255,255,0.8); }
+    .model-name { font-weight: 700; font-size: 0.875rem; color: #1F2937; }
+    .model-details { font-size: 0.75rem; color: #6B7280; margin-top: 0.25rem; }
+    .model-meta { font-size: 0.65rem; color: #9CA3AF; margin-top: 0.5rem; }
+    
+    /* Sidebar */
+    .sidebar {
+      position: fixed;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 280px;
+      background: #F9FAFB;
+      border-right: 1px solid #E5E7EB;
+      z-index: 30;
+      overflow-y: auto;
+      transition: transform 0.3s ease;
+    }
+    .sidebar-header {
+      padding: 1rem;
+      border-bottom: 1px solid #E5E7EB;
+      background: white;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .session-list {
+      padding: 0.5rem;
+    }
+    .session-item {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.75rem;
+      border-radius: 0.75rem;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-bottom: 0.25rem;
+      position: relative;
+    }
+    .session-item:hover {
+      background: #F3F4F6;
+    }
+    .session-item.active {
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      color: white;
+    }
+    .session-item.active .session-name { color: white; }
+    .session-item.active .session-meta { color: rgba(255,255,255,0.8); }
+    .session-thumb {
+      width: 48px;
+      height: 48px;
+      border-radius: 0.5rem;
+      object-fit: cover;
+      background: #E5E7EB;
+      flex-shrink: 0;
+    }
+    .session-info { flex: 1; min-width: 0; }
+    .session-name {
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: #1F2937;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .session-name-input {
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: #1F2937;
+      background: transparent;
+      border: none;
+      outline: none;
+      width: 100%;
+      padding: 0;
+    }
+    .session-name-input:focus {
+      background: white;
+      border-radius: 0.25rem;
+      padding: 0.25rem;
+    }
+    .session-meta {
+      font-size: 0.7rem;
+      color: #9CA3AF;
+      display: flex;
+      gap: 0.5rem;
+      margin-top: 0.25rem;
+    }
+    .session-delete {
+      opacity: 0;
+      position: absolute;
+      right: 0.5rem;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 1.5rem;
+      height: 1.5rem;
+      border-radius: 0.25rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #9CA3AF;
+      transition: all 0.2s;
+    }
+    .session-item:hover .session-delete { opacity: 1; }
+    .session-delete:hover { color: #EF4444; background: rgba(239,68,68,0.1); }
+    
+    /* Main content with sidebar */
+    .with-sidebar {
+      margin-left: 280px;
+    }
+    
+    /* Mobile sidebar */
     @media (max-width: 768px) {
+      .sidebar {
+        transform: translateX(-100%);
+        width: 100%;
+        max-width: 320px;
+      }
+      .sidebar.open {
+        transform: translateX(0);
+      }
+      .sidebar-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.5);
+        z-index: 25;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.3s;
+      }
+      .sidebar-overlay.open {
+        opacity: 1;
+        pointer-events: auto;
+      }
+      .with-sidebar {
+        margin-left: 0;
+      }
       .hero-title { font-size: 1.875rem !important; }
       .hero-icon { width: 64px !important; height: 64px !important; }
+    }
+    
+    /* Desktop sidebar always visible */
+    @media (min-width: 769px) {
+      .hamburger-btn { display: none !important; }
     }
     
     /* When results are showing, allow scrolling */
@@ -957,36 +1156,61 @@ function getHomePage() {
   </style>
 </head>
 <body class="hero-bg h-screen overflow-hidden">
+  <!-- Sidebar Overlay (mobile) -->
+  <div id="sidebar-overlay" class="sidebar-overlay" onclick="toggleSidebar()"></div>
+  
+  <!-- Left Sidebar -->
+  <aside id="sidebar" class="sidebar">
+    <div class="sidebar-header">
+      <div class="flex items-center justify-between">
+        <h2 class="text-sm font-semibold text-slate-700">Your Sessions</h2>
+        <button onclick="resetToUpload()" class="text-xs gradient-bg text-white px-3 py-1.5 rounded-lg font-medium hover:opacity-90 transition">
+          <i class="fas fa-plus mr-1"></i> New
+        </button>
+      </div>
+    </div>
+    <div id="session-list" class="session-list">
+      <!-- Sessions populated by JS -->
+      <div class="text-center py-8 text-slate-400 text-sm">
+        <i class="fas fa-images text-2xl mb-2 block"></i>
+        No sessions yet
+      </div>
+    </div>
+  </aside>
+
   <!-- Header -->
   <header class="glass fixed top-0 left-0 right-0 z-40 border-b border-white/20">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 with-sidebar">
       <div class="h-14 flex items-center justify-between">
-        <a href="/" class="flex items-center gap-2.5 group">
-          <div class="w-9 h-9 gradient-bg rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-xl transition-shadow">
-            <svg class="w-5 h-5 text-white" viewBox="0 0 24 24" fill="currentColor">
-              <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/>
-              <circle cx="12" cy="12" r="4" fill="currentColor"/>
-              <rect x="18" y="6" width="4" height="3" rx="1" fill="currentColor"/>
-            </svg>
-          </div>
-          <span class="text-lg font-bold text-brand-dark">ShopShot</span>
-        </a>
+        <div class="flex items-center gap-3">
+          <!-- Hamburger (mobile only) -->
+          <button onclick="toggleSidebar()" class="hamburger-btn w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center hover:bg-slate-200 transition md:hidden">
+            <i class="fas fa-bars text-slate-600"></i>
+          </button>
+          
+          <a href="/" class="flex items-center gap-2.5 group">
+            <div class="w-9 h-9 gradient-bg rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-xl transition-shadow">
+              <svg class="w-5 h-5 text-white" viewBox="0 0 24 24" fill="currentColor">
+                <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/>
+                <circle cx="12" cy="12" r="4" fill="currentColor"/>
+                <rect x="18" y="6" width="4" height="3" rx="1" fill="currentColor"/>
+              </svg>
+            </div>
+            <span class="text-lg font-bold text-brand-dark">ShopShot</span>
+          </a>
+        </div>
         
         <nav class="flex items-center gap-1">
-          <a href="/" class="px-3 py-1.5 rounded-lg text-sm font-medium text-brand-dark hover:bg-brand-purple/10 transition flex items-center gap-2">
-            <i class="fas fa-sparkles text-brand-purple"></i>
+          <button onclick="resetToUpload()" class="px-3 py-1.5 rounded-lg text-sm font-medium text-brand-dark hover:bg-brand-purple/10 transition flex items-center gap-2">
+            <i class="fas fa-plus text-brand-purple"></i>
             <span class="hidden sm:inline">New</span>
-          </a>
-          <a href="/history" class="px-3 py-1.5 rounded-lg text-sm font-medium text-brand-gray hover:bg-brand-purple/10 transition flex items-center gap-2">
-            <i class="fas fa-clock-rotate-left"></i>
-            <span class="hidden sm:inline">History</span>
-          </a>
+          </button>
         </nav>
       </div>
     </div>
   </header>
 
-  <main id="main-content" class="h-screen flex flex-col items-center justify-center px-4 sm:px-6 pt-14">
+  <main id="main-content" class="h-screen flex flex-col items-center justify-center px-4 sm:px-6 pt-14 with-sidebar">
     <!-- Hero Section -->
     <div id="hero-section" class="text-center mb-6 animate-fadeInUp">
       <!-- 3D Floating Icon -->
@@ -1036,6 +1260,23 @@ function getHomePage() {
           </div>
         </div>
 
+        <!-- Model Selector -->
+        <div class="mt-5">
+          <p class="text-xs font-medium text-slate-500 mb-2">Quality Mode:</p>
+          <div class="flex gap-3">
+            <button onclick="selectModel('flash')" id="model-flash" class="model-option">
+              <div class="model-name">CHEAPER</div>
+              <div class="model-details">Flash 2.0</div>
+              <div class="model-meta">~15 seconds | Good quality</div>
+            </button>
+            <button onclick="selectModel('nano')" id="model-nano" class="model-option active">
+              <div class="model-name">BETTER</div>
+              <div class="model-details">Nano Pro</div>
+              <div class="model-meta">~36 seconds | Best quality</div>
+            </button>
+          </div>
+        </div>
+
         <!-- Advanced Mode Toggle -->
         <div class="mt-4 flex items-center justify-between">
           <button id="advanced-toggle" onclick="toggleAdvancedMode()" class="flex items-center gap-2 text-sm text-brand-gray hover:text-brand-purple transition">
@@ -1052,9 +1293,9 @@ function getHomePage() {
             <i class="fas fa-sparkles mr-2"></i>
             Generate 10 Professional Shots
           </button>
-          <p class="text-xs text-brand-muted mt-3 flex items-center justify-center gap-1.5">
+          <p id="generate-time-hint" class="text-xs text-brand-muted mt-3 flex items-center justify-center gap-1.5">
             <i class="fas fa-bolt text-amber-500"></i>
-            Takes about 60-90 seconds
+            Takes about <span id="time-estimate">36 seconds</span> with <span id="model-name-hint">Nano Pro</span>
           </p>
         </div>
       </div>
@@ -1139,6 +1380,15 @@ function getHomePage() {
     let currentOriginalImage = null;
     let currentLightboxIndex = 0;
     let lightboxImages = [];
+    let selectedModel = 'nano'; // 'nano' (Better) or 'flash' (Cheaper)
+    let sidebarOpen = false;
+    let sessions = []; // All sessions for sidebar
+    
+    // Model configurations (must match backend)
+    const MODEL_INFO = {
+      nano: { name: 'Nano Pro', speed: '~3-4s per image', quality: 'Best', totalTime: '~36 seconds', label: 'BETTER' },
+      flash: { name: 'Flash 2.0', speed: '~1-2s per image', quality: 'Good', totalTime: '~15 seconds', label: 'CHEAPER' }
+    };
     
     // Variation Definitions with default prompts
     const variationDefs = [
@@ -1158,6 +1408,128 @@ function getHomePage() {
     // Custom prompts storage (index 1-10 maps to variations)
     let customPrompts = {};
     let advancedModeEnabled = false;
+
+    // Model Selection Functions
+    function selectModel(model) {
+      selectedModel = model;
+      
+      // Update UI
+      document.getElementById('model-flash').classList.toggle('active', model === 'flash');
+      document.getElementById('model-nano').classList.toggle('active', model === 'nano');
+      
+      // Update time estimate
+      const info = MODEL_INFO[model];
+      document.getElementById('time-estimate').textContent = info.totalTime;
+      document.getElementById('model-name-hint').textContent = info.name;
+      
+      console.log('Selected model:', model, info.name);
+    }
+    
+    // Sidebar Functions
+    function toggleSidebar() {
+      sidebarOpen = !sidebarOpen;
+      document.getElementById('sidebar').classList.toggle('open', sidebarOpen);
+      document.getElementById('sidebar-overlay').classList.toggle('open', sidebarOpen);
+    }
+    
+    async function loadSessions() {
+      try {
+        const response = await fetch('/api/sessions');
+        const data = await response.json();
+        if (data.success) {
+          sessions = data.sessions || [];
+          renderSessionList();
+        }
+      } catch (err) {
+        console.error('Failed to load sessions:', err);
+      }
+    }
+    
+    function renderSessionList() {
+      const list = document.getElementById('session-list');
+      if (!list) return;
+      
+      if (sessions.length === 0) {
+        list.innerHTML = '<div class="text-center py-8 text-slate-400 text-sm"><i class="fas fa-images text-2xl mb-2 block"></i>No sessions yet</div>';
+        return;
+      }
+      
+      list.innerHTML = sessions.map(session => {
+        const isActive = session.id === currentSessionId;
+        const date = new Date(session.created_at);
+        const timeAgo = getTimeAgo(date);
+        const modelName = MODEL_INFO[session.model || 'nano']?.name || 'Nano Pro';
+        const thumb = session.original_image || '';
+        
+        return '<div class="session-item' + (isActive ? ' active' : '') + '" data-session-id="' + session.id + '" onclick="loadSession(\\'' + session.id + '\\')">' +
+          (thumb ? '<img src="' + thumb + '" class="session-thumb" alt="">' : '<div class="session-thumb flex items-center justify-center"><i class="fas fa-image text-slate-400"></i></div>') +
+          '<div class="session-info">' +
+            '<input type="text" class="session-name-input" value="' + (session.product_name || 'Untitled').replace(/"/g, '&quot;') + '" onclick="event.stopPropagation()" onblur="saveSessionNameSidebar(\\'' + session.id + '\\', this)" onkeypress="if(event.key===\\'Enter\\')this.blur()">' +
+            '<div class="session-meta"><span>' + timeAgo + '</span><span>' + modelName + '</span></div>' +
+          '</div>' +
+          '<button class="session-delete" onclick="event.stopPropagation();deleteSession(\\'' + session.id + '\\')" title="Delete"><i class="fas fa-trash-alt text-xs"></i></button>' +
+        '</div>';
+      }).join('');
+    }
+    
+    function getTimeAgo(date) {
+      const seconds = Math.floor((new Date() - date) / 1000);
+      if (seconds < 60) return 'Just now';
+      if (seconds < 3600) return Math.floor(seconds / 60) + 'm ago';
+      if (seconds < 86400) return Math.floor(seconds / 3600) + 'h ago';
+      if (seconds < 604800) return Math.floor(seconds / 86400) + 'd ago';
+      return date.toLocaleDateString();
+    }
+    
+    async function saveSessionNameSidebar(sessionId, input) {
+      const newName = input.value.trim() || 'Untitled';
+      try {
+        await fetch('/api/sessions/' + sessionId, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ product_name: newName })
+        });
+        // Update local sessions array
+        const session = sessions.find(s => s.id === sessionId);
+        if (session) session.product_name = newName;
+      } catch (err) {
+        console.error('Failed to save session name:', err);
+      }
+    }
+    
+    async function deleteSession(sessionId) {
+      if (!confirm('Delete this session? All generated images will be lost.')) return;
+      
+      try {
+        await fetch('/api/sessions/' + sessionId, { method: 'DELETE' });
+        sessions = sessions.filter(s => s.id !== sessionId);
+        renderSessionList();
+        
+        // If deleted current session, reset to upload
+        if (sessionId === currentSessionId) {
+          resetToUpload();
+        }
+      } catch (err) {
+        console.error('Failed to delete session:', err);
+        showError('Failed to delete session');
+      }
+    }
+    
+    async function loadSession(sessionId) {
+      // Navigate to results page
+      window.location.href = '/results/' + sessionId;
+    }
+    
+    function resetToUpload() {
+      window.location.href = '/';
+    }
+    
+    // Initialize sidebar on page load
+    document.addEventListener('DOMContentLoaded', () => {
+      loadSessions();
+      // Set default model UI
+      selectModel(selectedModel);
+    });
 
     // Session Name Editing
     let currentSessionName = '';
@@ -1545,6 +1917,7 @@ function getHomePage() {
       const formData = new FormData();
       formData.append('image', file);
       formData.append('thumbnail', thumbnail);
+      formData.append('model', selectedModel);
 
       try {
         const response = await fetch('/api/upload', { method: 'POST', body: formData });
@@ -1554,6 +1927,8 @@ function getHomePage() {
           currentSessionId = data.sessionId;
           currentOriginalImage = data.originalImage;
           document.getElementById('generate-btn').disabled = false;
+          // Reload sessions to show new one in sidebar
+          loadSessions();
         } else {
           showError(data.error || 'Upload failed');
         }
@@ -1657,7 +2032,8 @@ function getHomePage() {
           body: JSON.stringify({ 
             originalImage: currentOriginalImage,
             productName: 'Product',
-            customPrompt: customPrompt
+            customPrompt: customPrompt,
+            model: selectedModel
           })
         });
         
@@ -2063,10 +2439,7 @@ function getResultsPage(sessionId: string) {
       </a>
       <nav class="flex items-center gap-4">
         <a href="/" class="px-4 py-2 rounded-lg text-sm font-medium text-brand-dark hover:bg-brand-purple/10 transition">
-          <i class="fas fa-sparkles mr-2 text-brand-purple"></i>New
-        </a>
-        <a href="/history" class="px-4 py-2 rounded-lg text-sm font-medium text-brand-gray hover:bg-brand-purple/10 transition">
-          <i class="fas fa-clock-rotate-left mr-2"></i>History
+          <i class="fas fa-plus mr-2 text-brand-purple"></i>New
         </a>
       </nav>
     </div>
