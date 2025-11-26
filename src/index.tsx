@@ -30,14 +30,17 @@ type Bindings = {
 const VERTEX_REGION = 'global';
 
 // Model configurations
+// BETTER: Nano Banana Pro (gemini-3-pro-image-preview) - Best quality, but preview model
+//         may have rate limits during high demand. Users can switch to CHEAPER if needed.
+// CHEAPER: Nano Banana (gemini-2.5-flash-image) - Stable, reliable, fast
 const MODELS: Record<string, string> = {
-  nano: 'gemini-3-pro-image-preview',   // BETTER - Nano Banana Pro (default)
-  flash: 'gemini-2.5-flash-image'       // CHEAPER - Flash 2.5 (stable, aka "Nano Banana")
+  nano: 'gemini-3-pro-image-preview',   // BETTER - Nano Banana Pro (best quality)
+  flash: 'gemini-2.5-flash-image'       // CHEAPER - Nano Banana (fast & reliable)
 };
 
 const MODEL_INFO: Record<string, { name: string; speed: string; quality: string; totalTime: string }> = {
-  nano: { name: 'Nano Pro', speed: '~3-4s per image', quality: 'Best', totalTime: '~36 seconds' },
-  flash: { name: 'Flash 2.5', speed: '~1-2s per image', quality: 'Good', totalTime: '~15 seconds' }
+  nano: { name: 'Nano Banana Pro', speed: '~3-4s per image', quality: 'Best', totalTime: '~36 seconds' },
+  flash: { name: 'Nano Banana', speed: '~2-3s per image', quality: 'Great', totalTime: '~25 seconds' }
 };
 
 // Default model for backwards compatibility
@@ -118,75 +121,100 @@ async function generateImageWithVertex(
   prompt: string,
   modelKey: string = DEFAULT_MODEL // 'nano' or 'flash'
 ): Promise<{ success: boolean; image?: string; error?: string }> {
-  try {
-    const accessToken = await getAccessToken(clientEmail, privateKey);
-    
-    // Get the actual model name from the key
-    const vertexModel = MODELS[modelKey] || MODELS[DEFAULT_MODEL];
-    
-    // Global endpoint uses aiplatform.googleapis.com without region prefix
-    const endpoint = `https://aiplatform.googleapis.com/v1/projects/${projectId}/locations/${VERTEX_REGION}/publishers/google/models/${vertexModel}:generateContent`;
-    
-    console.log(`[Vertex AI] Model: ${modelKey} -> ${vertexModel}, Endpoint: ${endpoint.substring(0, 80)}...`);
-    
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        contents: [{
-          role: 'user',
-          parts: [
-            {
-              inlineData: {
-                mimeType: mimeType,
-                data: imageBase64
-              }
-            },
-            { text: prompt }
-          ]
-        }],
-        generationConfig: {
-          responseModalities: ['IMAGE', 'TEXT']
-        }
-      })
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`[Vertex AI ERROR] Status: ${response.status}, Model: ${modelKey}/${vertexModel}`);
-      console.error(`[Vertex AI ERROR] Response: ${errorText.substring(0, 500)}`);
-      let errorMsg = 'Vertex AI error';
-      try {
-        const errJson = JSON.parse(errorText);
-        errorMsg = errJson.error?.message || errJson.error?.status || `API error: ${response.status}`;
-      } catch {
-        errorMsg = `API error: ${response.status}`;
-      }
-      return { success: false, error: `${errorMsg} [Model: ${vertexModel}]` };
+  const accessToken = await getAccessToken(clientEmail, privateKey);
+  
+  // Get the actual model name from the key
+  const vertexModel = MODELS[modelKey] || MODELS[DEFAULT_MODEL];
+  
+  // Vertex AI endpoint - plain aiplatform.googleapis.com works for global location
+  const endpoint = `https://aiplatform.googleapis.com/v1/projects/${projectId}/locations/${VERTEX_REGION}/publishers/google/models/${vertexModel}:generateContent`;
+  
+  const requestBody = JSON.stringify({
+    contents: [{
+      role: 'user',
+      parts: [
+        {
+          inlineData: {
+            mimeType: mimeType,
+            data: imageBase64
+          }
+        },
+        { text: prompt }
+      ]
+    }],
+    generationConfig: {
+      responseModalities: ['IMAGE', 'TEXT']
     }
+  });
+  
+  // Retry with exponential backoff for rate limiting (429 errors)
+  const maxRetries = 5;
+  let lastError = '';
+  
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      if (attempt > 0) {
+        // Exponential backoff: 2s, 4s, 8s, 16s
+        const delay = Math.pow(2, attempt) * 1000;
+        console.log(`[Vertex AI] Retry ${attempt}/${maxRetries} after ${delay}ms delay...`);
+        await new Promise(r => setTimeout(r, delay));
+      }
+      
+      console.log(`[Vertex AI] Model: ${modelKey} -> ${vertexModel}, Attempt: ${attempt + 1}/${maxRetries}`);
+      
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: requestBody
+      });
 
-    const data = await response.json() as any;
-    
-    // Extract image from response
-    if (data.candidates?.[0]?.content?.parts) {
-      for (const part of data.candidates[0].content.parts) {
-        if (part.inlineData?.data) {
-          const resultMimeType = part.inlineData.mimeType || 'image/png';
-          const imageData = `data:${resultMimeType};base64,${part.inlineData.data}`;
-          return { success: true, image: imageData };
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[Vertex AI ERROR] Status: ${response.status}, Model: ${modelKey}/${vertexModel}`);
+        
+        // Check if it's a rate limit error (429)
+        if (response.status === 429) {
+          lastError = 'Rate limited - retrying...';
+          continue; // Retry
+        }
+        
+        // For other errors, don't retry
+        let errorMsg = 'Vertex AI error';
+        try {
+          const errJson = JSON.parse(errorText);
+          errorMsg = errJson.error?.message || errJson.error?.status || `API error: ${response.status}`;
+        } catch {
+          errorMsg = `API error: ${response.status}`;
+        }
+        return { success: false, error: `${errorMsg} [Model: ${vertexModel}]` };
+      }
+
+      const data = await response.json() as any;
+      
+      // Extract image from response
+      if (data.candidates?.[0]?.content?.parts) {
+        for (const part of data.candidates[0].content.parts) {
+          if (part.inlineData?.data) {
+            const resultMimeType = part.inlineData.mimeType || 'image/png';
+            const imageData = `data:${resultMimeType};base64,${part.inlineData.data}`;
+            return { success: true, image: imageData };
+          }
         }
       }
-    }
 
-    return { success: false, error: 'No image in response' };
-  } catch (err) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
-    console.error('Vertex AI generation error:', errorMsg);
-    return { success: false, error: errorMsg };
+      return { success: false, error: 'No image in response' };
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err);
+      console.error(`[Vertex AI] Attempt ${attempt + 1} failed:`, lastError);
+      // Continue to retry
+    }
   }
+  
+  // All retries exhausted
+  return { success: false, error: `Rate limit exceeded after ${maxRetries} retries. Try again in a few minutes. [Model: ${vertexModel}]` };
 }
 
 const app = new Hono<{ Bindings: Bindings }>()
@@ -249,6 +277,82 @@ async function ensureDatabase(db: D1Database) {
 function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`
 }
+
+// Test endpoint to check Vertex AI connectivity
+app.get('/api/test-vertex', async (c) => {
+  const projectId = c.env.VERTEX_PROJECT_ID;
+  const clientEmail = c.env.VERTEX_CLIENT_EMAIL;
+  const privateKey = c.env.VERTEX_PRIVATE_KEY;
+  
+  if (!projectId || !clientEmail || !privateKey) {
+    return c.json({ error: 'Missing Vertex AI credentials' });
+  }
+  
+  try {
+    const accessToken = await getAccessToken(clientEmail, privateKey);
+    const model = 'gemini-3-pro-image-preview';
+    const endpoint = `https://aiplatform.googleapis.com/v1/projects/${projectId}/locations/${VERTEX_REGION}/publishers/google/models/${model}:generateContent`;
+    
+    // Simple text-only test (no image)
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        contents: [{
+          role: 'user',
+          parts: [{ text: 'Generate a simple test image of a red apple on white background' }]
+        }],
+        generationConfig: {
+          responseModalities: ['IMAGE', 'TEXT']
+        }
+      })
+    });
+    
+    const responseText = await response.text();
+    return c.json({
+      status: response.status,
+      ok: response.ok,
+      endpoint: endpoint,
+      model: model,
+      response: responseText.substring(0, 2000)
+    });
+  } catch (err) {
+    return c.json({ error: String(err) });
+  }
+});
+
+// Test with actual image input (like real generation)
+app.get('/api/test-vertex-image', async (c) => {
+  const projectId = c.env.VERTEX_PROJECT_ID;
+  const clientEmail = c.env.VERTEX_CLIENT_EMAIL;
+  const privateKey = c.env.VERTEX_PRIVATE_KEY;
+  
+  try {
+    // Test with the actual generateImageWithVertex function
+    const result = await generateImageWithVertex(
+      projectId,
+      clientEmail,
+      privateKey,
+      // Tiny 1x1 red PNG in base64
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==',
+      'image/png',
+      'Create a professional product photo of this item on a white background',
+      'nano'  // Test nano model specifically
+    );
+    
+    return c.json({
+      success: result.success,
+      error: result.error,
+      hasImage: !!result.image,
+      imagePreview: result.image ? result.image.substring(0, 100) + '...' : null
+    });
+  } catch (err) {
+    return c.json({ error: String(err) });
+  }
+});
 
 // Homepage
 app.get('/', (c) => {
@@ -1034,6 +1138,18 @@ function getHomePage() {
     .quality-btn.active .q-detail { opacity: 0.9; }
     .q-label { font-size: 14px; font-weight: 600; color: #1F2937; }
     .q-detail { font-size: 12px; color: #6B7280; margin-top: 2px; }
+    .nano-warning {
+      margin-top: 12px;
+      padding: 10px 14px;
+      background: #FEF3C7;
+      border: 1px solid #F59E0B;
+      border-radius: 8px;
+      font-size: 12px;
+      color: #92400E;
+      text-align: center;
+      display: none;
+    }
+    .nano-warning.show { display: block; }
     
     /* Advanced mode link */
     .advanced-link {
@@ -1460,12 +1576,15 @@ function getHomePage() {
         <div class="quality-options">
           <button class="quality-btn" data-model="flash" onclick="selectModel('flash')">
             <div class="q-label">Cheaper</div>
-            <div class="q-detail">Flash 2.5 · ~15s</div>
+            <div class="q-detail">Nano Banana · ~25s</div>
           </button>
           <button class="quality-btn active" data-model="nano" onclick="selectModel('nano')">
             <div class="q-label">Better</div>
-            <div class="q-detail">Nano Pro · ~36s</div>
+            <div class="q-detail">Nano Banana Pro · ~36s</div>
           </button>
+        </div>
+        <div id="nano-warning" class="nano-warning">
+          ⚠️ Nano Banana Pro is in high demand. If you see errors, try <strong>Cheaper</strong> and come back later.
         </div>
       </div>
 
@@ -1649,6 +1768,11 @@ function getHomePage() {
       document.querySelectorAll('.quality-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.model === model);
       });
+      // Show warning for Nano Banana Pro (preview model with rate limits)
+      const warning = document.getElementById('nano-warning');
+      if (warning) {
+        warning.classList.toggle('show', model === 'nano');
+      }
     }
 
     // File handling
@@ -1765,15 +1889,29 @@ function getHomePage() {
         '</div>';
       }).join('');
 
-      // Generate each variation
+      // Generate variations
       const startTime = Date.now();
-      const promises = [];
       
-      for (let i = 1; i < variationDefs.length; i++) {
-        promises.push(generateSingle(i, startTime));
+      // Nano Pro: run 3 at a time to balance speed vs rate limits
+      // Flash: run all 10 in parallel (higher rate limits)
+      if (selectedModel === 'nano') {
+        // Batch of 3 for Nano Pro
+        const batchSize = 3;
+        for (let b = 1; b < variationDefs.length; b += batchSize) {
+          const batch = [];
+          for (let i = b; i < Math.min(b + batchSize, variationDefs.length); i++) {
+            batch.push(generateSingle(i, startTime));
+          }
+          await Promise.allSettled(batch);
+        }
+      } else {
+        // Parallel execution for Flash (faster model, higher rate limits)
+        const promises = [];
+        for (let i = 1; i < variationDefs.length; i++) {
+          promises.push(generateSingle(i, startTime));
+        }
+        await Promise.allSettled(promises);
       }
-      
-      await Promise.allSettled(promises);
       
       // Update session
       try {
@@ -1798,6 +1936,7 @@ function getHomePage() {
       }, 500);
 
       try {
+        console.log('[Generate] Sending request for variation', index, 'with model:', selectedModel);
         const res = await fetch('/api/generate-single/' + currentSessionId + '/' + (index - 1), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1811,6 +1950,7 @@ function getHomePage() {
 
         clearInterval(interval);
         const data = await res.json();
+        console.log('[Generate] Response for variation', index, ':', data.success ? 'SUCCESS' : 'FAILED', data.error || '');
         const card = document.getElementById('card-' + index);
         
         if (data.success && data.image) {
