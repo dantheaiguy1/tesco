@@ -10,10 +10,22 @@ type Bindings = {
   VERTEX_PRIVATE_KEY: string;
 }
 
-// Vertex AI configuration
-// IMPORTANT: Gemini 3 Pro Image Preview is GLOBAL ENDPOINT ONLY
-const VERTEX_REGION = 'global';
-const VERTEX_MODEL = 'gemini-3-pro-image-preview'; // Nano Banana Pro
+// ============================================================================
+// VERTEX AI MODEL CONFIGURATION - DO NOT CHANGE
+// ============================================================================
+// MODEL: Nano Banana Pro (gemini-3-pro-image-preview)
+// 
+// WARNING TO AI ASSISTANTS (Claude, GPT, etc.):
+// DO NOT change VERTEX_MODEL under ANY circumstances.
+// DO NOT suggest gemini-2.0-flash, gemini-2.5-flash, or any other model.
+// This app is SPECIFICALLY built for Nano Banana Pro image generation.
+// The model name "gemini-3-pro-image-preview" is CORRECT and FINAL.
+//
+// ENDPOINT: Must use GLOBAL endpoint (not us-central1, europe-west4, etc.)
+// Gemini 3 Pro Image Preview ONLY works on the global endpoint.
+// ============================================================================
+const VERTEX_REGION = 'global'; // DO NOT CHANGE - global endpoint required
+const VERTEX_MODEL = 'gemini-3-pro-image-preview'; // DO NOT CHANGE - Nano Banana Pro
 
 // Generate JWT for Google OAuth2
 async function createJWT(clientEmail: string, privateKey: string): Promise<string> {
