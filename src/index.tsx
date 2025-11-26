@@ -31,8 +31,8 @@ const VERTEX_REGION = 'global';
 
 // Model configurations
 const MODELS: Record<string, string> = {
-  nano: 'gemini-3-pro-image-preview',  // BETTER - Nano Banana Pro (default)
-  flash: 'gemini-2.0-flash-exp'        // CHEAPER - Flash 2.0
+  nano: 'gemini-3-pro-image-preview',           // BETTER - Nano Banana Pro (default)
+  flash: 'gemini-2.0-flash-preview-image-generation'  // CHEAPER - Flash 2.0
 };
 
 const MODEL_INFO: Record<string, { name: string; speed: string; quality: string; totalTime: string }> = {
@@ -1153,6 +1153,106 @@ function getHomePage() {
       padding-top: 5rem;
       justify-content: flex-start;
     }
+    
+    /* Full-width layout for upload page */
+    .upload-layout {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2rem;
+      width: 100%;
+      max-width: 1400px;
+      height: calc(100vh - 5rem);
+      align-items: center;
+    }
+    
+    .upload-left {
+      padding: 2rem;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    
+    .upload-right {
+      padding: 2rem;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      background: linear-gradient(135deg, rgba(59,130,246,0.03) 0%, rgba(139,92,246,0.05) 100%);
+      border-left: 1px solid rgba(139,92,246,0.1);
+      height: 100%;
+    }
+    
+    /* Feature cards */
+    .feature-card {
+      background: white;
+      border-radius: 1rem;
+      padding: 1.25rem;
+      border: 1px solid #E5E7EB;
+      transition: all 0.3s ease;
+      margin-bottom: 0.75rem;
+    }
+    .feature-card:hover {
+      border-color: #8B5CF6;
+      box-shadow: 0 4px 12px rgba(139,92,246,0.1);
+      transform: translateX(4px);
+    }
+    .feature-icon {
+      width: 2.5rem;
+      height: 2.5rem;
+      border-radius: 0.75rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    
+    /* Stats bar */
+    .stats-bar {
+      display: flex;
+      gap: 1.5rem;
+      padding: 1rem;
+      background: white;
+      border-radius: 1rem;
+      border: 1px solid #E5E7EB;
+      margin-bottom: 1.5rem;
+    }
+    .stat-item {
+      text-align: center;
+      flex: 1;
+    }
+    .stat-value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .stat-label {
+      font-size: 0.75rem;
+      color: #6B7280;
+      margin-top: 0.25rem;
+    }
+    
+    /* Mobile responsive */
+    @media (max-width: 1024px) {
+      .upload-layout {
+        grid-template-columns: 1fr;
+        height: auto;
+        gap: 1rem;
+      }
+      .upload-left {
+        padding: 1rem;
+        order: 1;
+      }
+      .upload-right {
+        padding: 1.5rem;
+        order: 2;
+        border-left: none;
+        border-top: 1px solid rgba(139,92,246,0.1);
+        height: auto;
+      }
+    }
   </style>
 </head>
 <body class="hero-bg h-screen overflow-hidden">
@@ -1210,29 +1310,33 @@ function getHomePage() {
     </div>
   </header>
 
-  <main id="main-content" class="h-screen flex flex-col items-center justify-center px-4 sm:px-6 pt-14 with-sidebar">
-    <!-- Hero Section -->
-    <div id="hero-section" class="text-center mb-6 animate-fadeInUp">
-      <!-- 3D Floating Icon -->
-      <div class="mb-4 relative inline-block">
-        <div class="animate-float">
-          <div class="hero-icon w-16 h-16 sm:w-20 sm:h-20 gradient-bg-vibrant rounded-2xl flex items-center justify-center shadow-2xl transform -rotate-6">
-            <i class="fas fa-camera text-white text-2xl sm:text-3xl"></i>
+  <main id="main-content" class="h-screen flex items-center justify-center px-4 sm:px-6 lg:px-8 pt-14 with-sidebar">
+    <!-- Full-Width Upload Layout -->
+    <div id="upload-section" class="upload-layout animate-fadeInUp">
+      <!-- Left Side: Upload Area -->
+      <div class="upload-left">
+        <!-- Hero Section -->
+        <div id="hero-section" class="mb-6">
+          <div class="flex items-center gap-4 mb-4">
+            <div class="animate-float">
+              <div class="hero-icon w-14 h-14 gradient-bg-vibrant rounded-xl flex items-center justify-center shadow-lg transform -rotate-6">
+                <i class="fas fa-camera text-white text-xl"></i>
+              </div>
+            </div>
+            <div>
+              <h1 class="hero-title text-2xl sm:text-3xl font-extrabold tracking-tight">
+                <span class="gradient-text">ShopShot</span>
+              </h1>
+              <p class="text-sm text-brand-gray">
+                Transform one photo into <span class="font-semibold text-brand-dark">10 professional shots</span>
+              </p>
+            </div>
           </div>
         </div>
-      </div>
-      
-      <h1 class="hero-title text-3xl sm:text-4xl lg:text-5xl font-extrabold mb-2 tracking-tight">
-        <span class="gradient-text">ShopShot</span>
-      </h1>
-      <p class="text-base sm:text-lg text-brand-gray max-w-md mx-auto leading-relaxed">
-        Transform one photo into <span class="font-semibold text-brand-dark">10 professional shots</span>
-      </p>
-    </div>
 
-    <!-- Upload Card -->
-    <div id="upload-section" class="card-3d rounded-2xl sm:rounded-3xl overflow-hidden animate-fadeInUp w-full max-w-xl" style="animation-delay: 0.1s">
-      <div class="p-5 sm:p-8">
+        <!-- Upload Card -->
+        <div class="card-3d rounded-2xl overflow-hidden">
+          <div class="p-5">
         <!-- Upload Zone -->
         <div id="upload-zone" class="upload-zone rounded-xl sm:rounded-2xl p-6 sm:p-8 text-center cursor-pointer"
              ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)"
@@ -1287,7 +1391,7 @@ function getHomePage() {
         </div>
 
         <!-- Generate Button -->
-        <div class="mt-5 text-center">
+        <div class="mt-5">
           <button id="generate-btn" onclick="generateVariations()" disabled
                   class="btn-primary w-full px-6 py-3.5 text-white rounded-xl font-semibold text-base disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none disabled:transform-none">
             <i class="fas fa-sparkles mr-2"></i>
@@ -1296,6 +1400,98 @@ function getHomePage() {
           <p id="generate-time-hint" class="text-xs text-brand-muted mt-3 flex items-center justify-center gap-1.5">
             <i class="fas fa-bolt text-amber-500"></i>
             Takes about <span id="time-estimate">36 seconds</span> with <span id="model-name-hint">Nano Pro</span>
+          </p>
+        </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Side: Features & Info -->
+      <div class="upload-right">
+        <!-- Stats Bar -->
+        <div class="stats-bar">
+          <div class="stat-item">
+            <div class="stat-value">10</div>
+            <div class="stat-label">Pro Shots</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value">36s</div>
+            <div class="stat-label">Generation</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value">AI</div>
+            <div class="stat-label">Powered</div>
+          </div>
+        </div>
+        
+        <!-- What You Get -->
+        <h3 class="text-sm font-semibold text-slate-700 mb-3">What You Get:</h3>
+        
+        <div class="feature-card">
+          <div class="flex items-start gap-3">
+            <div class="feature-icon bg-blue-100">
+              <i class="fas fa-square text-blue-600"></i>
+            </div>
+            <div>
+              <p class="font-semibold text-sm text-slate-800">Hero & White Background</p>
+              <p class="text-xs text-slate-500">Clean, professional product shots for listings</p>
+            </div>
+          </div>
+        </div>
+        
+        <div class="feature-card">
+          <div class="flex items-start gap-3">
+            <div class="feature-icon bg-purple-100">
+              <i class="fas fa-search-plus text-purple-600"></i>
+            </div>
+            <div>
+              <p class="font-semibold text-sm text-slate-800">Detail & Texture Shots</p>
+              <p class="text-xs text-slate-500">Close-ups showing quality and craftsmanship</p>
+            </div>
+          </div>
+        </div>
+        
+        <div class="feature-card">
+          <div class="flex items-start gap-3">
+            <div class="feature-icon bg-green-100">
+              <i class="fas fa-hand-pointer text-green-600"></i>
+            </div>
+            <div>
+              <p class="font-semibold text-sm text-slate-800">Lifestyle & In-Use</p>
+              <p class="text-xs text-slate-500">Products in real-world contexts</p>
+            </div>
+          </div>
+        </div>
+        
+        <div class="feature-card">
+          <div class="flex items-start gap-3">
+            <div class="feature-icon bg-amber-100">
+              <i class="fab fa-instagram text-amber-600"></i>
+            </div>
+            <div>
+              <p class="font-semibold text-sm text-slate-800">Social Ready</p>
+              <p class="text-xs text-slate-500">Flat-lay and styled shots for social media</p>
+            </div>
+          </div>
+        </div>
+        
+        <div class="feature-card">
+          <div class="flex items-start gap-3">
+            <div class="feature-icon bg-pink-100">
+              <i class="fas fa-cube text-pink-600"></i>
+            </div>
+            <div>
+              <p class="font-semibold text-sm text-slate-800">Multi-Angle Views</p>
+              <p class="text-xs text-slate-500">Show your product from all perspectives</p>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Powered By -->
+        <div class="mt-4 pt-4 border-t border-slate-200">
+          <p class="text-xs text-slate-500 flex items-center gap-2">
+            <i class="fas fa-robot text-purple-500"></i>
+            Powered by <span class="font-semibold text-slate-700">Google Gemini Nano Pro</span>
           </p>
         </div>
       </div>
