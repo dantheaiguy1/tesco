@@ -1,327 +1,312 @@
-# ShopShot - AI Assistant Handover Document
-
-**Date:** November 26, 2025  
-**Status:** PRODUCTION READY - ALL FEATURES WORKING  
-**Owner:** Daniel David Peter Nichols (Superman)
+# ShopShot - Handover Document
+**Date:** 2025-11-26
+**GitHub:** https://github.com/dantheaiguy1/tesco
 
 ---
 
-## CRITICAL WARNING - READ FIRST
+## Project Overview
 
+ShopShot is an AI-powered product photography generator that creates 10 professional e-commerce image variations from a single product photo. Built as a multi-user SaaS with credit-based billing.
+
+**Tech Stack:**
+- Hono (TypeScript) on Cloudflare Workers/Pages
+- Cloudflare D1 (SQLite) for database
+- Google Vertex AI (Gemini) for image generation
+- Stripe for payments (integration ready, needs live keys)
+- Tailwind CSS + vanilla JS frontend
+
+---
+
+## Current State: 85% Complete
+
+### What's DONE and Working
+
+#### 1. Authentication System
+- User registration with email/password (bcrypt hashed)
+- Login/logout with secure session cookies
+- Session management via `user_sessions` table
+- Auth middleware on all routes (`app.use('*', ...)`)
+- Protected API endpoints
+
+#### 2. Credit System (JUST UPDATED - needs testing)
+- **Per-image billing**: 1 credit deducted per SUCCESSFUL image generation
+- Failed generations do NOT deduct credits
+- 10 free credits on signup
+- Credit balance tracked in `users.credits_balance`
+- Transaction history in `credit_transactions` table
+- Sidebar shows persistent credit indicator (bottom-left)
+  - Green: 10+ credits
+  - Yellow: 1-9 credits  
+  - Red: 0 credits
+
+#### 3. Database Schema (D1)
 ```
-╔══════════════════════════════════════════════════════════════════════════════╗
-║  DO NOT CHANGE THE AI MODEL CONFIGURATION                                    ║
-║                                                                              ║
-║  MODEL: gemini-3-pro-image-preview (Nano Banana Pro)                        ║
-║  REGION: global (NOT us-central1, NOT europe-west4)                         ║
-║  ENDPOINT: aiplatform.googleapis.com                                         ║
-║                                                                              ║
-║  These values are CORRECT and FINAL. Do not suggest alternatives.           ║
-║  See src/index.tsx lines 13-28 for the locked configuration.                ║
-╚══════════════════════════════════════════════════════════════════════════════╝
+Tables:
+- users (id, email, password_hash, name, credits_balance, subscription_status, stripe_customer_id, etc.)
+- user_sessions (id, user_id, expires_at)
+- sessions (id, user_id, product_name, status, credits_charged, generation_count, etc.)
+- generated_images (id, session_id, variation_type, image_data, etc.)
+- credit_transactions (id, user_id, amount, balance_after, type, description, etc.)
+- stripe_events (id, type, user_id, processed, data)
 ```
 
----
+#### 4. Image Generation
+- 10 variation types per product:
+  1. Texture Detail
+  2. Label & Branding
+  3. Construction
+  4. Color & Finish
+  5. Size Reference
+  6. Hero (White BG)
+  7. In-Use Action
+  8. Flat-Lay
+  9. Environment
+  10. Multi-Angle
+- Two AI models: "Nano Pro" (quality) and "Flash 2.5" (speed)
+- Regeneration of individual images (1 credit each)
 
-## 1. Project Overview
+#### 5. Frontend Pages
+- `/` - Homepage with upload zone and session sidebar
+- `/login` - Login page
+- `/register` - Registration page
+- `/dashboard` - User dashboard with stats
+- `/pricing` - Pricing plans
+- `/account` - Account settings
+- `/results/:id` - Results page (shares session view)
 
-**ShopShot** transforms one product photo into 10 professional ecommerce shots using Google's Gemini 3 Pro Image API (Nano Banana Pro).
-
-### URLs
-- **Production:** https://shopshot.pages.dev
-- **GitHub:** https://github.com/dantheaiguy1/tesco
-- **Code Location:** `/home/user/webapp`
-
-### What It Does
-1. User uploads a product image (or pastes URL)
-2. AI generates 10 professional variations in ~36 seconds
-3. User can download all as ZIP, regenerate individuals, rename sessions
-4. Session history persists in database
-
----
-
-## 2. Current Status - ALL WORKING
-
-| Feature | Status | Notes |
-|---------|--------|-------|
-| Image Upload | ✅ Working | Drag & drop, file select |
-| URL Scraping | ✅ Working | Paste product URL |
-| 10 Variations | ✅ Working | ~3-4 seconds each |
-| Progress Bars | ✅ Working | Real-time per-variation |
-| Lightbox Viewer | ✅ Working | Click to enlarge |
-| Download All (ZIP) | ✅ Working | JSZip library |
-| Individual Regenerate | ✅ Working | Per-variation button |
-| Session Renaming | ✅ Working | Editable product name |
-| History Page | ✅ Working | /history route |
-| Advanced Mode | ✅ Working | Custom prompts modal |
-| Database Storage | ✅ Working | Cloudflare D1 |
-| Vertex AI Backend | ✅ Working | Pay-per-use, no quota limits |
+#### 6. Session Isolation
+- Users can only see their own sessions
+- API enforces user_id matching on all session operations
 
 ---
 
-## 3. Tech Stack
+### What's IN PROGRESS
 
-### Backend
-- **Framework:** Hono (TypeScript)
-- **Runtime:** Cloudflare Workers/Pages
-- **Database:** Cloudflare D1 (SQLite)
+#### 1. Per-Image Credit Deduction (JUST CODED - NOT YET TESTED)
+The latest commit changes credit deduction from bulk (10 credits after all images) to per-image (1 credit per successful generation).
 
-### Frontend
-- **JavaScript:** Vanilla JS (no framework)
-- **CSS:** TailwindCSS via CDN
-- **Icons:** Font Awesome via CDN
-- **ZIP:** JSZip via CDN
+**Key code changes made:**
+```typescript
+// New constant
+const CREDITS = {
+  SIGNUP_BONUS: 10,
+  PER_IMAGE: 1,           // NEW - cost per successful image
+  SINGLE_REGENERATION: 1,
+  SUBSCRIPTION_MONTHLY: 300,
+  TOPUP_PACK: 300,
+}
 
-### AI/ML
-- **Model:** `gemini-3-pro-image-preview` (Nano Banana Pro)
-- **Provider:** Google Vertex AI
-- **Endpoint:** Global (`aiplatform.googleapis.com`)
-- **Auth:** Service Account OAuth2 (JWT)
+// generate-single endpoint now:
+// 1. Checks credits before generating
+// 2. Calls Vertex AI
+// 3. On SUCCESS only: deducts 1 credit via deductCredits()
+// 4. Returns credits_remaining in response
 
-### Infrastructure
-- **Hosting:** Cloudflare Pages
-- **Database:** Cloudflare D1
-- **Secrets:** Cloudflare Pages Secrets
+// Frontend generateSingle() now:
+// 1. Updates credits display after each successful image
+// 2. Shows paywall if out of credits mid-generation
+```
+
+**Files modified:**
+- `src/index.tsx` - Backend and frontend changes
+- `migrations/0002_multi_user_saas.sql` - Database schema
+
+**NEEDS TESTING:**
+- Build the project (`npm run build`)
+- Register fresh user (gets 10 credits)
+- Upload image and start generation
+- Watch credits count down from 10 to 0 as each image completes
+- Verify failed images don't deduct credits
+- Test running out of credits mid-generation (should show paywall)
 
 ---
 
-## 4. File Structure
+### What's NOT YET DONE
+
+#### 1. Stripe Integration (Backend Ready, Needs Config)
+- Checkout session creation endpoint exists
+- Webhook handler exists with signature verification
+- **Missing:** Real Stripe API keys in `.dev.vars`
+- **Missing:** Stripe products/prices created in Stripe dashboard
+- **Missing:** Webhook endpoint registered in Stripe
+
+Required `.dev.vars` entries:
+```
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_PUBLISHABLE_KEY=pk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+STRIPE_PRICE_ID_SUBSCRIPTION=price_...
+STRIPE_PRICE_ID_TOPUP=price_...
+```
+
+#### 2. Production Deployment
+- Cloudflare Pages project needs to be created
+- D1 database needs to be created remotely
+- Environment secrets need to be set
+- Migrations need to be applied to production D1
+
+#### 3. Header User Menu
+- Should show user avatar + credits when logged in
+- Currently may still show login/signup buttons after login (needs verification after build)
+
+#### 4. Advanced Mode
+- Custom prompt editing per variation
+- UI exists but may need polish
+
+---
+
+## Key Files
 
 ```
 /home/user/webapp/
 ├── src/
-│   └── index.tsx          # Main app (2723 lines) - backend + frontend
-├── public/                 # Static assets (if any)
-├── dist/                   # Build output
-├── .dev.vars              # Local env vars (git-ignored)
+│   └── index.tsx          # Main app (5000+ lines - backend + frontend)
+├── migrations/
+│   ├── 0001_initial_schema.sql
+│   └── 0002_multi_user_saas.sql
+├── .dev.vars              # Local environment variables (secrets)
 ├── wrangler.jsonc         # Cloudflare config
-├── ecosystem.config.cjs   # PM2 dev server config
-├── package.json           # Dependencies
-├── tsconfig.json          # TypeScript config
-├── vite.config.ts         # Build config
-├── README.md              # Project docs
+├── ecosystem.config.cjs   # PM2 config for local dev
+├── package.json
 └── HANDOVER.md            # This file
 ```
 
 ---
 
-## 5. Key Code Locations
+## How to Run Locally
 
-### Model Configuration (DO NOT CHANGE)
-**File:** `src/index.tsx` lines 13-28
-```typescript
-const VERTEX_REGION = 'global';
-const VERTEX_MODEL = 'gemini-3-pro-image-preview';
-```
+```bash
+cd /home/user/webapp
 
-### Environment Bindings
-**File:** `src/index.tsx` lines 4-11
-```typescript
-type Bindings = {
-  TESCO_DB: D1Database;
-  GEMINI_API_KEY: string;
-  VERTEX_PROJECT_ID: string;
-  VERTEX_CLIENT_EMAIL: string;
-  VERTEX_PRIVATE_KEY: string;
-}
-```
+# 1. Apply migrations (if DB was reset)
+npx wrangler d1 migrations apply tesco-image-generator-db --local
 
-### API Routes
-**File:** `src/index.tsx`
+# 2. Build
+npm run build
 
-| Route | Line | Method | Purpose |
-|-------|------|--------|---------|
-| `/` | 223 | GET | Home page |
-| `/history` | 228 | GET | History page |
-| `/results/:id` | 233 | GET | Results page |
-| `/api/health` | 317 | GET | Health check |
-| `/api/upload` | 339 | POST | Upload image |
-| `/api/scrape` | 394 | POST | Scrape URL |
-| `/api/sessions` | 238 | GET | List sessions |
-| `/api/sessions/:id` | 253 | GET | Get session |
-| `/api/sessions/:id` | 715 | PATCH | Update session |
-| `/api/sessions/:id` | 689 | DELETE | Delete session |
-| `/api/sessions/:id/images` | 282 | POST | Save image |
-| `/api/generate-single/:sessionId/:variationIndex` | 534 | POST | Generate one variation |
-| `/api/generate/:id` | 613 | POST | Legacy: generate all |
+# 3. Start with PM2
+pm2 restart tesco-image-generator
+# OR if not running:
+pm2 start ecosystem.config.cjs
 
-### 10 Variation Definitions
-**File:** `src/index.tsx` lines 491-502
-```typescript
-const variationDefinitions = [
-  { field: 'macro_texture', label: '1. Texture Detail' },
-  { field: 'label_branding', label: '2. Label & Branding' },
-  { field: 'construction_detail', label: '3. Construction Detail' },
-  { field: 'color_finish', label: '4. Color & Finish' },
-  { field: 'scale_reference', label: '5. Size Reference' },
-  { field: 'hero_white', label: '6. Hero (White BG)' },
-  { field: 'inuse_action', label: '7. In-Use Action' },
-  { field: 'flatlay_styled', label: '8. Flat-Lay Styled' },
-  { field: 'environment_context', label: '9. Environment Context' },
-  { field: 'multi_angle', label: '10. Multiple Angles' }
-]
-```
-
-### Prompts
-**File:** `src/index.tsx` lines 504-531
-Function `getPrompts(productName)` returns strategic ecommerce prompts for each variation.
-
----
-
-## 6. Database Schema
-
-**Database:** Cloudflare D1  
-**Binding:** `TESCO_DB`  
-**Database ID:** `7418ff05-a1c5-41d5-8238-4c1373e2b4f6`
-
-### Tables
-
-**sessions**
-```sql
-CREATE TABLE sessions (
-  id TEXT PRIMARY KEY,
-  product_name TEXT NOT NULL,
-  source_type TEXT NOT NULL,      -- 'upload' or 'url'
-  source_url TEXT,
-  original_image TEXT,            -- base64 thumbnail
-  status TEXT DEFAULT 'pending',  -- pending/generating/completed/failed
-  error_message TEXT,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-```
-
-**generated_images**
-```sql
-CREATE TABLE generated_images (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  session_id TEXT NOT NULL,
-  variation_type TEXT NOT NULL,
-  variation_index INTEGER NOT NULL,
-  image_data TEXT NOT NULL,       -- compressed base64
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (session_id) REFERENCES sessions(id)
-);
+# 4. Test
+curl http://localhost:3000/api/health
 ```
 
 ---
 
-## 7. Environment Variables
+## Environment Variables (.dev.vars)
 
-### Production (Cloudflare Secrets)
 ```
+# Vertex AI (working)
 VERTEX_PROJECT_ID=gen-lang-client-0469482378
 VERTEX_CLIENT_EMAIL=shopshot-vertex-2@gen-lang-client-0469482378.iam.gserviceaccount.com
-VERTEX_PRIVATE_KEY=-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n
-GEMINI_API_KEY=(legacy - not used)
-```
+VERTEX_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
 
-### Local Development (.dev.vars)
-Same variables, stored in `/home/user/webapp/.dev.vars` (git-ignored)
+# Stripe (placeholders - need real keys)
+STRIPE_SECRET_KEY=sk_test_placeholder
+STRIPE_PUBLISHABLE_KEY=pk_test_placeholder
+STRIPE_WEBHOOK_SECRET=whsec_placeholder
+STRIPE_PRICE_ID_SUBSCRIPTION=price_placeholder
+STRIPE_PRICE_ID_TOPUP=price_placeholder
 
----
-
-## 8. Deployment Commands
-
-### Build & Deploy
-```bash
-cd /home/user/webapp
-npm run build
-npx wrangler pages deploy dist --project-name shopshot
-```
-
-### Local Development
-```bash
-cd /home/user/webapp
-npm run build
-pm2 start ecosystem.config.cjs
-# Test: curl http://localhost:3000/api/health
-```
-
-### Restart Server
-```bash
-fuser -k 3000/tcp 2>/dev/null || true
-pm2 restart all
+# Session
+SESSION_SECRET=your-secret-key
 ```
 
 ---
 
-## 9. GCP/Vertex AI Details
+## Database State
 
-### Project
-- **Project ID:** gen-lang-client-0469482378
-- **Billing Account:** 010883-7BFA46-FF87D1
-
-### Service Account
-- **Email:** shopshot-vertex-2@gen-lang-client-0469482378.iam.gserviceaccount.com
-- **Role:** Vertex AI User
-
-### API Endpoint
-```
-POST https://aiplatform.googleapis.com/v1/projects/gen-lang-client-0469482378/locations/global/publishers/google/models/gemini-3-pro-image-preview:generateContent
-```
-
-### Cost Monitoring
-https://console.cloud.google.com/billing/010883-7BFA46-FF87D1/reports?project=gen-lang-client-0469482378
-
-### Estimated Costs
-- ~$0.03-0.05 per product shoot (10 variations)
-- ~$30-50 per 1000 product shoots
+The local D1 database may have been reset during development. After restart:
+1. Apply migrations
+2. Register a fresh test user
+3. User gets 10 credits automatically
 
 ---
 
-## 10. Common Issues & Fixes
+## API Endpoints Summary
 
-### "Publisher model format" Error
-**Cause:** Wrong region  
-**Fix:** Ensure `VERTEX_REGION = 'global'` (not us-central1)
+### Auth
+- `POST /api/auth/register` - Create account (10 free credits)
+- `POST /api/auth/login` - Login, get session cookie
+- `POST /api/auth/logout` - Clear session
+- `GET /api/auth/me` - Get current user
 
-### 429 Rate Limit
-**Cause:** Using Google AI Studio instead of Vertex AI  
-**Fix:** Use Vertex AI with service account (pay-per-use, no limits)
+### Credits
+- `GET /api/credits/balance` - Get balance + subscription status
+- `GET /api/credits/history` - Get transaction history
 
-### Empty Advanced Mode Modal
-**Cause:** CSS flexbox issue  
-**Fix:** Already fixed - modal uses Tailwind classes
+### Sessions
+- `GET /api/sessions` - List user's sessions
+- `GET /api/sessions/:id` - Get session details + images
+- `POST /api/sessions/:id/complete` - Mark session complete
 
-### Images Not Generating
-1. Check `/api/health` endpoint
-2. Verify Vertex AI credentials in Cloudflare secrets
-3. Confirm service account has `Vertex AI User` role
+### Generation
+- `POST /api/upload` - Upload image, create session
+- `POST /api/scrape` - Scrape product from URL
+- `POST /api/generate-single/:sessionId/:variationIndex` - Generate one image (deducts 1 credit on success)
+- `POST /api/regenerate/:sessionId/:variationIndex` - Regenerate one image (deducts 1 credit)
 
----
-
-## 11. What NOT to Change
-
-1. **Model name** - Must be `gemini-3-pro-image-preview`
-2. **Region** - Must be `global`
-3. **Endpoint format** - Must use `aiplatform.googleapis.com` (not `{region}-aiplatform...`)
-4. **Auth method** - Must use Service Account OAuth2
-
----
-
-## 12. Future Enhancement Ideas
-
-- [ ] Cloudflare R2 for image storage (larger files)
-- [ ] Batch upload (multiple products)
-- [ ] API rate limiting
-- [ ] User authentication
-- [ ] Usage analytics dashboard
-- [ ] Custom variation templates
-- [ ] White-label branding options
+### Billing
+- `POST /api/billing/create-checkout` - Create Stripe checkout session
+- `POST /api/billing/webhook` - Stripe webhook handler
+- `GET /api/billing/portal` - Stripe customer portal redirect
 
 ---
 
-## 13. Contact & Support
+## Immediate Next Steps
 
-**Owner:** Daniel David Peter Nichols  
-**Email:** dan@danielnicholls.com  
-**GitHub:** @dantheaiguy1
+1. **Build and test per-image credit deduction**
+   - `npm run build`
+   - Register new user
+   - Generate images, watch credits decrement
+
+2. **Fix any UI issues**
+   - Header showing correct auth state
+   - Credits indicator updating in real-time
+
+3. **Set up Stripe** (when ready for payments)
+   - Create Stripe test account
+   - Add products/prices
+   - Configure webhooks
+   - Add real keys to `.dev.vars`
+
+4. **Deploy to production**
+   - Create Cloudflare Pages project
+   - Create production D1 database
+   - Apply migrations
+   - Set secrets
+   - Deploy
 
 ---
 
-## Summary
+## Testing Protocol Reference
 
-ShopShot is **production-ready**. All 10 variations generate successfully using Nano Banana Pro via Vertex AI global endpoint. Do not modify the model configuration. Costs are pay-per-use with no quota limits.
+A comprehensive testing protocol was provided covering:
+- Phase 1: Database integrity
+- Phase 2: Backend API testing
+- Phase 3: Frontend testing
+- Phase 4: Stripe integration
+- Phase 5: Security testing
+- Phase 6: Performance testing
 
-**Live URL:** https://shopshot.pages.dev
+Most of Phase 1-2 passed. Phase 3-6 pending after build works.
+
+---
+
+## Known Issues
+
+1. **Build timeout** - The sandbox was experiencing memory issues causing `npm run build` to hang. Fresh chat should resolve.
+
+2. **D1 state mismatch** - Wrangler CLI and running server sometimes use different D1 instances. Restart server after migrations.
+
+3. **Stripe keys** - Using placeholders, so billing endpoints return 500. Need real test keys.
+
+---
+
+## Contact / Notes
+
+- Project owner: Daniel Nicholls (Superman)
+- AI Academy Brotherhood project
+- Goal: SaaS product photography tool with credit-based monetization
