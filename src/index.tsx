@@ -4,6 +4,152 @@ import { cors } from 'hono/cors'
 type Bindings = {
   TESCO_DB: D1Database;
   GEMINI_API_KEY: string;
+  // Vertex AI Service Account credentials
+  VERTEX_PROJECT_ID: string;
+  VERTEX_CLIENT_EMAIL: string;
+  VERTEX_PRIVATE_KEY: string;
+}
+
+// Vertex AI configuration
+const VERTEX_REGION = 'us-central1';
+const VERTEX_MODEL = 'gemini-2.0-flash-preview-image-generation';
+
+// Generate JWT for Google OAuth2
+async function createJWT(clientEmail: string, privateKey: string): Promise<string> {
+  const header = { alg: 'RS256', typ: 'JWT' };
+  const now = Math.floor(Date.now() / 1000);
+  const payload = {
+    iss: clientEmail,
+    sub: clientEmail,
+    aud: 'https://oauth2.googleapis.com/token',
+    iat: now,
+    exp: now + 3600,
+    scope: 'https://www.googleapis.com/auth/cloud-platform'
+  };
+
+  const encodedHeader = btoa(JSON.stringify(header)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+  const encodedPayload = btoa(JSON.stringify(payload)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+  const signatureInput = `${encodedHeader}.${encodedPayload}`;
+
+  // Import the private key
+  const pemContents = privateKey
+    .replace('-----BEGIN PRIVATE KEY-----', '')
+    .replace('-----END PRIVATE KEY-----', '')
+    .replace(/\\n/g, '')
+    .replace(/\s/g, '');
+  
+  const binaryKey = Uint8Array.from(atob(pemContents), c => c.charCodeAt(0));
+  
+  const cryptoKey = await crypto.subtle.importKey(
+    'pkcs8',
+    binaryKey,
+    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+
+  const signature = await crypto.subtle.sign(
+    'RSASSA-PKCS1-v1_5',
+    cryptoKey,
+    new TextEncoder().encode(signatureInput)
+  );
+
+  const encodedSignature = btoa(String.fromCharCode(...new Uint8Array(signature)))
+    .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+
+  return `${signatureInput}.${encodedSignature}`;
+}
+
+// Get OAuth2 access token from Google
+async function getAccessToken(clientEmail: string, privateKey: string): Promise<string> {
+  const jwt = await createJWT(clientEmail, privateKey);
+  
+  const response = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${jwt}`
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Failed to get access token: ${error}`);
+  }
+
+  const data = await response.json() as { access_token: string };
+  return data.access_token;
+}
+
+// Call Vertex AI Gemini API for image generation
+async function generateImageWithVertex(
+  projectId: string,
+  clientEmail: string,
+  privateKey: string,
+  imageBase64: string,
+  mimeType: string,
+  prompt: string
+): Promise<{ success: boolean; image?: string; error?: string }> {
+  try {
+    const accessToken = await getAccessToken(clientEmail, privateKey);
+    
+    const endpoint = `https://${VERTEX_REGION}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${VERTEX_REGION}/publishers/google/models/${VERTEX_MODEL}:generateContent`;
+    
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        contents: [{
+          role: 'user',
+          parts: [
+            {
+              inlineData: {
+                mimeType: mimeType,
+                data: imageBase64
+              }
+            },
+            { text: prompt }
+          ]
+        }],
+        generationConfig: {
+          responseModalities: ['IMAGE', 'TEXT']
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Vertex AI error:', errorText);
+      let errorMsg = 'Vertex AI error';
+      try {
+        const errJson = JSON.parse(errorText);
+        errorMsg = errJson.error?.message || errJson.error?.status || `API error: ${response.status}`;
+      } catch {
+        errorMsg = `API error: ${response.status}`;
+      }
+      return { success: false, error: errorMsg };
+    }
+
+    const data = await response.json() as any;
+    
+    // Extract image from response
+    if (data.candidates?.[0]?.content?.parts) {
+      for (const part of data.candidates[0].content.parts) {
+        if (part.inlineData?.data) {
+          const resultMimeType = part.inlineData.mimeType || 'image/png';
+          const imageData = `data:${resultMimeType};base64,${part.inlineData.data}`;
+          return { success: true, image: imageData };
+        }
+      }
+    }
+
+    return { success: false, error: 'No image in response' };
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    console.error('Vertex AI generation error:', errorMsg);
+    return { success: false, error: errorMsg };
+  }
 }
 
 const app = new Hono<{ Bindings: Bindings }>()
@@ -373,7 +519,11 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
   const sessionId = c.req.param('sessionId')
   const variationIndex = parseInt(c.req.param('variationIndex'))
   const db = c.env.TESCO_DB
-  const apiKey = c.env.GEMINI_API_KEY
+  
+  // Vertex AI credentials
+  const projectId = c.env.VERTEX_PROJECT_ID
+  const clientEmail = c.env.VERTEX_CLIENT_EMAIL
+  const privateKey = c.env.VERTEX_PRIVATE_KEY
   
   try {
     const body = await c.req.json().catch(() => ({}))
@@ -385,8 +535,9 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
       return c.json({ success: false, error: 'No image provided', field: variationDefinitions[variationIndex]?.field }, 400)
     }
     
-    if (!apiKey) {
-      return c.json({ success: false, error: 'API key not configured', field: variationDefinitions[variationIndex]?.field }, 500)
+    // Check for Vertex AI credentials
+    if (!projectId || !clientEmail || !privateKey) {
+      return c.json({ success: false, error: 'Vertex AI credentials not configured', field: variationDefinitions[variationIndex]?.field }, 500)
     }
 
     const prompts: Record<string, string> = getPrompts(productName)
@@ -399,74 +550,41 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
     // Use custom prompt if provided, otherwise use default
     const prompt = customPrompt || prompts[variation.field]
     const isCustom = !!customPrompt
-    console.log(`[${variation.field}] Generating...`)
+    console.log(`[${variation.field}] Generating with Vertex AI...`)
     
     const startTime = Date.now()
-    // Using gemini-2.0-flash-preview-image-generation for image generation
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-preview-image-generation:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            parts: [
-              {
-                inline_data: {
-                  mime_type: originalImage.split(';')[0].split(':')[1],
-                  data: originalImage.split(',')[1]
-                }
-              },
-              { text: prompt }
-            ]
-          }],
-          generationConfig: {
-            responseModalities: ["IMAGE", "TEXT"]
-          }
-        })
-      }
+    
+    // Extract mime type and base64 data from data URL
+    const mimeType = originalImage.split(';')[0].split(':')[1]
+    const imageBase64 = originalImage.split(',')[1]
+    
+    // Call Vertex AI
+    const result = await generateImageWithVertex(
+      projectId,
+      clientEmail,
+      privateKey,
+      imageBase64,
+      mimeType,
+      prompt
     )
     
     const elapsed = Date.now() - startTime
-    console.log(`[${variation.field}] Response in ${elapsed}ms, status: ${response.status}`)
+    console.log(`[${variation.field}] Response in ${elapsed}ms, success: ${result.success}`)
     
-    if (!response.ok) {
-      const errorText = await response.text()
-      console.error(`[${variation.field}] API error (${response.status}):`, errorText.substring(0, 500))
-      // Return more detailed error to frontend
-      let errorMsg = 'API error'
-      try {
-        const errJson = JSON.parse(errorText)
-        errorMsg = errJson.error?.message || errJson.error?.status || 'API error: ' + response.status
-      } catch (e) {
-        errorMsg = 'API error: ' + response.status
-      }
-      return c.json({ success: false, error: errorMsg, field: variation.field, status: response.status }, 500)
+    if (!result.success) {
+      console.error(`[${variation.field}] API error:`, result.error)
+      return c.json({ success: false, error: result.error, field: variation.field }, 500)
     }
     
-    const data = await response.json() as any
-    
-    // Extract image
-    if (data.candidates?.[0]?.content?.parts) {
-      for (const part of data.candidates[0].content.parts) {
-        if (part.inlineData?.data) {
-          const mimeType = part.inlineData.mimeType || 'image/png'
-          const imageData = `data:${mimeType};base64,${part.inlineData.data}`
-          console.log(`[${variation.field}] Success!${isCustom ? ' (Custom Prompt)' : ''}`)
-          return c.json({ 
-            success: true, 
-            field: variation.field, 
-            label: variation.label,
-            image: imageData,
-            elapsed,
-            isCustom
-          })
-        }
-      }
-    }
-    
-    console.error(`[${variation.field}] No image in response`)
-    return c.json({ success: false, error: 'No image generated', field: variation.field }, 500)
+    console.log(`[${variation.field}] Success!${isCustom ? ' (Custom Prompt)' : ''}`)
+    return c.json({ 
+      success: true, 
+      field: variation.field, 
+      label: variation.label,
+      image: result.image,
+      elapsed,
+      isCustom
+    })
     
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err)
@@ -498,50 +616,39 @@ app.post('/api/generate/:id', async (c) => {
       return c.json({ success: false, error: 'No original image provided' }, 400)
     }
 
-    const apiKey = c.env.GEMINI_API_KEY
-    if (!apiKey) {
-      return c.json({ success: false, error: 'GEMINI_API_KEY not configured' }, 500)
+    // Vertex AI credentials
+    const projectId = c.env.VERTEX_PROJECT_ID
+    const clientEmail = c.env.VERTEX_CLIENT_EMAIL
+    const privateKey = c.env.VERTEX_PRIVATE_KEY
+    
+    if (!projectId || !clientEmail || !privateKey) {
+      return c.json({ success: false, error: 'Vertex AI credentials not configured' }, 500)
     }
     
     const productName = session.product_name || 'product'
     const prompts: Record<string, string> = getPrompts(productName)
     const results: Record<string, string> = {}
     const errors: string[] = []
+    
+    // Extract mime type and base64 from original image
+    const mimeType = originalImage.split(';')[0].split(':')[1]
+    const imageBase64 = originalImage.split(',')[1]
 
     for (const variation of variationDefinitions) {
       try {
-        const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-preview-image-generation:generateContent?key=${apiKey}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{
-                parts: [
-                  {
-                    inline_data: {
-                      mime_type: originalImage.split(';')[0].split(':')[1],
-                      data: originalImage.split(',')[1]
-                    }
-                  },
-                  { text: prompts[variation.field] }
-                ]
-              }],
-              generationConfig: { responseModalities: ["IMAGE", "TEXT"] }
-            })
-          }
+        const result = await generateImageWithVertex(
+          projectId,
+          clientEmail,
+          privateKey,
+          imageBase64,
+          mimeType,
+          prompts[variation.field]
         )
         
-        if (response.ok) {
-          const data = await response.json() as any
-          if (data.candidates?.[0]?.content?.parts) {
-            for (const part of data.candidates[0].content.parts) {
-              if (part.inlineData?.data) {
-                results[variation.field] = `data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`
-                break
-              }
-            }
-          }
+        if (result.success && result.image) {
+          results[variation.field] = result.image
+        } else {
+          errors.push(`${variation.field}: ${result.error}`)
         }
       } catch (err) {
         errors.push(`${variation.field}: ${err}`)
@@ -984,23 +1091,26 @@ function getHomePage() {
   </div>
 
   <!-- Advanced Mode Modal (moved outside all containers) -->
-  <div id="advanced-panel" style="position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(0,0,0,0.6);display:none;align-items:center;justify-content:center;padding:16px;">
-    <div style="background:white;border-radius:16px;width:100%;max-width:640px;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 25px 50px -12px rgba(0,0,0,0.25);overflow:hidden;">
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #e2e8f0;flex-shrink:0;">
+  <div id="advanced-panel" class="fixed inset-0 z-[9999] bg-black/60 hidden items-center justify-center p-4" style="display:none;">
+    <div class="bg-white rounded-2xl w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl overflow-hidden">
+      <!-- Header -->
+      <div class="flex items-center justify-between px-5 py-4 border-b border-slate-200 flex-shrink-0">
         <div>
-          <p style="font-size:16px;font-weight:600;color:#1e293b;margin:0;">Customize Generation Prompts</p>
-          <p style="font-size:12px;color:#64748b;margin:4px 0 0 0;">Edit any prompt to customize that variation</p>
+          <h3 class="text-base font-semibold text-slate-800">Customize Generation Prompts</h3>
+          <p class="text-xs text-slate-500 mt-1">Edit any prompt to customize that variation</p>
         </div>
-        <button onclick="toggleAdvancedMode()" style="width:32px;height:32px;border-radius:50%;border:none;background:#f1f5f9;cursor:pointer;display:flex;align-items:center;justify-content:center;">
-          <i class="fas fa-xmark" style="color:#64748b;"></i>
+        <button onclick="toggleAdvancedMode()" class="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition">
+          <i class="fas fa-xmark text-slate-500"></i>
         </button>
       </div>
-      <div id="prompt-list" style="flex:1;overflow-y:auto;padding:0;min-height:200px;max-height:calc(80vh - 140px);">
+      <!-- Scrollable Prompt List -->
+      <div id="prompt-list" class="flex-1 overflow-y-auto" style="min-height:200px;">
         <!-- Prompts populated by JS -->
       </div>
-      <div style="padding:16px 20px;border-top:1px solid #e2e8f0;background:#f8fafc;border-radius:0 0 16px 16px;flex-shrink:0;">
-        <button onclick="toggleAdvancedMode()" class="btn-primary" style="width:100%;padding:12px;border-radius:12px;color:white;font-weight:600;border:none;cursor:pointer;">
-          <i class="fas fa-check" style="margin-right:8px;"></i>Done - Apply Prompts
+      <!-- Footer -->
+      <div class="px-5 py-4 border-t border-slate-200 bg-slate-50 flex-shrink-0">
+        <button onclick="toggleAdvancedMode()" class="btn-primary w-full py-3 rounded-xl text-white font-semibold">
+          <i class="fas fa-check mr-2"></i>Done - Apply Prompts
         </button>
       </div>
     </div>
@@ -1094,10 +1204,12 @@ function getHomePage() {
       if (advancedModeEnabled) {
         populatePromptList(); // Populate BEFORE showing
         panel.style.display = 'flex';
+        panel.classList.remove('hidden');
         if (icon) icon.style.transform = 'rotate(90deg)';
         document.body.style.overflow = 'hidden';
       } else {
         panel.style.display = 'none';
+        panel.classList.add('hidden');
         if (icon) icon.style.transform = 'rotate(0deg)';
         document.body.style.overflow = '';
       }
@@ -1115,6 +1227,8 @@ function getHomePage() {
     }
     
     function populatePromptList() {
+      console.log('populatePromptList called, variationDefs.length:', variationDefs.length);
+      
       const list = document.getElementById('prompt-list');
       if (!list) {
         console.error('prompt-list element not found');
@@ -1129,28 +1243,26 @@ function getHomePage() {
         const currentPrompt = customPrompts[i] || v.defaultPrompt;
         
         const item = document.createElement('div');
-        item.style.cssText = 'padding:16px;border-bottom:1px solid #f1f5f9;';
+        item.className = 'p-4 border-b border-slate-100';
         item.innerHTML = \`
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-            <div style="display:flex;align-items:center;gap:8px;">
-              <div style="width:28px;height:28px;border-radius:8px;background:#f3e8ff;display:flex;align-items:center;justify-content:center;">
-                <i class="\${v.icon}" style="color:#9333ea;font-size:12px;"></i>
+          <div class="flex items-center justify-between mb-2">
+            <div class="flex items-center gap-2">
+              <div class="w-7 h-7 rounded-lg bg-purple-100 flex items-center justify-center">
+                <i class="\${v.icon} text-purple-600 text-xs"></i>
               </div>
-              <span style="font-size:14px;font-weight:500;color:#1e293b;">\${v.label}</span>
-              <span id="item-badge-\${i}" style="font-size:10px;background:#fef3c7;color:#b45309;padding:2px 6px;border-radius:4px;font-weight:500;\${isCustom ? '' : 'display:none;'}">CUSTOM</span>
+              <span class="text-sm font-medium text-slate-800">\${v.label}</span>
+              <span id="item-badge-\${i}" class="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-medium \${isCustom ? '' : 'hidden'}">CUSTOM</span>
             </div>
-            <button onclick="resetPrompt(\${i})" style="font-size:12px;color:#64748b;background:none;border:none;cursor:pointer;\${isCustom ? '' : 'display:none;'}" id="reset-btn-\${i}">
-              <i class="fas fa-undo" style="margin-right:4px;"></i>Reset
+            <button onclick="resetPrompt(\${i})" class="text-xs text-slate-500 hover:text-purple-600 transition \${isCustom ? '' : 'hidden'}" id="reset-btn-\${i}">
+              <i class="fas fa-undo mr-1"></i>Reset
             </button>
           </div>
           <textarea 
             id="prompt-\${i}" 
             rows="3" 
-            style="width:100%;font-size:13px;color:#334155;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;outline:none;resize:none;font-family:inherit;"
+            class="w-full text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded-lg p-3 resize-none focus:border-purple-500 focus:bg-white focus:outline-none transition"
             onchange="updateCustomPrompt(\${i}, this.value)"
             oninput="updateCustomPrompt(\${i}, this.value)"
-            onfocus="this.style.borderColor='#9333ea';this.style.background='white';"
-            onblur="this.style.borderColor='#e2e8f0';this.style.background='#f8fafc';"
             placeholder="Enter custom prompt..."
           >\${currentPrompt}</textarea>
         \`;
