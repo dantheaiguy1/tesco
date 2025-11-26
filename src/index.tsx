@@ -16,12 +16,12 @@ type Bindings = {
 // DUAL MODEL SUPPORT: Users can choose between quality vs speed
 //
 // BETTER (Default): Nano Banana Pro - gemini-3-pro-image-preview
-//   - Best quality image generation
+//   - Best quality image generation (Gemini 3 Pro)
 //   - ~3-4 seconds per image (~36 seconds for 10)
 //   - Cost: ~$0.03-0.05 per product shoot
 //
-// CHEAPER: Flash 2.0 - gemini-2.0-flash-exp  
-//   - Good quality, significantly faster
+// CHEAPER: Flash 2.5 - gemini-2.5-flash-preview-image-generation
+//   - Good quality, significantly faster (stable replacement for 2.0)
 //   - ~1-2 seconds per image (~15 seconds for 10)
 //   - Cost: ~$0.01-0.02 per product shoot
 //
@@ -31,13 +31,13 @@ const VERTEX_REGION = 'global';
 
 // Model configurations
 const MODELS: Record<string, string> = {
-  nano: 'gemini-3-pro-image-preview',           // BETTER - Nano Banana Pro (default)
-  flash: 'gemini-2.0-flash-preview-image-generation'  // CHEAPER - Flash 2.0
+  nano: 'gemini-3-pro-image-preview',              // BETTER - Nano Banana Pro (default)
+  flash: 'gemini-2.5-flash-preview-image-generation'  // CHEAPER - Flash 2.5 (stable)
 };
 
 const MODEL_INFO: Record<string, { name: string; speed: string; quality: string; totalTime: string }> = {
   nano: { name: 'Nano Pro', speed: '~3-4s per image', quality: 'Best', totalTime: '~36 seconds' },
-  flash: { name: 'Flash 2.0', speed: '~1-2s per image', quality: 'Good', totalTime: '~15 seconds' }
+  flash: { name: 'Flash 2.5', speed: '~1-2s per image', quality: 'Good', totalTime: '~15 seconds' }
 };
 
 // Default model for backwards compatibility
@@ -1153,6 +1153,7 @@ function getHomePage() {
       align-items: center;
       justify-content: center;
       gap: 12px;
+      pointer-events: none;  /* Allow clicks to pass through to image */
     }
     .image-card:hover .card-overlay { display: flex; }
     .card-overlay button {
@@ -1163,6 +1164,7 @@ function getHomePage() {
       border-radius: 50%;
       cursor: pointer;
       font-size: 14px;
+      pointer-events: auto;  /* Buttons remain clickable */
     }
     .card-label {
       font-size: 12px;
@@ -1458,7 +1460,7 @@ function getHomePage() {
         <div class="quality-options">
           <button class="quality-btn" data-model="flash" onclick="selectModel('flash')">
             <div class="q-label">Cheaper</div>
-            <div class="q-detail">Flash 2.0 · ~15s</div>
+            <div class="q-detail">Flash 2.5 · ~15s</div>
           </button>
           <button class="quality-btn active" data-model="nano" onclick="selectModel('nano')">
             <div class="q-label">Better</div>
@@ -1555,7 +1557,7 @@ function getHomePage() {
 
     const MODEL_INFO = {
       nano: { name: 'Nano Pro', time: '~36s' },
-      flash: { name: 'Flash 2.0', time: '~15s' }
+      flash: { name: 'Flash 2.5', time: '~15s' }
     };
 
     // Sidebar
