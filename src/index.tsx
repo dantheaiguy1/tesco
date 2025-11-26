@@ -11,8 +11,9 @@ type Bindings = {
 }
 
 // Vertex AI configuration
-const VERTEX_REGION = 'us-central1';
-const VERTEX_MODEL = 'gemini-2.0-flash-preview-image-generation';
+// IMPORTANT: Gemini 3 Pro Image Preview is GLOBAL ENDPOINT ONLY
+const VERTEX_REGION = 'global';
+const VERTEX_MODEL = 'gemini-3-pro-image-preview'; // Nano Banana Pro
 
 // Generate JWT for Google OAuth2
 async function createJWT(clientEmail: string, privateKey: string): Promise<string> {
@@ -91,7 +92,10 @@ async function generateImageWithVertex(
   try {
     const accessToken = await getAccessToken(clientEmail, privateKey);
     
-    const endpoint = `https://${VERTEX_REGION}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${VERTEX_REGION}/publishers/google/models/${VERTEX_MODEL}:generateContent`;
+    // Global endpoint uses aiplatform.googleapis.com without region prefix
+    const endpoint = VERTEX_REGION === 'global'
+      ? `https://aiplatform.googleapis.com/v1/projects/${projectId}/locations/${VERTEX_REGION}/publishers/google/models/${VERTEX_MODEL}:generateContent`
+      : `https://${VERTEX_REGION}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${VERTEX_REGION}/publishers/google/models/${VERTEX_MODEL}:generateContent`;
     
     const response = await fetch(endpoint, {
       method: 'POST',
