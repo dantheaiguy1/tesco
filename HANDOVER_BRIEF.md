@@ -235,6 +235,46 @@ All configured via `wrangler pages secret put`:
 - Added `SESSION_SECRET` for proper cookie signing
 - Fixed Stripe secrets binding via wrangler CLI
 
+### 6. Progressive Disclosure Conversion Flow (NEW)
+Complete implementation of the UX redesign for better signup conversion:
+
+**Anonymous Upload Flow:**
+- Guests can now upload images without logging in
+- New API endpoints: `/api/anonymous-upload`, `/api/preview-generate/:sessionId/:index`, `/api/claim-session`
+- Sessions created with `user_id = NULL` and `status = 'anonymous'`
+
+**Preview Generation (3 Free Variations):**
+- Anonymous users see original + 3 AI-generated previews
+- Remaining 7 variations shown as locked placeholders with "Sign up to unlock"
+- Preview badge on generated images
+- No credits charged for preview generation
+
+**Signup Gate Modal:**
+- Appears automatically after 3 previews are generated
+- Shows value proposition (all 10 variations, high-res downloads, history, etc.)
+- "Get 15 free credits" banner
+- Redirects to `/register?redirect=/results/{sessionId}?continue=1`
+- Login option for existing users
+
+**Post-Signup Auto-Generation:**
+- After signup, user is redirected back to results page with `?continue=1`
+- Session is claimed (linked to user account)
+- Remaining 7 variations are automatically generated
+
+**Guest Mode Homepage:**
+- New CSS class `body.guest-mode` hides sidebar for logged-out users
+- Clean header with logo + Login/Sign Up buttons
+- Centered upload zone (max-width: 520px)
+- "Get 15 free credits" banner above upload zone
+- Full sidebar experience only after login
+
+**New API Endpoints:**
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/anonymous-upload` | POST | Upload image without auth (creates anonymous session) |
+| `/api/preview-generate/:sessionId/:index` | POST | Generate 1 of 3 preview variations (free) |
+| `/api/claim-session` | POST | Link anonymous session to user after signup |
+
 ---
 
 ## Stripe Configuration
