@@ -5057,6 +5057,13 @@ function getHomePage(user?: User) {
 
     // Fetch and update credits display
     async function updateCreditsDisplay() {
+      // Skip for anonymous users - no need to fetch credits
+      if (!currentUser) {
+        const creditCountEl = document.getElementById('available-credit-count');
+        if (creditCountEl) creditCountEl.textContent = '--';
+        return;
+      }
+      
       try {
         const res = await fetch('/api/credits/balance');
         const data = await res.json();
@@ -5073,9 +5080,11 @@ function getHomePage(user?: User) {
           
           // Update indicator style based on total balance
           const totalBalance = cheaperCredits + betterCredits;
-          indicator.classList.remove('empty');
-          if (totalBalance === 0) {
-            indicator.classList.add('empty');
+          if (indicator) {
+            indicator.classList.remove('empty');
+            if (totalBalance === 0) {
+              indicator.classList.add('empty');
+            }
           }
           
           // Store current credits for paywall checks
@@ -5091,8 +5100,10 @@ function getHomePage(user?: User) {
           // Not logged in - show login prompt
           if (cheaperDisplay) cheaperDisplay.textContent = '0';
           if (betterDisplay) betterDisplay.textContent = '0';
-          indicator.classList.add('empty');
-          indicator.onclick = () => window.location.href = '/login';
+          if (indicator) {
+            indicator.classList.add('empty');
+            indicator.onclick = () => window.location.href = '/login';
+          }
         }
       } catch (e) {
         console.error('Failed to fetch credits:', e);
