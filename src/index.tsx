@@ -6330,7 +6330,7 @@ function getGetStartedPage() {
             <li>High-resolution downloads</li>
             <li>All variation types</li>
           </ul>
-          <button class="pricing-btn secondary" onclick="document.getElementById('signup-email').focus()">
+          <button class="pricing-btn secondary" onclick="scrollToSignup()">
             Sign Up Free
           </button>
         </div>
@@ -6356,7 +6356,7 @@ function getGetStartedPage() {
             <li>Monthly credit refresh</li>
             <li>Cancel anytime</li>
           </ul>
-          <button class="pricing-btn primary" onclick="document.getElementById('signup-email').focus()">
+          <button class="pricing-btn primary" onclick="scrollToSignup()">
             Get Started
           </button>
         </div>
@@ -6382,7 +6382,7 @@ function getGetStartedPage() {
             <li>Best quality AI model</li>
             <li>Priority support</li>
           </ul>
-          <button class="pricing-btn secondary" onclick="document.getElementById('signup-email').focus()">
+          <button class="pricing-btn secondary" onclick="scrollToSignup()">
             Get Started
           </button>
         </div>
@@ -6480,6 +6480,31 @@ function getGetStartedPage() {
   <script>
     const urlParams = new URLSearchParams(window.location.search);
     const redirectTo = urlParams.get('redirect') || '/';
+    
+    // Scroll to signup form and highlight it
+    function scrollToSignup() {
+      const authSection = document.querySelector('.auth-section');
+      const emailInput = document.getElementById('signup-email');
+      
+      // Ensure signup tab is active
+      showTab('signup');
+      
+      // Scroll to auth section (important on mobile)
+      authSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      
+      // Add highlight effect
+      authSection.style.transition = 'box-shadow 0.3s ease';
+      authSection.style.boxShadow = '0 0 0 4px rgba(139, 92, 246, 0.3), -4px 0 20px rgba(0,0,0,0.03)';
+      
+      // Focus email input after scroll
+      setTimeout(() => {
+        emailInput.focus();
+        // Remove highlight after a moment
+        setTimeout(() => {
+          authSection.style.boxShadow = '-4px 0 20px rgba(0,0,0,0.03)';
+        }, 1500);
+      }, 400);
+    }
     
     function showTab(tab) {
       document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
