@@ -2623,40 +2623,40 @@ function getHomePage(user?: User) {
       position: absolute;
       pointer-events: none;
       z-index: 0;
-      opacity: 0.7;
+      opacity: 0.6;
     }
     .deco-cube {
-      width: 120px;
-      height: 120px;
+      width: 80px;
+      height: 80px;
       background: linear-gradient(135deg, #60A5FA 0%, #3B82F6 100%);
-      border-radius: 24px;
-      top: 15%;
-      left: 8%;
+      border-radius: 16px;
+      top: 12%;
+      left: 6%;
       transform: rotate(-15deg);
       box-shadow: 
-        0 20px 60px rgba(59, 130, 246, 0.3),
-        inset 0 -8px 16px rgba(0,0,0,0.1),
-        inset 0 8px 16px rgba(255,255,255,0.4);
+        0 12px 36px rgba(59, 130, 246, 0.25),
+        inset 0 -4px 8px rgba(0,0,0,0.1),
+        inset 0 4px 8px rgba(255,255,255,0.4);
     }
     .deco-triangle {
       width: 0;
       height: 0;
-      border-left: 40px solid transparent;
-      border-right: 40px solid transparent;
-      border-bottom: 70px solid #A78BFA;
-      top: 25%;
-      right: 12%;
+      border-left: 28px solid transparent;
+      border-right: 28px solid transparent;
+      border-bottom: 48px solid #A78BFA;
+      top: 20%;
+      right: 10%;
       transform: rotate(15deg);
-      filter: drop-shadow(0 15px 30px rgba(167, 139, 250, 0.4));
+      filter: drop-shadow(0 10px 20px rgba(167, 139, 250, 0.35));
     }
     .deco-iso-cube {
-      width: 150px;
-      height: 150px;
-      top: 60%;
-      right: 5%;
+      width: 100px;
+      height: 100px;
+      top: 55%;
+      right: 4%;
       background: linear-gradient(135deg, #93C5FD 0%, #60A5FA 50%, #3B82F6 100%);
       clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
-      box-shadow: 0 25px 70px rgba(59, 130, 246, 0.35);
+      box-shadow: 0 16px 40px rgba(59, 130, 246, 0.3);
     }
     
     /* Header */
@@ -2683,51 +2683,52 @@ function getHomePage(user?: User) {
     .logo-text { font-size: 18px; font-weight: 700; color: #1F2937; }
     .hamburger { display: none; }
     
-    /* Upload area - centered, premium */
+    /* Upload area - centered, compact premium */
     .upload-container {
-      max-width: 720px;
+      max-width: 560px;
       margin: 0 auto;
-      padding: 64px 32px;
+      padding: 40px 24px;
       position: relative;
       z-index: 1;
     }
     .upload-header {
-      margin-bottom: 32px;
+      margin-bottom: 20px;
       text-align: center;
     }
     .upload-header h1 {
-      font-size: 48px;
-      font-weight: 800;
+      font-size: 32px;
+      font-weight: 700;
       color: #1F2937;
-      margin-bottom: 8px;
-      letter-spacing: -0.02em;
+      margin-bottom: 6px;
+      letter-spacing: -0.01em;
     }
     .upload-header p {
-      font-size: 18px;
+      font-size: 14px;
       color: #6B7280;
     }
     
     /* Upload zone - glassmorphism */
     .upload-zone {
       width: 100%;
-      min-height: 280px;
+      min-height: 180px;
       background: rgba(255, 255, 255, 0.7);
       backdrop-filter: blur(12px);
       -webkit-backdrop-filter: blur(12px);
       border: 2px dashed rgba(147, 197, 253, 0.5);
-      border-radius: 24px;
+      border-radius: 16px;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
       cursor: pointer;
       transition: all 0.3s ease;
-      box-shadow: 0 8px 32px rgba(59, 130, 246, 0.1);
+      box-shadow: 0 6px 24px rgba(59, 130, 246, 0.1);
+      padding: 24px;
     }
     .upload-zone:hover {
       border-color: rgba(59, 130, 246, 0.8);
       background: rgba(255, 255, 255, 0.85);
-      box-shadow: 0 12px 48px rgba(59, 130, 246, 0.2);
+      box-shadow: 0 8px 32px rgba(59, 130, 246, 0.2);
       transform: translateY(-2px);
     }
     .upload-zone.dragover {
@@ -2736,38 +2737,38 @@ function getHomePage(user?: User) {
       transform: scale(1.01);
     }
     .upload-icon {
-      width: 120px;
-      height: 120px;
-      margin-bottom: 20px;
+      width: 56px;
+      height: 56px;
+      margin-bottom: 12px;
       background: linear-gradient(135deg, #60A5FA 0%, #3B82F6 100%);
       border-radius: 50%;
       display: flex;
       align-items: center;
       justify-content: center;
       box-shadow: 
-        0 16px 48px rgba(59, 130, 246, 0.35),
-        inset 0 -4px 12px rgba(0,0,0,0.1),
-        inset 0 4px 12px rgba(255,255,255,0.5);
+        0 8px 24px rgba(59, 130, 246, 0.3),
+        inset 0 -2px 6px rgba(0,0,0,0.1),
+        inset 0 2px 6px rgba(255,255,255,0.5);
     }
     .upload-icon svg {
-      width: 56px;
-      height: 56px;
+      width: 24px;
+      height: 24px;
       color: white;
     }
     .upload-primary {
-      font-size: 20px;
+      font-size: 15px;
       font-weight: 600;
       color: #1F2937;
-      margin-bottom: 8px;
+      margin-bottom: 4px;
     }
     .upload-secondary {
-      font-size: 14px;
+      font-size: 12px;
       color: #6B7280;
     }
     .upload-formats {
-      font-size: 13px;
+      font-size: 11px;
       color: #9CA3AF;
-      margin-top: 16px;
+      margin-top: 10px;
     }
     
     /* Image preview */
@@ -2793,115 +2794,90 @@ function getHomePage(user?: User) {
     }
     .change-image:hover { text-decoration: underline; }
     
-    /* Quality selector - premium cards */
+    /* Quality selector - compact button style */
     .quality-section {
-      margin-top: 32px;
+      margin-top: 20px;
     }
     .quality-label {
-      font-size: 14px;
+      font-size: 12px;
       font-weight: 600;
-      color: #374151;
-      margin-bottom: 16px;
+      color: #6B7280;
+      margin-bottom: 10px;
       text-align: center;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
     }
     .quality-options {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 24px;
+      gap: 12px;
     }
     .quality-btn {
       position: relative;
-      padding: 32px 28px;
+      padding: 16px 20px;
       border: none;
-      border-radius: 20px;
+      border-radius: 12px;
       cursor: pointer;
-      transition: all 0.3s ease;
-      text-align: left;
+      transition: all 0.2s ease;
+      text-align: center;
       overflow: hidden;
     }
-    /* Standard card - blue gradient */
+    /* Standard button - blue gradient */
     .quality-btn[data-model="flash"] {
       background: linear-gradient(135deg, #60A5FA 0%, #3B82F6 100%);
-      box-shadow: 0 10px 40px rgba(59, 130, 246, 0.35);
-    }
-    .quality-btn[data-model="flash"]::before {
-      content: '';
-      position: absolute;
-      top: -20px;
-      left: -20px;
-      width: 80px;
-      height: 80px;
-      background: radial-gradient(circle, rgba(255,255,255,0.3) 0%, transparent 70%);
-      border-radius: 50%;
+      box-shadow: 0 4px 16px rgba(59, 130, 246, 0.3);
     }
     .quality-btn[data-model="flash"]:hover {
-      transform: translateY(-4px);
-      box-shadow: 0 16px 56px rgba(59, 130, 246, 0.45);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 24px rgba(59, 130, 246, 0.4);
     }
-    /* Pro card - gold gradient */
+    /* Pro button - gold/orange gradient */
     .quality-btn[data-model="nano"] {
       background: linear-gradient(135deg, #FBBF24 0%, #F59E0B 50%, #F97316 100%);
-      box-shadow: 0 10px 40px rgba(245, 158, 11, 0.35);
-    }
-    .quality-btn[data-model="nano"]::before {
-      content: '';
-      position: absolute;
-      top: -20px;
-      left: -20px;
-      width: 80px;
-      height: 80px;
-      background: radial-gradient(circle, rgba(255,255,255,0.3) 0%, transparent 70%);
-      border-radius: 50%;
+      box-shadow: 0 4px 16px rgba(245, 158, 11, 0.3);
     }
     .quality-btn[data-model="nano"]:hover {
-      transform: translateY(-4px);
-      box-shadow: 0 16px 56px rgba(245, 158, 11, 0.45);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 24px rgba(245, 158, 11, 0.4);
     }
     /* Active state - ring indicator */
     .quality-btn.active {
-      outline: 3px solid rgba(255,255,255,0.9);
-      outline-offset: 3px;
+      outline: 2px solid rgba(255,255,255,0.9);
+      outline-offset: 2px;
     }
     .quality-btn .q-label,
-    .quality-btn .q-detail,
-    .quality-btn .q-credits { color: white; }
+    .quality-btn .q-detail { color: white; }
     .q-label {
-      font-size: 22px;
+      font-size: 15px;
       font-weight: 700;
-      margin-bottom: 12px;
+      margin-bottom: 4px;
       display: flex;
       align-items: center;
-      gap: 8px;
+      justify-content: center;
+      gap: 6px;
     }
     .q-detail {
-      font-size: 14px;
-      opacity: 0.95;
-      margin-bottom: 8px;
-      line-height: 1.5;
+      font-size: 11px;
+      opacity: 0.9;
+      line-height: 1.4;
     }
     .q-credits {
-      font-size: 13px;
-      font-weight: 600;
-      opacity: 0.9;
+      display: none;
     }
     .q-price {
-      font-size: 24px;
-      font-weight: 800;
-      margin-top: 16px;
+      display: none;
     }
     .q-price-period {
-      font-size: 14px;
-      font-weight: 500;
-      opacity: 0.8;
+      display: none;
     }
     .model-credit-info {
-      margin-top: 20px;
-      padding: 14px 20px;
+      margin-top: 12px;
+      padding: 10px 16px;
       background: rgba(255, 255, 255, 0.8);
       backdrop-filter: blur(8px);
       border: 1px solid rgba(147, 197, 253, 0.4);
-      border-radius: 12px;
-      font-size: 14px;
+      border-radius: 8px;
+      font-size: 12px;
       color: #374151;
       text-align: center;
     }
@@ -2916,16 +2892,16 @@ function getHomePage(user?: User) {
       color: #92400E;
     }
     .nano-warning {
-      margin-top: 12px;
-      padding: 14px 20px;
+      margin-top: 8px;
+      padding: 10px 16px;
       background: rgba(254, 243, 199, 0.9);
-      border: 2px solid #F59E0B;
-      border-radius: 12px;
-      font-size: 13px;
+      border: 1px solid #F59E0B;
+      border-radius: 8px;
+      font-size: 11px;
       color: #92400E;
       text-align: center;
       display: none;
-      line-height: 1.6;
+      line-height: 1.5;
     }
     .nano-warning.show { display: block; animation: pulse 2s ease-in-out infinite; }
     @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.85; } }
@@ -2935,9 +2911,9 @@ function getHomePage(user?: User) {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      gap: 8px;
-      margin-top: 20px;
-      font-size: 14px;
+      gap: 6px;
+      margin-top: 12px;
+      font-size: 12px;
       color: #6366F1;
       cursor: pointer;
       width: 100%;
@@ -2948,22 +2924,22 @@ function getHomePage(user?: User) {
     /* Generate button - purple gradient */
     .generate-btn {
       display: block;
-      width: auto;
-      margin: 32px auto 0;
-      padding: 18px 72px;
+      width: 100%;
+      margin: 16px auto 0;
+      padding: 14px 32px;
       background: linear-gradient(135deg, #8B5CF6 0%, #6366F1 100%);
       color: white;
       border: none;
-      border-radius: 14px;
-      font-size: 18px;
-      font-weight: 700;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 600;
       cursor: pointer;
-      box-shadow: 0 8px 32px rgba(139, 92, 246, 0.4);
-      transition: all 0.3s ease;
+      box-shadow: 0 4px 16px rgba(139, 92, 246, 0.35);
+      transition: all 0.2s ease;
     }
     .generate-btn:hover:not(:disabled) {
-      transform: translateY(-3px);
-      box-shadow: 0 12px 48px rgba(139, 92, 246, 0.5);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 24px rgba(139, 92, 246, 0.45);
     }
     .generate-btn:disabled {
       opacity: 0.5;
@@ -3296,39 +3272,44 @@ function getHomePage(user?: User) {
         margin-right: 12px;
       }
       .upload-container {
-        padding: 32px 20px;
+        padding: 24px 16px;
         max-width: 100%;
       }
       .upload-header h1 {
-        font-size: 32px;
+        font-size: 24px;
       }
       .upload-header p {
-        font-size: 15px;
+        font-size: 13px;
       }
       .upload-zone {
-        min-height: 220px;
+        min-height: 140px;
+        padding: 20px;
       }
       .upload-icon {
-        width: 80px;
-        height: 80px;
+        width: 44px;
+        height: 44px;
       }
       .upload-icon svg {
-        width: 36px;
-        height: 36px;
+        width: 20px;
+        height: 20px;
       }
       .quality-options {
-        grid-template-columns: 1fr;
-        gap: 16px;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
       }
       .quality-btn {
-        padding: 24px 20px;
+        padding: 12px 14px;
       }
       .q-label {
-        font-size: 18px;
+        font-size: 13px;
+      }
+      .q-detail {
+        font-size: 10px;
       }
       .generate-btn {
         width: 100%;
-        padding: 16px 32px;
+        padding: 12px 24px;
+        font-size: 14px;
       }
       /* Hide 3D decorations on mobile */
       .deco-shape {
@@ -3510,19 +3491,15 @@ function getHomePage(user?: User) {
 
       <!-- Quality Selector -->
       <div class="quality-section">
-        <div class="quality-label">Choose Your Quality</div>
+        <div class="quality-label">Select Quality</div>
         <div class="quality-options">
           <button class="quality-btn active" data-model="flash" onclick="selectModel('flash')">
-            <div class="q-label">⚡ STANDARD</div>
-            <div class="q-detail">Amazing shoot quality<br>Fast & reliable results</div>
-            <div class="q-credits">Uses Standard Credits</div>
-            <div class="q-price">£39<span class="q-price-period">/month</span></div>
+            <div class="q-label">⚡ Standard</div>
+            <div class="q-detail">Fast & reliable</div>
           </button>
           <button class="quality-btn" data-model="nano" onclick="selectModel('nano')">
-            <div class="q-label">✨ PRO</div>
-            <div class="q-detail">The best quality shoot possible<br>Beta model - may be slow</div>
-            <div class="q-credits">Uses Pro Credits</div>
-            <div class="q-price">£129<span class="q-price-period">/month</span></div>
+            <div class="q-label">✨ Pro</div>
+            <div class="q-detail">Best quality (Beta)</div>
           </button>
         </div>
         <div id="model-credit-info" class="model-credit-info">
@@ -3530,8 +3507,8 @@ function getHomePage(user?: User) {
           You have: <strong id="available-credit-count">--</strong> credits
         </div>
         <div id="nano-warning" class="nano-warning">
-          ⚠️ <strong>Pro</strong> model is currently in beta and may experience slower generation times (60-90+ seconds). 
-          <br>For faster results, use the <strong>Standard</strong> model (~8 seconds per image).
+          ⚠️ <strong>Pro</strong> is in beta and may be slower (60-90s). 
+          Use <strong>Standard</strong> for faster results (~8s per image).
         </div>
       </div>
 
