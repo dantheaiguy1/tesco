@@ -4587,16 +4587,29 @@ function getHomePage(user?: User) {
       console.log('[Generate] isAnonymousSession:', isAnonymousSession);
       console.log('[Generate] currentSessionId:', currentSessionId);
 
-      // Anonymous user flow: generate 3 previews then show signup modal
-      // Check both isAnonymousSession flag AND currentUser to be safe
-      if (isAnonymousSession || !currentUser) {
-        console.log('[Generate] Using anonymous preview flow');
+      // CRITICAL: Verify auth status with server before allowing full generation
+      // This prevents any frontend state manipulation from bypassing auth
+      try {
+        const authCheck = await fetch('/api/auth/me', { credentials: 'include' });
+        const authData = await authCheck.json();
+        
+        // If server says not authenticated, force anonymous flow
+        if (!authData.user) {
+          console.log('[Generate] Server auth check failed - forcing anonymous flow');
+          await generateAnonymousPreviews();
+          return;
+        }
+        
+        // Update currentUser from server response to stay in sync
+        currentUser = authData.user;
+      } catch (e) {
+        console.log('[Generate] Auth check error - forcing anonymous flow:', e);
         await generateAnonymousPreviews();
         return;
       }
 
-      // Regular logged-in user flow
-      console.log('[Generate] Using full generation flow');
+      // Regular logged-in user flow (only reaches here if server confirms auth)
+      console.log('[Generate] Server confirmed auth - using full generation flow');
       await generateFullVariations();
     }
 
