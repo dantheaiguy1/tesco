@@ -4582,13 +4582,21 @@ function getHomePage(user?: User) {
         return;
       }
 
+      // Debug logging
+      console.log('[Generate] currentUser:', currentUser);
+      console.log('[Generate] isAnonymousSession:', isAnonymousSession);
+      console.log('[Generate] currentSessionId:', currentSessionId);
+
       // Anonymous user flow: generate 3 previews then show signup modal
-      if (isAnonymousSession) {
+      // Check both isAnonymousSession flag AND currentUser to be safe
+      if (isAnonymousSession || !currentUser) {
+        console.log('[Generate] Using anonymous preview flow');
         await generateAnonymousPreviews();
         return;
       }
 
       // Regular logged-in user flow
+      console.log('[Generate] Using full generation flow');
       await generateFullVariations();
     }
 
@@ -4843,6 +4851,13 @@ function getHomePage(user?: User) {
         const data = await res.json();
         console.log('[Generate] Response for variation', index, ':', data.success ? 'SUCCESS' : 'FAILED', data.error || '');
         const card = document.getElementById('card-' + index);
+        
+        if (data.needsAuth) {
+          // Not logged in - shouldn't happen but handle gracefully
+          console.log('[Generate] Auth required - showing signup gate');
+          showSignupGate();
+          return;
+        }
         
         if (data.success && data.image) {
           lightboxImages[index] = { src: data.image, label: v.label };
