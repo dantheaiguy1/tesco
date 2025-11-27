@@ -1607,193 +1607,8 @@ app.post('/api/upload', async (c) => {
 // ============================================================================
 // ANONYMOUS UPLOAD FLOW - Progressive Disclosure for Conversion
 // ============================================================================
-// Allow guests to upload and see 3 preview variations before requiring signup
-
-// API: Anonymous upload - creates temporary session without auth
-app.post('/api/anonymous-upload', async (c) => {
-  try {
-    const db = c.env.TESCO_DB
-    await ensureDatabase(db)
-    
-    const formData = await c.req.formData()
-    const file = formData.get('image') as File
-    const thumbnail = formData.get('thumbnail') as string | null
-    const model = (formData.get('model') as string) || DEFAULT_MODEL
-    
-    if (!file) {
-      return c.json({ success: false, error: 'No image file provided' }, 400)
-    }
-
-    // Check file size (10MB max)
-    if (file.size > 10 * 1024 * 1024) {
-      return c.json({ success: false, error: 'File too large. Maximum size is 10MB.' }, 400)
-    }
-
-    // Check file type
-    const validTypes = ['image/jpeg', 'image/png', 'image/webp']
-    if (!validTypes.includes(file.type)) {
-      return c.json({ success: false, error: 'Invalid file type. Please upload JPG, PNG, or WebP.' }, 400)
-    }
-
-    // Convert to base64 data URL
-    const buffer = await file.arrayBuffer()
-    const bytes = new Uint8Array(buffer)
-    let binary = ''
-    const chunkSize = 8192
-    for (let i = 0; i < bytes.length; i += chunkSize) {
-      const chunk = bytes.subarray(i, i + chunkSize)
-      binary += String.fromCharCode.apply(null, chunk as any)
-    }
-    const base64 = btoa(binary)
-    const dataUrl = `data:${file.type};base64,${base64}`
-
-    // Create anonymous session (user_id = NULL indicates anonymous)
-    const sessionId = generateId()
-    const productName = file.name.replace(/\.[^.]+$/, '')
-    
-    await db.prepare(`
-      INSERT INTO sessions (id, product_name, source_type, original_image, status, model, user_id)
-      VALUES (?, ?, 'upload', ?, 'pending', ?, NULL)
-    `).bind(sessionId, productName, thumbnail || '', model).run()
-
-    return c.json({ 
-      success: true, 
-      sessionId, 
-      originalImage: dataUrl, 
-      model,
-      isAnonymous: true
-    })
-  } catch (error: any) {
-    console.error('Anonymous upload error:', error)
-    return c.json({ success: false, error: 'Failed to process upload', details: error?.message || String(error) }, 500)
-  }
-})
-
-// API: Generate preview variations (3 free for anonymous users)
-app.post('/api/preview-generate/:sessionId/:index', async (c) => {
-  try {
-    const db = c.env.TESCO_DB
-    const sessionId = c.req.param('sessionId')
-    const index = parseInt(c.req.param('index'))
-    
-    // Only allow indices 0, 1, 2 for preview (first 3 variations after original)
-    if (index < 0 || index > 2) {
-      return c.json({ success: false, error: 'Preview limited to 3 variations. Sign up to get all 10!' }, 403)
-    }
-    
-    // Get session
-    const session = await db.prepare('SELECT * FROM sessions WHERE id = ?').bind(sessionId).first() as any
-    if (!session) {
-      return c.json({ success: false, error: 'Session not found' }, 404)
-    }
-    
-    // Parse request body
-    const body = await c.req.json()
-    const { originalImage, productName, model: requestModel } = body
-    const model = requestModel || session.model || DEFAULT_MODEL
-    
-    if (!originalImage) {
-      return c.json({ success: false, error: 'No image provided' }, 400)
-    }
-
-    // Parse the data URL
-    const matches = originalImage.match(/^data:([^;]+);base64,(.+)$/)
-    if (!matches) {
-      return c.json({ success: false, error: 'Invalid image format' }, 400)
-    }
-    const [, mimeType, base64Data] = matches
-
-    // Variation prompts (same as regular generation)
-    const prompts = [
-      `Create a professional product photography image of "${productName || 'this product'}". Show an extreme close-up macro shot highlighting the texture, material quality, and fine details of the product. Use dramatic studio lighting to emphasize surface texture. Output a single photorealistic image.`,
-      `Create a professional product photography image of "${productName || 'this product'}". Focus on the label, logo, or branding elements. Show clear, readable text and brand identity. Clean composition with the brand as hero. Output a single photorealistic image.`,
-      `Create a professional product photography image of "${productName || 'this product'}". Highlight construction details, stitching, joints, or assembly quality. Show craftsmanship and build quality. Technical angle that reveals how it's made. Output a single photorealistic image.`
-    ]
-
-    const prompt = prompts[index]
-    
-    // Generate using Vertex AI (free preview - no credits charged)
-    const result = await generateImageWithVertex(
-      c.env.VERTEX_PROJECT_ID,
-      c.env.VERTEX_CLIENT_EMAIL,
-      c.env.VERTEX_PRIVATE_KEY,
-      base64Data,
-      mimeType,
-      prompt,
-      model
-    )
-
-    if (!result.success) {
-      return c.json({ success: false, error: result.error }, 500)
-    }
-
-    // Save to database
-    const variationTypes = ['macro_texture', 'label_branding', 'construction_detail']
-    
-    // Check if record exists
-    const existing = await db.prepare(`
-      SELECT id FROM generated_images WHERE session_id = ? AND variation_index = ?
-    `).bind(sessionId, index).first()
-    
-    if (existing) {
-      await db.prepare(`
-        UPDATE generated_images SET image_data = ?, model = ? WHERE session_id = ? AND variation_index = ?
-      `).bind(result.image, model, sessionId, index).run()
-    } else {
-      await db.prepare(`
-        INSERT INTO generated_images (session_id, variation_type, variation_index, image_data, model)
-        VALUES (?, ?, ?, ?, ?)
-      `).bind(sessionId, variationTypes[index], index, result.image, model).run()
-    }
-
-    return c.json({ 
-      success: true, 
-      image: result.image,
-      variationType: variationTypes[index],
-      isPreview: true,
-      previewComplete: index === 2  // Signal when all 3 previews done
-    })
-  } catch (error: any) {
-    console.error('Preview generation error:', error)
-    return c.json({ success: false, error: 'Generation failed', details: error?.message || String(error) }, 500)
-  }
-})
-
-// API: Claim anonymous session after signup (link to user account)
-app.post('/api/claim-session', async (c) => {
-  try {
-    const db = c.env.TESCO_DB
-    const user = c.get('user')
-    
-    if (!user) {
-      return c.json({ success: false, error: 'Authentication required' }, 401)
-    }
-    
-    const { sessionId } = await c.req.json()
-    if (!sessionId) {
-      return c.json({ success: false, error: 'Session ID required' }, 400)
-    }
-    
-    // Get the anonymous session
-    const session = await db.prepare('SELECT * FROM sessions WHERE id = ? AND user_id IS NULL').bind(sessionId).first() as any
-    if (!session) {
-      return c.json({ success: false, error: 'Session not found or already claimed' }, 404)
-    }
-    
-    // Link session to user (use 'pending' status - valid for DB constraint)
-    await db.prepare('UPDATE sessions SET user_id = ? WHERE id = ?')
-      .bind(user.id, sessionId).run()
-    
-    return c.json({ 
-      success: true, 
-      sessionId,
-      message: 'Session claimed successfully. You can now generate all 10 variations!'
-    })
-  } catch (error: any) {
-    console.error('Claim session error:', error)
-    return c.json({ success: false, error: 'Failed to claim session' }, 500)
-  }
-})
+// REMOVED: Anonymous upload, preview generation, and claim-session endpoints
+// All users must sign up/login before uploading or generating images
 
 // API: Scrape URL (requires auth + credits)
 app.post('/api/scrape', async (c) => {
@@ -4516,8 +4331,7 @@ function getHomePage(user?: User) {
     }
 
     // Track anonymous session state
-    let isAnonymousSession = false;
-    let anonymousPreviewsGenerated = 0;
+    // Removed: isAnonymousSession and anonymousPreviewsGenerated (auth required for all generation)
 
     async function uploadImage() {
       if (!selectedFile) return;
@@ -4541,29 +4355,21 @@ function getHomePage(user?: User) {
       ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
       formData.append('thumbnail', canvas.toDataURL('image/jpeg', 0.7));
 
-      // Determine endpoint based on auth status
-      const isLoggedIn = !!currentUser;
-      const endpoint = isLoggedIn ? '/api/upload' : '/api/anonymous-upload';
+      // SECURITY: Redirect to signup if not logged in
+      if (!currentUser) {
+        window.location.href = '/get-started?redirect=' + encodeURIComponent(window.location.pathname);
+        return;
+      }
 
       try {
-        const res = await fetch(endpoint, { method: 'POST', body: formData });
+        const res = await fetch('/api/upload', { method: 'POST', body: formData });
         const data = await res.json();
         if (data.success) {
           currentSessionId = data.sessionId;
-          isAnonymousSession = !isLoggedIn;
-          if (isLoggedIn) {
-            loadSessions();
-          }
+          loadSessions();
         } else if (data.needsAuth) {
-          // Fallback: use anonymous upload for guests
-          const anonRes = await fetch('/api/anonymous-upload', { method: 'POST', body: formData });
-          const anonData = await anonRes.json();
-          if (anonData.success) {
-            currentSessionId = anonData.sessionId;
-            isAnonymousSession = true;
-          } else {
-            showError(anonData.error || 'Upload failed');
-          }
+          // Server says not authenticated - redirect to signup
+          window.location.href = '/get-started?redirect=' + encodeURIComponent(window.location.pathname);
         } else if (data.needsUpgrade) {
           showPaywallModal(data.required, data.current);
         } else {
@@ -4575,210 +4381,37 @@ function getHomePage(user?: User) {
       }
     }
 
-    // Generation
+    // Generation - requires authentication
     async function generateVariations() {
       if (!currentSessionId || !currentOriginalImage) {
         showError('Please upload an image first');
         return;
       }
 
-      // Debug logging
-      console.log('[Generate] currentUser:', currentUser);
-      console.log('[Generate] isAnonymousSession:', isAnonymousSession);
-      console.log('[Generate] currentSessionId:', currentSessionId);
-
-      // CRITICAL: Verify auth status with server before allowing full generation
-      // This prevents any frontend state manipulation from bypassing auth
+      // SECURITY: Verify auth with server before generation
       try {
         const authCheck = await fetch('/api/auth/me', { credentials: 'include' });
         const authData = await authCheck.json();
         
-        // If server says not authenticated, force anonymous flow
         if (!authData.user) {
-          console.log('[Generate] Server auth check failed - forcing anonymous flow');
-          await generateAnonymousPreviews();
+          // Not authenticated - redirect to signup
+          window.location.href = '/get-started?redirect=' + encodeURIComponent(window.location.pathname);
           return;
         }
         
-        // Update currentUser from server response to stay in sync
+        // Update currentUser from server
         currentUser = authData.user;
       } catch (e) {
-        console.log('[Generate] Auth check error - forcing anonymous flow:', e);
-        await generateAnonymousPreviews();
+        // Auth check failed - redirect to signup
+        window.location.href = '/get-started?redirect=' + encodeURIComponent(window.location.pathname);
         return;
       }
 
-      // Regular logged-in user flow (only reaches here if server confirms auth)
-      console.log('[Generate] Server confirmed auth - using full generation flow');
+      // Authenticated - proceed with full generation
       await generateFullVariations();
     }
 
-    // Anonymous preview generation (3 variations free)
-    async function generateAnonymousPreviews() {
-      document.getElementById('upload-screen').style.display = 'none';
-      document.getElementById('results-screen').style.display = 'block';
-      document.getElementById('product-name-edit').value = selectedFile?.name?.replace(/\\.[^.]+$/, '') || 'Product';
-
-      const grid = document.getElementById('thumb-grid');
-      lightboxImages = [];
-      
-      // Build grid: Original + 3 previews + 7 locked placeholders
-      grid.innerHTML = variationDefs.map((v, i) => {
-        if (v.isOriginal) {
-          lightboxImages.push({ src: currentOriginalImage, label: 'Original' });
-          return '<div class="image-card" id="card-' + i + '">' +
-            '<img src="' + currentOriginalImage + '" onclick="openLightbox(' + i + ')">' +
-            '<div class="card-label">Original</div>' +
-          '</div>';
-        }
-        // First 3 variations: generate preview
-        if (i <= 3) {
-          return '<div class="image-card" id="card-' + i + '">' +
-            '<div class="card-loading" style="width:100%; aspect-ratio:1; border-radius:6px;"></div>' +
-            '<div class="card-progress"><div class="card-progress-bar" id="progress-' + i + '" style="width:0%"></div></div>' +
-            '<div class="card-label">' + v.label + '</div>' +
-          '</div>';
-        }
-        // Remaining 7: locked placeholders
-        return '<div class="image-card locked" id="card-' + i + '" onclick="showSignupGate()">' +
-          '<div class="locked-placeholder">' +
-            '<div class="lock-icon">🔒</div>' +
-            '<div class="lock-text">Sign up to unlock</div>' +
-          '</div>' +
-          '<div class="card-label">' + v.label + '</div>' +
-        '</div>';
-      }).join('');
-
-      // Generate 3 preview variations
-      const previewPromises = [];
-      for (let i = 0; i < 3; i++) {
-        previewPromises.push(generatePreviewSingle(i + 1, i));
-      }
-      await Promise.allSettled(previewPromises);
-
-      // Show signup gate modal after previews complete
-      setTimeout(() => showSignupGate(), 1500);
-    }
-
-    // Generate a single preview variation (for anonymous users)
-    async function generatePreviewSingle(cardIndex, previewIndex) {
-      const v = variationDefs[cardIndex];
-      const progressBar = document.getElementById('progress-' + cardIndex);
-      
-      let progress = 0;
-      const interval = setInterval(() => {
-        progress = Math.min(95, progress + 2);
-        if (progressBar) progressBar.style.width = progress + '%';
-      }, 500);
-
-      try {
-        const res = await fetch('/api/preview-generate/' + currentSessionId + '/' + previewIndex, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            originalImage: currentOriginalImage,
-            productName: document.getElementById('product-name-edit')?.value || 'Product',
-            model: selectedModel
-          })
-        });
-
-        clearInterval(interval);
-        const data = await res.json();
-        const card = document.getElementById('card-' + cardIndex);
-        
-        if (data.success && data.image) {
-          lightboxImages[cardIndex] = { src: data.image, label: v.label };
-          card.innerHTML = '<img src="' + data.image + '" onclick="openLightbox(' + cardIndex + ')">' +
-            '<div class="preview-badge">Preview</div>' +
-            '<div class="card-label">' + v.label + '</div>';
-          anonymousPreviewsGenerated++;
-        } else {
-          card.innerHTML = '<div style="width:100%; aspect-ratio:1; background:#FEE2E2; border-radius:6px; display:flex; align-items:center; justify-content:center; color:#DC2626;">⚠️</div>' +
-            '<div class="card-label">' + v.label + '</div>';
-        }
-      } catch (e) {
-        clearInterval(interval);
-        const card = document.getElementById('card-' + cardIndex);
-        card.innerHTML = '<div style="width:100%; aspect-ratio:1; background:#FEE2E2; border-radius:6px; display:flex; align-items:center; justify-content:center; color:#DC2626;">⚠️</div>' +
-          '<div class="card-label">' + variationDefs[cardIndex].label + '</div>';
-      }
-    }
-
-    // Show signup gate modal
-    function showSignupGate() {
-      const modal = document.getElementById('signup-gate-modal');
-      if (modal) modal.classList.add('show');
-    }
-
-    function closeSignupGate() {
-      const modal = document.getElementById('signup-gate-modal');
-      if (modal) modal.classList.remove('show');
-    }
-
-    // After signup: claim session and generate remaining variations
-    async function claimAndGenerate() {
-      if (!currentSessionId) return;
-      
-      try {
-        // Claim the anonymous session
-        const claimRes = await fetch('/api/claim-session', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sessionId: currentSessionId })
-        });
-        const claimData = await claimRes.json();
-        
-        if (claimData.success) {
-          isAnonymousSession = false;
-          // Generate remaining 7 variations
-          await generateRemainingVariations();
-        }
-      } catch (e) {
-        console.error('Claim failed:', e);
-        showError('Failed to claim session');
-      }
-    }
-
-    // Generate remaining 7 variations after signup
-    async function generateRemainingVariations() {
-      const startTime = Date.now();
-      
-      // Update locked cards to loading state
-      for (let i = 4; i < variationDefs.length; i++) {
-        const card = document.getElementById('card-' + i);
-        if (card) {
-          card.classList.remove('locked');
-          card.onclick = null;
-          card.innerHTML = '<div class="card-loading" style="width:100%; aspect-ratio:1; border-radius:6px;"></div>' +
-            '<div class="card-progress"><div class="card-progress-bar" id="progress-' + i + '" style="width:0%"></div></div>' +
-            '<div class="card-label">' + variationDefs[i].label + '</div>';
-        }
-      }
-
-      // Generate remaining variations (indices 3-9 for API, cards 4-10)
-      const promises = [];
-      for (let i = 4; i < variationDefs.length; i++) {
-        promises.push(generateSingle(i, startTime));
-      }
-      await Promise.allSettled(promises);
-      
-      // Complete session
-      try {
-        const completeRes = await fetch('/api/sessions/' + currentSessionId + '/complete', {
-          method: 'POST'
-        });
-        const completeData = await completeRes.json();
-        if (completeData.success) {
-          console.log('Generation complete. Credits charged:', completeData.credits_charged);
-        }
-        loadSessions();
-        updateCreditsDisplay();
-      } catch (e) {
-        console.error('Failed to complete session:', e);
-      }
-    }
-
-    // Full generation for logged-in users
+    // Full generation for authenticated users
     async function generateFullVariations() {
       document.getElementById('upload-screen').style.display = 'none';
       document.getElementById('results-screen').style.display = 'block';
