@@ -5749,6 +5749,29 @@ function getRegisterPage() {
       color: #166534;
       margin-top: 12px;
     }
+    .plan-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 14px;
+      background: linear-gradient(135deg, #EEF2FF 0%, #E0E7FF 100%);
+      border: 1px solid #C7D2FE;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #4338CA;
+      margin-top: 12px;
+    }
+    .plan-badge.standard {
+      background: linear-gradient(135deg, #DBEAFE 0%, #BFDBFE 100%);
+      border-color: #93C5FD;
+      color: #1D4ED8;
+    }
+    .plan-badge.pro {
+      background: linear-gradient(135deg, #F3E8FF 0%, #E9D5FF 100%);
+      border-color: #C4B5FD;
+      color: #7C3AED;
+    }
   </style>
 </head>
 <body>
@@ -5764,9 +5787,9 @@ function getRegisterPage() {
         <span class="auth-logo-text">ShopShot</span>
       </div>
       
-      <h1 class="auth-title">Create Account</h1>
-      <p class="auth-subtitle">Start generating professional product photos</p>
-      <div style="text-align:center;">
+      <h1 class="auth-title" id="page-title">Create Account</h1>
+      <p class="auth-subtitle" id="page-subtitle">Start generating professional product photos</p>
+      <div style="text-align:center;" id="badge-container">
         <span class="bonus-badge">🎁 Get ${CREDITS.SIGNUP_CHEAPER + CREDITS.SIGNUP_BETTER} free credits on signup!</span>
       </div>
       
@@ -5795,16 +5818,38 @@ function getRegisterPage() {
   </div>
 
   <script>
-    // Get redirect param from URL
+    // Get params from URL
     const urlParams = new URLSearchParams(window.location.search);
     const redirectTo = urlParams.get('redirect');
+    const selectedPlan = urlParams.get('plan'); // 'free', 'standard', or 'pro'
     
-    // Update login link to preserve redirect
-    if (redirectTo) {
-      const loginLink = document.querySelector('#login-link a');
-      if (loginLink) {
-        loginLink.href = '/login?redirect=' + encodeURIComponent(redirectTo);
-      }
+    // Update page based on selected plan
+    const title = document.getElementById('page-title');
+    const subtitle = document.getElementById('page-subtitle');
+    const badge = document.getElementById('badge-container');
+    const btn = document.getElementById('submit-btn');
+    
+    if (selectedPlan === 'standard') {
+      title.textContent = 'Get Standard Plan';
+      subtitle.textContent = 'Create account to start your subscription';
+      badge.innerHTML = '<span class="plan-badge standard">⚡ Standard Plan - £${PRICING.STANDARD}/month</span>';
+      btn.textContent = 'Create Account & Subscribe';
+    } else if (selectedPlan === 'pro') {
+      title.textContent = 'Get Pro Plan';
+      subtitle.textContent = 'Create account to start your subscription';
+      badge.innerHTML = '<span class="plan-badge pro">🚀 Pro Plan - £${PRICING.PRO}/month</span>';
+      btn.textContent = 'Create Account & Subscribe';
+    }
+    
+    // Update login link to preserve params
+    const loginLink = document.querySelector('#login-link a');
+    if (loginLink) {
+      let loginUrl = '/login';
+      const params = [];
+      if (redirectTo) params.push('redirect=' + encodeURIComponent(redirectTo));
+      if (selectedPlan) params.push('plan=' + selectedPlan);
+      if (params.length) loginUrl += '?' + params.join('&');
+      loginLink.href = loginUrl;
     }
     
     async function handleRegister(e) {
@@ -5813,7 +5858,7 @@ function getRegisterPage() {
       const errEl = document.getElementById('error-msg');
       
       btn.disabled = true;
-      btn.textContent = 'Creating account...';
+      btn.textContent = selectedPlan && selectedPlan !== 'free' ? 'Creating account...' : 'Creating account...';
       errEl.classList.remove('show');
       
       try {
@@ -5830,19 +5875,39 @@ function getRegisterPage() {
         const data = await res.json();
         
         if (data.success) {
-          // Redirect to original page or home
-          window.location.href = redirectTo || '/?welcome=1';
+          // If paid plan selected, trigger Stripe checkout
+          if (selectedPlan === 'standard' || selectedPlan === 'pro') {
+            btn.textContent = 'Redirecting to payment...';
+            
+            const checkoutRes = await fetch('/api/billing/create-checkout', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ type: 'subscription', plan: selectedPlan })
+            });
+            
+            const checkoutData = await checkoutRes.json();
+            
+            if (checkoutData.success && checkoutData.url) {
+              window.location.href = checkoutData.url;
+            } else {
+              // Checkout failed, but account created - go to pricing page
+              window.location.href = '/pricing?signup=success&checkout=failed';
+            }
+          } else {
+            // Free plan - just redirect
+            window.location.href = redirectTo || '/?welcome=1';
+          }
         } else {
           errEl.textContent = data.error || 'Registration failed';
           errEl.classList.add('show');
           btn.disabled = false;
-          btn.textContent = 'Create Account';
+          btn.textContent = selectedPlan && selectedPlan !== 'free' ? 'Create Account & Subscribe' : 'Create Account';
         }
       } catch (err) {
         errEl.textContent = 'Something went wrong. Please try again.';
         errEl.classList.add('show');
         btn.disabled = false;
-        btn.textContent = 'Create Account';
+        btn.textContent = selectedPlan && selectedPlan !== 'free' ? 'Create Account & Subscribe' : 'Create Account';
       }
     }
   </script>
@@ -6284,6 +6349,35 @@ function getGetStartedPage() {
       text-align: center;
     }
     .auth-help a { color: #8B5CF6; text-decoration: none; }
+    
+    .signup-prompt {
+      text-align: center;
+      padding: 20px;
+      background: linear-gradient(135deg, #F0FDF4 0%, #DCFCE7 100%);
+      border: 1px solid #BBF7D0;
+      border-radius: 12px;
+      margin-bottom: 16px;
+    }
+    .signup-prompt p {
+      font-size: 13px;
+      color: #166534;
+      margin-bottom: 8px;
+    }
+    .signup-link {
+      display: inline-block;
+      padding: 10px 24px;
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      color: white;
+      text-decoration: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      transition: all 0.2s;
+    }
+    .signup-link:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
+    }
   </style>
 </head>
 <body>
@@ -6330,9 +6424,9 @@ function getGetStartedPage() {
             <li>High-resolution downloads</li>
             <li>All variation types</li>
           </ul>
-          <button class="pricing-btn secondary" onclick="scrollToSignup()">
+          <a href="/register?plan=free" class="pricing-btn secondary">
             Sign Up Free
-          </button>
+          </a>
         </div>
         
         <!-- Standard Plan -->
@@ -6356,9 +6450,9 @@ function getGetStartedPage() {
             <li>Monthly credit refresh</li>
             <li>Cancel anytime</li>
           </ul>
-          <button class="pricing-btn primary" onclick="scrollToSignup()">
+          <a href="/register?plan=standard" class="pricing-btn primary">
             Get Started
-          </button>
+          </a>
         </div>
         
         <!-- Pro Plan -->
@@ -6382,9 +6476,9 @@ function getGetStartedPage() {
             <li>Best quality AI model</li>
             <li>Priority support</li>
           </ul>
-          <button class="pricing-btn secondary" onclick="scrollToSignup()">
+          <a href="/register?plan=pro" class="pricing-btn secondary">
             Get Started
-          </button>
+          </a>
         </div>
       </div>
       
@@ -6414,45 +6508,17 @@ function getGetStartedPage() {
       </div>
     </section>
     
-    <!-- Right: Auth (25%) -->
+    <!-- Right: Login (25%) -->
     <section class="auth-section">
       <div class="auth-header">
-        <h2 id="auth-title">Create Account</h2>
-        <p id="auth-subtitle">Start generating professional photos</p>
-      </div>
-      
-      <div class="free-banner">
-        <span>🎁</span>
-        <p>${CREDITS.SIGNUP_CHEAPER + CREDITS.SIGNUP_BETTER} Free Credits!</p>
-      </div>
-      
-      <div class="auth-tabs">
-        <button class="auth-tab active" onclick="showTab('signup')">Sign Up</button>
-        <button class="auth-tab" onclick="showTab('login')">Log In</button>
+        <h2>Welcome Back</h2>
+        <p>Log in to your account</p>
       </div>
       
       <div id="error-msg" class="error-msg"></div>
       
-      <!-- Signup Form -->
-      <form id="signup-form" class="auth-form active" onsubmit="handleSignup(event)">
-        <div class="form-group">
-          <label class="form-label">Email</label>
-          <input type="email" id="signup-email" class="form-input" placeholder="you@example.com" required>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Password</label>
-          <input type="password" id="signup-password" class="form-input" placeholder="At least 6 characters" required minlength="6">
-        </div>
-        <button type="submit" id="signup-btn" class="submit-btn">
-          Create Free Account
-        </button>
-        <p class="auth-footer">
-          By signing up, you agree to our <a href="#">Terms</a> and <a href="#">Privacy</a>
-        </p>
-      </form>
-      
       <!-- Login Form -->
-      <form id="login-form" class="auth-form" onsubmit="handleLogin(event)">
+      <form id="login-form" onsubmit="handleLogin(event)">
         <div class="form-group">
           <label class="form-label">Email</label>
           <input type="email" id="login-email" class="form-input" placeholder="you@example.com" required>
@@ -6471,6 +6537,11 @@ function getGetStartedPage() {
       
       <div class="auth-spacer"></div>
       
+      <div class="signup-prompt">
+        <p>Don't have an account?</p>
+        <a href="/register?plan=free" class="signup-link">Sign up free</a>
+      </div>
+      
       <div class="auth-help">
         <p>Questions? <a href="mailto:support@shopshot.ai">Contact support</a></p>
       </div>
@@ -6480,98 +6551,6 @@ function getGetStartedPage() {
   <script>
     const urlParams = new URLSearchParams(window.location.search);
     const redirectTo = urlParams.get('redirect') || '/';
-    
-    // Scroll to signup form and highlight it
-    function scrollToSignup() {
-      const authSection = document.querySelector('.auth-section');
-      const emailInput = document.getElementById('signup-email');
-      
-      // Ensure signup tab is active
-      showTab('signup');
-      
-      // Scroll to auth section (important on mobile)
-      authSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      
-      // Add highlight effect
-      authSection.style.transition = 'box-shadow 0.3s ease';
-      authSection.style.boxShadow = '0 0 0 4px rgba(139, 92, 246, 0.3), -4px 0 20px rgba(0,0,0,0.03)';
-      
-      // Focus email input after scroll
-      setTimeout(() => {
-        emailInput.focus();
-        // Remove highlight after a moment
-        setTimeout(() => {
-          authSection.style.boxShadow = '-4px 0 20px rgba(0,0,0,0.03)';
-        }, 1500);
-      }, 400);
-    }
-    
-    function showTab(tab) {
-      document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
-      document.querySelectorAll('.auth-form').forEach(f => f.classList.remove('active'));
-      
-      const title = document.getElementById('auth-title');
-      const subtitle = document.getElementById('auth-subtitle');
-      
-      if (tab === 'signup') {
-        document.querySelector('.auth-tab:first-child').classList.add('active');
-        document.getElementById('signup-form').classList.add('active');
-        title.textContent = 'Create Account';
-        subtitle.textContent = 'Start generating professional photos';
-        document.querySelector('.free-banner').style.display = 'flex';
-      } else {
-        document.querySelector('.auth-tab:last-child').classList.add('active');
-        document.getElementById('login-form').classList.add('active');
-        title.textContent = 'Welcome Back';
-        subtitle.textContent = 'Log in to your account';
-        document.querySelector('.free-banner').style.display = 'none';
-      }
-      document.getElementById('error-msg').classList.remove('show');
-    }
-    
-    // Check if user has pending image
-    const hasPendingImage = localStorage.getItem('shopshot_pending_image');
-    if (hasPendingImage) {
-      document.getElementById('auth-title').textContent = "Almost There!";
-      document.getElementById('auth-subtitle').textContent = "Sign up to generate your photos";
-    }
-    
-    async function handleSignup(e) {
-      e.preventDefault();
-      const btn = document.getElementById('signup-btn');
-      const errEl = document.getElementById('error-msg');
-      
-      btn.disabled = true;
-      btn.textContent = 'Creating account...';
-      errEl.classList.remove('show');
-      
-      try {
-        const res = await fetch('/api/auth/register', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            email: document.getElementById('signup-email').value,
-            password: document.getElementById('signup-password').value
-          })
-        });
-        
-        const data = await res.json();
-        
-        if (data.success) {
-          window.location.href = redirectTo;
-        } else {
-          errEl.textContent = data.error || 'Registration failed';
-          errEl.classList.add('show');
-          btn.disabled = false;
-          btn.textContent = 'Create Free Account';
-        }
-      } catch (err) {
-        errEl.textContent = 'Something went wrong. Please try again.';
-        errEl.classList.add('show');
-        btn.disabled = false;
-        btn.textContent = 'Create Free Account';
-      }
-    }
     
     async function handleLogin(e) {
       e.preventDefault();
