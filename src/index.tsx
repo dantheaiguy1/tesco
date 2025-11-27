@@ -887,8 +887,23 @@ app.get('/api/test-vertex-image', async (c) => {
 });
 
 // Homepage
+// Marketing homepage for logged-out users, app for logged-in
 app.get('/', (c) => {
   const user = c.get('user')
+  if (user) {
+    // Logged in - show the app
+    return c.html(getHomePage(user))
+  }
+  // Logged out - show marketing page
+  return c.html(getMarketingPage())
+})
+
+// Direct app access (redirects to login if not authenticated)
+app.get('/app', (c) => {
+  const user = c.get('user')
+  if (!user) {
+    return c.redirect('/get-started?redirect=/app')
+  }
   return c.html(getHomePage(user))
 })
 
@@ -2427,6 +2442,682 @@ function getAuthPageStyles(): string {
       background: #E5E7EB;
     }
   `;
+}
+
+// ============================================================================
+// MARKETING HOMEPAGE - Sells the app to new visitors
+// ============================================================================
+function getMarketingPage() {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ShopShot - Turn Any Product Photo Into Professional Shots in Seconds</title>
+  <meta name="description" content="AI-powered product photography. Upload any photo, get 10 professional variations in 36 seconds. Perfect for eBay, Etsy, Amazon sellers.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'><stop offset='0%25' style='stop-color:%233B82F6'/><stop offset='100%25' style='stop-color:%238B5CF6'/></linearGradient></defs><rect width='100' height='100' rx='22' fill='url(%23g)'/><circle cx='50' cy='50' r='28' fill='none' stroke='white' stroke-width='6'/><circle cx='50' cy='50' r='12' fill='white'/></svg>">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { font-family: 'Inter', system-ui, sans-serif; box-sizing: border-box; margin: 0; padding: 0; }
+    
+    body {
+      background: #FAFBFC;
+      color: #1F2937;
+      overflow-x: hidden;
+    }
+    
+    /* Navigation */
+    .nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      padding: 16px 32px;
+      background: rgba(255,255,255,0.9);
+      backdrop-filter: blur(20px);
+      border-bottom: 1px solid rgba(229,231,235,0.5);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .nav-logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+    }
+    .nav-logo-icon {
+      width: 40px;
+      height: 40px;
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .nav-logo-icon svg { width: 22px; height: 22px; }
+    .nav-logo-text { font-size: 24px; font-weight: 800; color: #1F2937; }
+    .nav-links { display: flex; align-items: center; gap: 32px; }
+    .nav-link { color: #6B7280; text-decoration: none; font-size: 15px; font-weight: 500; transition: color 0.2s; }
+    .nav-link:hover { color: #1F2937; }
+    .nav-cta {
+      padding: 10px 20px;
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      color: white;
+      text-decoration: none;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      transition: all 0.2s;
+    }
+    .nav-cta:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(139, 92, 246, 0.3); }
+    
+    /* Hero Section */
+    .hero {
+      padding: 140px 32px 80px;
+      background: radial-gradient(circle at 50% 0%, rgba(99, 102, 241, 0.08) 0%, transparent 50%),
+                  radial-gradient(circle at 80% 80%, rgba(139, 92, 246, 0.06) 0%, transparent 40%);
+      text-align: center;
+    }
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      background: linear-gradient(135deg, #EEF2FF 0%, #E0E7FF 100%);
+      border: 1px solid #C7D2FE;
+      border-radius: 100px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #4338CA;
+      margin-bottom: 24px;
+    }
+    .hero-badge svg { width: 16px; height: 16px; }
+    .hero h1 {
+      font-size: clamp(40px, 6vw, 64px);
+      font-weight: 900;
+      line-height: 1.1;
+      max-width: 900px;
+      margin: 0 auto 20px;
+      background: linear-gradient(135deg, #1F2937 0%, #4B5563 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .hero-highlight {
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .hero p {
+      font-size: 20px;
+      color: #6B7280;
+      max-width: 600px;
+      margin: 0 auto 40px;
+      line-height: 1.6;
+    }
+    .hero-ctas {
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+      margin-bottom: 48px;
+    }
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 16px 32px;
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      color: white;
+      text-decoration: none;
+      border-radius: 14px;
+      font-size: 16px;
+      font-weight: 600;
+      transition: all 0.2s;
+      box-shadow: 0 4px 20px rgba(99, 102, 241, 0.3);
+    }
+    .btn-primary:hover { transform: translateY(-3px); box-shadow: 0 8px 30px rgba(99, 102, 241, 0.4); }
+    .btn-secondary {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 16px 32px;
+      background: white;
+      color: #374151;
+      text-decoration: none;
+      border-radius: 14px;
+      font-size: 16px;
+      font-weight: 600;
+      border: 1px solid #E5E7EB;
+      transition: all 0.2s;
+    }
+    .btn-secondary:hover { border-color: #8B5CF6; color: #7C3AED; }
+    
+    /* Video/Demo Section */
+    .hero-video {
+      max-width: 1000px;
+      margin: 0 auto;
+      border-radius: 20px;
+      overflow: hidden;
+      box-shadow: 0 25px 80px rgba(0,0,0,0.15);
+      background: linear-gradient(135deg, #1F2937 0%, #374151 100%);
+      aspect-ratio: 16/9;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+    .video-placeholder {
+      text-align: center;
+      color: white;
+    }
+    .video-placeholder svg { width: 80px; height: 80px; opacity: 0.8; margin-bottom: 16px; }
+    .video-placeholder p { font-size: 18px; opacity: 0.7; }
+    
+    /* Stats Bar */
+    .stats-bar {
+      display: flex;
+      justify-content: center;
+      gap: 64px;
+      padding: 48px 32px;
+      background: white;
+      border-top: 1px solid #E5E7EB;
+      border-bottom: 1px solid #E5E7EB;
+    }
+    .stat-item { text-align: center; }
+    .stat-value { font-size: 42px; font-weight: 800; color: #1F2937; }
+    .stat-value span { 
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .stat-label { font-size: 14px; color: #6B7280; margin-top: 4px; }
+    
+    /* Section Styles */
+    .section {
+      padding: 100px 32px;
+    }
+    .section-dark {
+      background: linear-gradient(135deg, #1F2937 0%, #111827 100%);
+      color: white;
+    }
+    .section-header {
+      text-align: center;
+      max-width: 700px;
+      margin: 0 auto 64px;
+    }
+    .section-badge {
+      display: inline-block;
+      padding: 6px 14px;
+      background: rgba(99, 102, 241, 0.1);
+      border-radius: 100px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #6366F1;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 16px;
+    }
+    .section-dark .section-badge { background: rgba(255,255,255,0.1); color: #A5B4FC; }
+    .section-title {
+      font-size: 40px;
+      font-weight: 800;
+      margin-bottom: 16px;
+    }
+    .section-subtitle {
+      font-size: 18px;
+      color: #6B7280;
+      line-height: 1.6;
+    }
+    .section-dark .section-subtitle { color: #9CA3AF; }
+    
+    /* Features Grid */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 32px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    @media (max-width: 900px) { .features-grid { grid-template-columns: 1fr; } }
+    .feature-card {
+      background: white;
+      border: 1px solid #E5E7EB;
+      border-radius: 20px;
+      padding: 32px;
+      transition: all 0.3s;
+    }
+    .feature-card:hover {
+      transform: translateY(-8px);
+      box-shadow: 0 20px 40px rgba(0,0,0,0.08);
+      border-color: #C7D2FE;
+    }
+    .feature-icon {
+      width: 56px;
+      height: 56px;
+      background: linear-gradient(135deg, #EEF2FF 0%, #E0E7FF 100%);
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      margin-bottom: 20px;
+    }
+    .feature-card h3 { font-size: 20px; font-weight: 700; margin-bottom: 10px; }
+    .feature-card p { font-size: 15px; color: #6B7280; line-height: 1.6; }
+    
+    /* How It Works */
+    .steps {
+      display: flex;
+      justify-content: center;
+      gap: 48px;
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+    @media (max-width: 768px) { .steps { flex-direction: column; align-items: center; } }
+    .step {
+      flex: 1;
+      max-width: 280px;
+      text-align: center;
+    }
+    .step-number {
+      width: 64px;
+      height: 64px;
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      font-weight: 800;
+      color: white;
+      margin: 0 auto 20px;
+    }
+    .step h3 { font-size: 20px; font-weight: 700; margin-bottom: 10px; color: white; }
+    .step p { font-size: 15px; color: #9CA3AF; line-height: 1.6; }
+    
+    /* Use Cases */
+    .use-cases {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 24px;
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+    @media (max-width: 900px) { .use-cases { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 500px) { .use-cases { grid-template-columns: 1fr; } }
+    .use-case {
+      background: white;
+      border: 1px solid #E5E7EB;
+      border-radius: 16px;
+      padding: 28px 20px;
+      text-align: center;
+      transition: all 0.3s;
+    }
+    .use-case:hover { transform: translateY(-4px); box-shadow: 0 12px 30px rgba(0,0,0,0.08); }
+    .use-case-icon {
+      width: 48px;
+      height: 48px;
+      background: linear-gradient(135deg, #F3E8FF 0%, #E9D5FF 100%);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      margin: 0 auto 14px;
+    }
+    .use-case h4 { font-size: 15px; font-weight: 600; color: #1F2937; }
+    
+    /* Before/After */
+    .before-after {
+      display: flex;
+      justify-content: center;
+      gap: 48px;
+      max-width: 900px;
+      margin: 0 auto;
+      align-items: center;
+    }
+    @media (max-width: 768px) { .before-after { flex-direction: column; gap: 32px; } }
+    .ba-item {
+      flex: 1;
+      background: white;
+      border-radius: 20px;
+      overflow: hidden;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+    }
+    .ba-image {
+      height: 280px;
+      background: #F3F4F6;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 64px;
+    }
+    .ba-label {
+      padding: 20px;
+      text-align: center;
+      font-size: 16px;
+      font-weight: 600;
+    }
+    .ba-arrow {
+      font-size: 48px;
+      color: #8B5CF6;
+    }
+    
+    /* Pricing Preview */
+    .pricing-preview {
+      display: flex;
+      justify-content: center;
+      gap: 32px;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    @media (max-width: 768px) { .pricing-preview { flex-direction: column; align-items: center; } }
+    .pricing-card {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 20px;
+      padding: 36px;
+      width: 280px;
+      text-align: center;
+      transition: all 0.3s;
+    }
+    .pricing-card:hover { background: rgba(255,255,255,0.08); transform: translateY(-4px); }
+    .pricing-card.featured {
+      background: rgba(139, 92, 246, 0.15);
+      border-color: rgba(139, 92, 246, 0.3);
+      transform: scale(1.05);
+    }
+    .pricing-card h3 { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
+    .pricing-card .price { font-size: 48px; font-weight: 800; margin-bottom: 8px; }
+    .pricing-card .price span { font-size: 18px; font-weight: 500; opacity: 0.7; }
+    .pricing-card .credits { font-size: 14px; opacity: 0.7; margin-bottom: 24px; }
+    .pricing-card .btn-primary { width: 100%; justify-content: center; }
+    
+    /* Final CTA */
+    .final-cta {
+      text-align: center;
+      padding: 100px 32px;
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      color: white;
+    }
+    .final-cta h2 { font-size: 44px; font-weight: 800; margin-bottom: 16px; }
+    .final-cta p { font-size: 20px; opacity: 0.9; margin-bottom: 40px; max-width: 600px; margin-left: auto; margin-right: auto; }
+    .final-cta .btn-primary {
+      background: white;
+      color: #7C3AED;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+    }
+    .final-cta .btn-primary:hover { box-shadow: 0 8px 30px rgba(0,0,0,0.3); }
+    
+    /* Footer */
+    .footer {
+      padding: 48px 32px;
+      background: #111827;
+      color: #9CA3AF;
+      text-align: center;
+    }
+    .footer-logo { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 16px; }
+    .footer-logo-icon {
+      width: 32px;
+      height: 32px;
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .footer-logo-text { font-size: 20px; font-weight: 700; color: white; }
+    .footer p { font-size: 14px; }
+    .footer-links { margin-top: 16px; display: flex; justify-content: center; gap: 24px; }
+    .footer-links a { color: #9CA3AF; text-decoration: none; font-size: 14px; }
+    .footer-links a:hover { color: white; }
+  </style>
+</head>
+<body>
+  <!-- Navigation -->
+  <nav class="nav">
+    <a href="/" class="nav-logo">
+      <div class="nav-logo-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/>
+          <circle cx="12" cy="12" r="3"/>
+        </svg>
+      </div>
+      <span class="nav-logo-text">ShopShot</span>
+    </a>
+    <div class="nav-links">
+      <a href="#features" class="nav-link">Features</a>
+      <a href="#how-it-works" class="nav-link">How It Works</a>
+      <a href="#pricing" class="nav-link">Pricing</a>
+      <a href="/login" class="nav-link">Log In</a>
+      <a href="/app" class="nav-cta">Try Free</a>
+    </div>
+  </nav>
+
+  <!-- Hero Section -->
+  <section class="hero">
+    <div class="hero-badge">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+      AI-Powered Product Photography
+    </div>
+    <h1>Turn Any Product Photo Into <span class="hero-highlight">10 Professional Shots</span> in Seconds</h1>
+    <p>Upload a single photo. Get hero shots, lifestyle images, flat-lays, and more. No photography skills needed. Perfect for online sellers.</p>
+    <div class="hero-ctas">
+      <a href="/app" class="btn-primary">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        Start Free - 15 Credits
+      </a>
+      <a href="#how-it-works" class="btn-secondary">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8" fill="currentColor"/></svg>
+        See How It Works
+      </a>
+    </div>
+    
+    <!-- Video Placeholder -->
+    <div class="hero-video">
+      <div class="video-placeholder">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="12" cy="12" r="10"/>
+          <polygon points="10 8 16 12 10 16 10 8" fill="currentColor"/>
+        </svg>
+        <p>Product demo video coming soon</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Stats Bar -->
+  <div class="stats-bar">
+    <div class="stat-item">
+      <div class="stat-value"><span>10</span></div>
+      <div class="stat-label">Variations per upload</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-value"><span>36</span>s</div>
+      <div class="stat-label">Average generation time</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-value"><span>15</span></div>
+      <div class="stat-label">Free credits on signup</div>
+    </div>
+  </div>
+
+  <!-- Features Section -->
+  <section class="section" id="features">
+    <div class="section-header">
+      <div class="section-badge">Features</div>
+      <h2 class="section-title">Everything You Need for Better Product Photos</h2>
+      <p class="section-subtitle">Professional results without the professional price tag. Our AI handles the hard work.</p>
+    </div>
+    
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon">📸</div>
+        <h3>10 Unique Variations</h3>
+        <p>Hero shots, lifestyle contexts, flat-lays, macro details, and more from a single upload.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">⚡</div>
+        <h3>Lightning Fast</h3>
+        <p>Get all 10 professional variations in about 36 seconds. Faster than making a cup of coffee.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🎯</div>
+        <h3>Works With Any Photo</h3>
+        <p>Crumpled background? Bad lighting? No problem. Our AI extracts and enhances your product.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🖼️</div>
+        <h3>High Resolution</h3>
+        <p>Download print-ready images perfect for marketplaces, websites, and social media.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🔄</div>
+        <h3>Regenerate Anytime</h3>
+        <p>Not happy with a result? Regenerate individual images or the entire set with one click.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">📦</div>
+        <h3>Bulk Download</h3>
+        <p>Download all variations as a ZIP file. Ready to upload to your store in seconds.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- How It Works -->
+  <section class="section section-dark" id="how-it-works">
+    <div class="section-header">
+      <div class="section-badge">How It Works</div>
+      <h2 class="section-title">Three Simple Steps</h2>
+      <p class="section-subtitle">From phone snap to professional product photography in under a minute.</p>
+    </div>
+    
+    <div class="steps">
+      <div class="step">
+        <div class="step-number">1</div>
+        <h3>Upload Any Photo</h3>
+        <p>Take a quick snap with your phone or upload an existing image. Any quality works.</p>
+      </div>
+      <div class="step">
+        <div class="step-number">2</div>
+        <h3>AI Does the Magic</h3>
+        <p>Our AI extracts your product and generates 10 professional variations automatically.</p>
+      </div>
+      <div class="step">
+        <div class="step-number">3</div>
+        <h3>Download & Sell</h3>
+        <p>Download your images and upload them to eBay, Etsy, Amazon, or anywhere you sell.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Use Cases -->
+  <section class="section">
+    <div class="section-header">
+      <div class="section-badge">Use Cases</div>
+      <h2 class="section-title">Perfect for Every Seller</h2>
+      <p class="section-subtitle">Whether you're selling one item or thousands, ShopShot scales with you.</p>
+    </div>
+    
+    <div class="use-cases">
+      <div class="use-case">
+        <div class="use-case-icon">🛒</div>
+        <h4>eBay Sellers</h4>
+      </div>
+      <div class="use-case">
+        <div class="use-case-icon">🎨</div>
+        <h4>Etsy Shops</h4>
+      </div>
+      <div class="use-case">
+        <div class="use-case-icon">📦</div>
+        <h4>Amazon FBA</h4>
+      </div>
+      <div class="use-case">
+        <div class="use-case-icon">👗</div>
+        <h4>Depop & Vinted</h4>
+      </div>
+      <div class="use-case">
+        <div class="use-case-icon">📱</div>
+        <h4>Social Commerce</h4>
+      </div>
+    </div>
+  </section>
+
+  <!-- Pricing Preview -->
+  <section class="section section-dark" id="pricing">
+    <div class="section-header">
+      <div class="section-badge">Pricing</div>
+      <h2 class="section-title">Simple, Honest Pricing</h2>
+      <p class="section-subtitle">Start free. Upgrade when you're ready. No hidden fees.</p>
+    </div>
+    
+    <div class="pricing-preview">
+      <div class="pricing-card">
+        <h3>Free</h3>
+        <div class="price">£0</div>
+        <div class="credits">${CREDITS.SIGNUP_CHEAPER + CREDITS.SIGNUP_BETTER} credits on signup</div>
+        <a href="/register?plan=free" class="btn-primary">Get Started</a>
+      </div>
+      <div class="pricing-card featured">
+        <h3>Standard</h3>
+        <div class="price">£${PRICING.STANDARD}<span>/mo</span></div>
+        <div class="credits">${CREDITS.STANDARD_CHEAPER + CREDITS.STANDARD_BETTER} credits/month</div>
+        <a href="/register?plan=standard" class="btn-primary">Get Standard</a>
+      </div>
+      <div class="pricing-card">
+        <h3>Pro</h3>
+        <div class="price">£${PRICING.PRO}<span>/mo</span></div>
+        <div class="credits">${CREDITS.PRO_CHEAPER + CREDITS.PRO_BETTER} credits/month</div>
+        <a href="/register?plan=pro" class="btn-primary">Get Pro</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Final CTA -->
+  <section class="final-cta">
+    <h2>Ready to Transform Your Product Photos?</h2>
+    <p>Join thousands of sellers using ShopShot to create scroll-stopping product images.</p>
+    <a href="/app" class="btn-primary">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      Start Free - No Credit Card
+    </a>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="footer-logo">
+      <div class="footer-logo-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" width="18" height="18">
+          <circle cx="12" cy="12" r="10"/>
+          <circle cx="12" cy="12" r="3"/>
+        </svg>
+      </div>
+      <span class="footer-logo-text">ShopShot</span>
+    </div>
+    <p>AI-powered product photography for online sellers.</p>
+    <div class="footer-links">
+      <a href="/get-started">Pricing</a>
+      <a href="/login">Log In</a>
+      <a href="mailto:support@shopshot.ai">Support</a>
+    </div>
+    <p style="margin-top: 24px; opacity: 0.6;">© 2024 ShopShot. All rights reserved.</p>
+  </footer>
+
+  <script>
+    // Smooth scroll for anchor links
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+      anchor.addEventListener('click', function (e) {
+        e.preventDefault();
+        const target = document.querySelector(this.getAttribute('href'));
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      });
+    });
+  </script>
+</body>
+</html>`
 }
 
 function getHomePage(user?: User) {
