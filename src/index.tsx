@@ -114,8 +114,8 @@ const MODELS: Record<string, string> = {
 };
 
 const MODEL_INFO: Record<string, { name: string; speed: string; quality: string; totalTime: string }> = {
-  nano: { name: 'Nano Banana Pro', speed: '~3-4s per image', quality: 'Best', totalTime: '~36 seconds' },
-  flash: { name: 'Nano Banana', speed: '~2-3s per image', quality: 'Great', totalTime: '~25 seconds' }
+  nano: { name: 'Pro', speed: '~10-30s per image', quality: 'Best (Beta)', totalTime: '~2-5 minutes' },
+  flash: { name: 'Standard', speed: '~2-3s per image', quality: 'Amazing', totalTime: '~25 seconds' }
 };
 
 // Default model - flash is faster and more reliable
@@ -3245,8 +3245,8 @@ function getHomePage(user?: User) {
           </div>
         </div>
         <div class="paywall-credit-info">
-          <p><strong>Standard Credits</strong> → ⚡ Nano Banana (fast)</p>
-          <p><strong>Pro Credits</strong> → ✨ Nano Banana Pro (best quality)</p>
+          <p><strong>Standard Credits</strong> → Amazing quality, fast & reliable</p>
+          <p><strong>Pro Credits</strong> → Best quality possible (beta model, may be slow)</p>
         </div>
         <div class="paywall-btns">
           <a href="/pricing" class="paywall-btn paywall-btn-primary" style="background:linear-gradient(135deg, #7C3AED 0%, #5B21B6 100%)">
@@ -3287,12 +3287,12 @@ function getHomePage(user?: User) {
         <div class="quality-options">
           <button class="quality-btn active" data-model="flash" onclick="selectModel('flash')">
             <div class="q-label">⚡ Standard</div>
-            <div class="q-detail">Nano Banana · Fast & Reliable</div>
+            <div class="q-detail">Amazing Quality · Fast & Reliable</div>
             <div class="q-credits">Uses Standard Credits</div>
           </button>
           <button class="quality-btn" data-model="nano" onclick="selectModel('nano')">
             <div class="q-label">✨ Pro</div>
-            <div class="q-detail">Nano Banana Pro · Best Quality</div>
+            <div class="q-detail">Best Quality · Beta (may be slow)</div>
             <div class="q-credits">Uses Pro Credits</div>
           </button>
         </div>
@@ -5417,15 +5417,15 @@ function getPricingPage(user?: User) {
         <div class="how-card">
           <div class="how-icon green">⚡</div>
           <div class="how-text">
-            <h3>Standard Credits (Nano Banana)</h3>
-            <p>Fast, reliable image generation using Gemini 2.5 Flash. Great quality at high speed. 1 credit = 1 image.</p>
+            <h3>Standard Credits</h3>
+            <p>Fast, reliable image generation. Amazing quality at high speed. 1 credit = 1 image.</p>
           </div>
         </div>
         <div class="how-card">
           <div class="how-icon purple">✨</div>
           <div class="how-text">
-            <h3>Pro Credits (Nano Banana Pro)</h3>
-            <p>Best-in-class quality using Gemini 3 Pro. Premium results for professional use. 1 credit = 1 image.</p>
+            <h3>Pro Credits</h3>
+            <p>Best quality possible using our beta model. Premium results but may be slower or occasionally timeout. 1 credit = 1 image.</p>
           </div>
         </div>
         <div class="how-card">
@@ -5452,15 +5452,15 @@ function getPricingPage(user?: User) {
         <thead>
           <tr>
             <th>Feature</th>
-            <th><span class="model-badge cheaper">Standard (Nano Banana)</span></th>
-            <th><span class="model-badge better">Pro (Nano Banana Pro)</span></th>
+            <th><span class="model-badge cheaper">Standard</span></th>
+            <th><span class="model-badge better">Pro (Beta)</span></th>
           </tr>
         </thead>
         <tbody>
           <tr>
             <td>AI Model</td>
-            <td>Gemini 2.5 Flash</td>
-            <td>Gemini 3 Pro</td>
+            <td>Fast & Reliable</td>
+            <td>Best Quality (Beta)</td>
           </tr>
           <tr>
             <td>Generation Speed</td>
@@ -5733,13 +5733,13 @@ function getDashboardPage(user: User) {
           <div class="credit-icon standard">⚡</div>
           <div class="credit-label">Standard Credits</div>
           <div class="credit-value standard">${user.cheaper_credits}</div>
-          <div class="credit-sub">Nano Banana (Fast)</div>
+          <div class="credit-sub">Fast & Reliable</div>
         </div>
         <div class="credit-card pro">
           <div class="credit-icon pro">✨</div>
           <div class="credit-label">Pro Credits</div>
           <div class="credit-value pro">${user.better_credits}</div>
-          <div class="credit-sub">Nano Banana Pro (Best)</div>
+          <div class="credit-sub">Best Quality (Beta)</div>
         </div>
         <div class="credit-card total">
           <div class="credit-icon total">📸</div>
@@ -5984,12 +5984,12 @@ function getAccountPage(user: User) {
         <div class="credit-box standard">
           <div class="credit-box-label">Standard Credits</div>
           <div class="credit-box-value standard">${user.cheaper_credits}</div>
-          <div class="credit-box-sub">⚡ Nano Banana (Fast)</div>
+          <div class="credit-box-sub">⚡ Fast & Reliable</div>
         </div>
         <div class="credit-box pro">
           <div class="credit-box-label">Pro Credits</div>
           <div class="credit-box-value pro">${user.better_credits}</div>
-          <div class="credit-box-sub">✨ Nano Banana Pro (Best)</div>
+          <div class="credit-box-sub">✨ Best Quality (Beta)</div>
         </div>
       </div>
       
