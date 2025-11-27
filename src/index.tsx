@@ -2613,7 +2613,50 @@ function getHomePage(user?: User) {
     .main-content {
       margin-left: 180px;
       min-height: 100vh;
-      background: #F9FAFB;
+      background: radial-gradient(circle at 50% 30%, rgba(225, 245, 254, 1) 0%, rgba(243, 232, 255, 1) 50%, rgba(237, 233, 254, 1) 100%);
+      position: relative;
+      overflow: hidden;
+    }
+    
+    /* 3D Decorative Shapes */
+    .deco-shape {
+      position: absolute;
+      pointer-events: none;
+      z-index: 0;
+      opacity: 0.7;
+    }
+    .deco-cube {
+      width: 120px;
+      height: 120px;
+      background: linear-gradient(135deg, #60A5FA 0%, #3B82F6 100%);
+      border-radius: 24px;
+      top: 15%;
+      left: 8%;
+      transform: rotate(-15deg);
+      box-shadow: 
+        0 20px 60px rgba(59, 130, 246, 0.3),
+        inset 0 -8px 16px rgba(0,0,0,0.1),
+        inset 0 8px 16px rgba(255,255,255,0.4);
+    }
+    .deco-triangle {
+      width: 0;
+      height: 0;
+      border-left: 40px solid transparent;
+      border-right: 40px solid transparent;
+      border-bottom: 70px solid #A78BFA;
+      top: 25%;
+      right: 12%;
+      transform: rotate(15deg);
+      filter: drop-shadow(0 15px 30px rgba(167, 139, 250, 0.4));
+    }
+    .deco-iso-cube {
+      width: 150px;
+      height: 150px;
+      top: 60%;
+      right: 5%;
+      background: linear-gradient(135deg, #93C5FD 0%, #60A5FA 50%, #3B82F6 100%);
+      clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+      box-shadow: 0 25px 70px rgba(59, 130, 246, 0.35);
     }
     
     /* Header */
@@ -2640,158 +2683,294 @@ function getHomePage(user?: User) {
     .logo-text { font-size: 18px; font-weight: 700; color: #1F2937; }
     .hamburger { display: none; }
     
-    /* Upload area - centered, compact */
+    /* Upload area - centered, premium */
     .upload-container {
-      max-width: 440px;
+      max-width: 720px;
       margin: 0 auto;
-      padding: 48px 24px;
+      padding: 64px 32px;
+      position: relative;
+      z-index: 1;
     }
     .upload-header {
-      margin-bottom: 24px;
+      margin-bottom: 32px;
+      text-align: center;
     }
     .upload-header h1 {
-      font-size: 28px;
-      font-weight: 700;
+      font-size: 48px;
+      font-weight: 800;
       color: #1F2937;
-      margin-bottom: 4px;
+      margin-bottom: 8px;
+      letter-spacing: -0.02em;
     }
     .upload-header p {
-      font-size: 15px;
+      font-size: 18px;
       color: #6B7280;
     }
     
-    /* Upload zone - compact */
+    /* Upload zone - glassmorphism */
     .upload-zone {
       width: 100%;
-      height: 200px;
-      border: 2px dashed #D1D5DB;
-      border-radius: 12px;
-      background: white;
+      min-height: 280px;
+      background: rgba(255, 255, 255, 0.7);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 2px dashed rgba(147, 197, 253, 0.5);
+      border-radius: 24px;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
       cursor: pointer;
-      transition: all 0.2s;
+      transition: all 0.3s ease;
+      box-shadow: 0 8px 32px rgba(59, 130, 246, 0.1);
     }
-    .upload-zone:hover { border-color: #3B82F6; background: #F0F9FF; }
-    .upload-zone.dragover { border-color: #3B82F6; background: #EFF6FF; }
-    .upload-icon { font-size: 32px; margin-bottom: 12px; }
-    .upload-primary { font-size: 15px; font-weight: 500; color: #374151; }
-    .upload-secondary { font-size: 13px; color: #9CA3AF; margin-top: 4px; }
-    .upload-formats { font-size: 12px; color: #9CA3AF; margin-top: 12px; }
+    .upload-zone:hover {
+      border-color: rgba(59, 130, 246, 0.8);
+      background: rgba(255, 255, 255, 0.85);
+      box-shadow: 0 12px 48px rgba(59, 130, 246, 0.2);
+      transform: translateY(-2px);
+    }
+    .upload-zone.dragover {
+      border-color: #3B82F6;
+      background: rgba(239, 246, 255, 0.9);
+      transform: scale(1.01);
+    }
+    .upload-icon {
+      width: 120px;
+      height: 120px;
+      margin-bottom: 20px;
+      background: linear-gradient(135deg, #60A5FA 0%, #3B82F6 100%);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 
+        0 16px 48px rgba(59, 130, 246, 0.35),
+        inset 0 -4px 12px rgba(0,0,0,0.1),
+        inset 0 4px 12px rgba(255,255,255,0.5);
+    }
+    .upload-icon svg {
+      width: 56px;
+      height: 56px;
+      color: white;
+    }
+    .upload-primary {
+      font-size: 20px;
+      font-weight: 600;
+      color: #1F2937;
+      margin-bottom: 8px;
+    }
+    .upload-secondary {
+      font-size: 14px;
+      color: #6B7280;
+    }
+    .upload-formats {
+      font-size: 13px;
+      color: #9CA3AF;
+      margin-top: 16px;
+    }
     
     /* Image preview */
     .image-preview {
       text-align: center;
-      padding: 16px;
-      background: white;
-      border-radius: 12px;
-      border: 1px solid #E5E7EB;
+      padding: 24px;
+      background: rgba(255, 255, 255, 0.9);
+      border-radius: 16px;
+      border: 1px solid rgba(147, 197, 253, 0.3);
     }
     .image-preview img {
-      max-width: 280px;
-      max-height: 200px;
-      border-radius: 8px;
-      margin-bottom: 12px;
+      max-width: 320px;
+      max-height: 240px;
+      border-radius: 12px;
+      margin-bottom: 16px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.1);
     }
-    .change-image { font-size: 13px; color: #3B82F6; cursor: pointer; }
+    .change-image {
+      font-size: 14px;
+      color: #6366F1;
+      cursor: pointer;
+      font-weight: 500;
+    }
     .change-image:hover { text-decoration: underline; }
     
-    /* Quality selector - inline compact */
+    /* Quality selector - premium cards */
     .quality-section {
-      margin-top: 20px;
+      margin-top: 32px;
     }
     .quality-label {
-      font-size: 13px;
-      font-weight: 500;
-      color: #6B7280;
-      margin-bottom: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      color: #374151;
+      margin-bottom: 16px;
+      text-align: center;
     }
     .quality-options {
-      display: flex;
-      gap: 12px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
     }
     .quality-btn {
-      flex: 1;
-      padding: 12px;
-      border: 1.5px solid #E5E7EB;
-      border-radius: 8px;
-      background: white;
+      position: relative;
+      padding: 32px 28px;
+      border: none;
+      border-radius: 20px;
       cursor: pointer;
-      transition: all 0.2s;
-      text-align: center;
+      transition: all 0.3s ease;
+      text-align: left;
+      overflow: hidden;
     }
-    .quality-btn:hover { border-color: #3B82F6; }
+    /* Standard card - blue gradient */
+    .quality-btn[data-model="flash"] {
+      background: linear-gradient(135deg, #60A5FA 0%, #3B82F6 100%);
+      box-shadow: 0 10px 40px rgba(59, 130, 246, 0.35);
+    }
+    .quality-btn[data-model="flash"]::before {
+      content: '';
+      position: absolute;
+      top: -20px;
+      left: -20px;
+      width: 80px;
+      height: 80px;
+      background: radial-gradient(circle, rgba(255,255,255,0.3) 0%, transparent 70%);
+      border-radius: 50%;
+    }
+    .quality-btn[data-model="flash"]:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 16px 56px rgba(59, 130, 246, 0.45);
+    }
+    /* Pro card - gold gradient */
+    .quality-btn[data-model="nano"] {
+      background: linear-gradient(135deg, #FBBF24 0%, #F59E0B 50%, #F97316 100%);
+      box-shadow: 0 10px 40px rgba(245, 158, 11, 0.35);
+    }
+    .quality-btn[data-model="nano"]::before {
+      content: '';
+      position: absolute;
+      top: -20px;
+      left: -20px;
+      width: 80px;
+      height: 80px;
+      background: radial-gradient(circle, rgba(255,255,255,0.3) 0%, transparent 70%);
+      border-radius: 50%;
+    }
+    .quality-btn[data-model="nano"]:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 16px 56px rgba(245, 158, 11, 0.45);
+    }
+    /* Active state - ring indicator */
     .quality-btn.active {
-      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
-      border-color: transparent;
-      color: white;
+      outline: 3px solid rgba(255,255,255,0.9);
+      outline-offset: 3px;
     }
-    .quality-btn.active .q-label,
-    .quality-btn.active .q-detail,
-    .quality-btn.active .q-credits { color: white; }
-    .quality-btn.active .q-detail,
-    .quality-btn.active .q-credits { opacity: 0.9; }
-    .q-label { font-size: 14px; font-weight: 600; color: #1F2937; }
-    .q-detail { font-size: 12px; color: #6B7280; margin-top: 2px; }
-    .q-credits { font-size: 11px; color: #9CA3AF; margin-top: 4px; font-weight: 500; }
+    .quality-btn .q-label,
+    .quality-btn .q-detail,
+    .quality-btn .q-credits { color: white; }
+    .q-label {
+      font-size: 22px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .q-detail {
+      font-size: 14px;
+      opacity: 0.95;
+      margin-bottom: 8px;
+      line-height: 1.5;
+    }
+    .q-credits {
+      font-size: 13px;
+      font-weight: 600;
+      opacity: 0.9;
+    }
+    .q-price {
+      font-size: 24px;
+      font-weight: 800;
+      margin-top: 16px;
+    }
+    .q-price-period {
+      font-size: 14px;
+      font-weight: 500;
+      opacity: 0.8;
+    }
     .model-credit-info {
-      margin-top: 12px;
-      padding: 10px 14px;
-      background: linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%);
-      border: 1px solid #93C5FD;
-      border-radius: 8px;
-      font-size: 12px;
-      color: #1E40AF;
+      margin-top: 20px;
+      padding: 14px 20px;
+      background: rgba(255, 255, 255, 0.8);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(147, 197, 253, 0.4);
+      border-radius: 12px;
+      font-size: 14px;
+      color: #374151;
       text-align: center;
     }
-    .model-credit-info.standard { background: linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%); border-color: #6EE7B7; color: #065F46; }
-    .model-credit-info.pro { background: linear-gradient(135deg, #F3E8FF 0%, #E9D5FF 100%); border-color: #C4B5FD; color: #5B21B6; }
+    .model-credit-info.standard {
+      background: rgba(236, 253, 245, 0.8);
+      border-color: rgba(110, 231, 183, 0.5);
+      color: #065F46;
+    }
+    .model-credit-info.pro {
+      background: rgba(254, 243, 199, 0.8);
+      border-color: rgba(251, 191, 36, 0.5);
+      color: #92400E;
+    }
     .nano-warning {
-      margin-top: 8px;
-      padding: 10px 14px;
-      background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%);
+      margin-top: 12px;
+      padding: 14px 20px;
+      background: rgba(254, 243, 199, 0.9);
       border: 2px solid #F59E0B;
-      border-radius: 8px;
-      font-size: 12px;
+      border-radius: 12px;
+      font-size: 13px;
       color: #92400E;
       text-align: center;
       display: none;
-      line-height: 1.5;
+      line-height: 1.6;
     }
     .nano-warning.show { display: block; animation: pulse 2s ease-in-out infinite; }
-    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.8; } }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.85; } }
     
     /* Advanced mode link */
     .advanced-link {
       display: inline-flex;
       align-items: center;
-      gap: 6px;
-      margin-top: 16px;
-      font-size: 13px;
-      color: #3B82F6;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 20px;
+      font-size: 14px;
+      color: #6366F1;
       cursor: pointer;
+      width: 100%;
+      text-align: center;
     }
     .advanced-link:hover { text-decoration: underline; }
     
-    /* Generate button */
+    /* Generate button - purple gradient */
     .generate-btn {
-      width: 100%;
-      height: 52px;
-      margin-top: 20px;
-      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      display: block;
+      width: auto;
+      margin: 32px auto 0;
+      padding: 18px 72px;
+      background: linear-gradient(135deg, #8B5CF6 0%, #6366F1 100%);
       color: white;
       border: none;
-      border-radius: 10px;
-      font-size: 16px;
-      font-weight: 600;
+      border-radius: 14px;
+      font-size: 18px;
+      font-weight: 700;
       cursor: pointer;
-      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
-      transition: all 0.2s;
+      box-shadow: 0 8px 32px rgba(139, 92, 246, 0.4);
+      transition: all 0.3s ease;
     }
-    .generate-btn:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4); }
-    .generate-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+    .generate-btn:hover:not(:disabled) {
+      transform: translateY(-3px);
+      box-shadow: 0 12px 48px rgba(139, 92, 246, 0.5);
+    }
+    .generate-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
     
     /* Results section */
     .results-container {
@@ -3116,8 +3295,45 @@ function getHomePage(user?: User) {
         cursor: pointer;
         margin-right: 12px;
       }
-      .upload-container { padding: 24px 16px; }
-      .quality-options { flex-direction: column; }
+      .upload-container {
+        padding: 32px 20px;
+        max-width: 100%;
+      }
+      .upload-header h1 {
+        font-size: 32px;
+      }
+      .upload-header p {
+        font-size: 15px;
+      }
+      .upload-zone {
+        min-height: 220px;
+      }
+      .upload-icon {
+        width: 80px;
+        height: 80px;
+      }
+      .upload-icon svg {
+        width: 36px;
+        height: 36px;
+      }
+      .quality-options {
+        grid-template-columns: 1fr;
+        gap: 16px;
+      }
+      .quality-btn {
+        padding: 24px 20px;
+      }
+      .q-label {
+        font-size: 18px;
+      }
+      .generate-btn {
+        width: 100%;
+        padding: 16px 32px;
+      }
+      /* Hide 3D decorations on mobile */
+      .deco-shape {
+        display: none;
+      }
     }
     
     /* Paywall Modal */
@@ -3258,11 +3474,16 @@ function getHomePage(user?: User) {
       </div>
     </div>
 
+    <!-- 3D Decorative Shapes -->
+    <div class="deco-shape deco-cube"></div>
+    <div class="deco-shape deco-triangle"></div>
+    <div class="deco-shape deco-iso-cube"></div>
+
     <!-- Upload Screen -->
     <div id="upload-screen" class="upload-container">
       <div class="upload-header">
-        <h1>ShopShot</h1>
-        <p>Transform one photo into 10 professional shots</p>
+        <h1>Upload Your Product Photo</h1>
+        <p>Even crumpled product photos work - 10 variations in 36 seconds</p>
       </div>
 
       <!-- Upload Zone -->
@@ -3270,9 +3491,15 @@ function getHomePage(user?: User) {
            ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)">
         <input type="file" id="file-input" accept="image/*" style="display:none" onchange="handleFileSelect(event)">
         <div id="upload-prompt">
-          <div class="upload-icon">☁️</div>
-          <div class="upload-primary">Drop your product image here</div>
-          <div class="upload-secondary">or click to browse</div>
+          <div class="upload-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/>
+              <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+          </div>
+          <div class="upload-primary">Drag & Drop or Click to Upload</div>
+          <div class="upload-secondary">Even crumpled product photos work - 10 variations in 36 seconds</div>
           <div class="upload-formats">JPG, PNG, WebP up to 10MB</div>
         </div>
         <div id="upload-preview" class="image-preview" style="display:none">
@@ -3283,17 +3510,19 @@ function getHomePage(user?: User) {
 
       <!-- Quality Selector -->
       <div class="quality-section">
-        <div class="quality-label">Choose Quality & Credits:</div>
+        <div class="quality-label">Choose Your Quality</div>
         <div class="quality-options">
           <button class="quality-btn active" data-model="flash" onclick="selectModel('flash')">
-            <div class="q-label">⚡ Standard</div>
-            <div class="q-detail">Amazing Quality · Fast & Reliable</div>
+            <div class="q-label">⚡ STANDARD</div>
+            <div class="q-detail">Amazing shoot quality<br>Fast & reliable results</div>
             <div class="q-credits">Uses Standard Credits</div>
+            <div class="q-price">£39<span class="q-price-period">/month</span></div>
           </button>
           <button class="quality-btn" data-model="nano" onclick="selectModel('nano')">
-            <div class="q-label">✨ Pro</div>
-            <div class="q-detail">Best Quality · Beta (may be slow)</div>
+            <div class="q-label">✨ PRO</div>
+            <div class="q-detail">The best quality shoot possible<br>Beta model - may be slow</div>
             <div class="q-credits">Uses Pro Credits</div>
+            <div class="q-price">£129<span class="q-price-period">/month</span></div>
           </button>
         </div>
         <div id="model-credit-info" class="model-credit-info">
@@ -3301,7 +3530,7 @@ function getHomePage(user?: User) {
           You have: <strong id="available-credit-count">--</strong> credits
         </div>
         <div id="nano-warning" class="nano-warning">
-          ⚠️ <strong>Pro</strong> model is currently experiencing high latency (60-90+ seconds). 
+          ⚠️ <strong>Pro</strong> model is currently in beta and may experience slower generation times (60-90+ seconds). 
           <br>For faster results, use the <strong>Standard</strong> model (~8 seconds per image).
         </div>
       </div>
