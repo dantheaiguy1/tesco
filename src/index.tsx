@@ -2188,32 +2188,39 @@ app.patch('/api/sessions/:id', async (c) => {
 
 // HTML Templates - ShopShot Branded
 
-// User menu HTML for header
+// User menu HTML for header (now minimal)
 function getUserMenuHTML(user: User | undefined): string {
+  // Header is now minimal - auth is in sidebar
+  return '';
+}
+
+// Sidebar user section HTML
+function getSidebarUserHTML(user: User | undefined): string {
   if (user) {
     return `
-      <div class="user-menu">
-        <div class="user-dropdown">
-          <button class="user-btn" onclick="toggleUserMenu()">
-            <span class="user-avatar">${(user.name || user.email)[0].toUpperCase()}</span>
-            <span class="user-name">${user.name || user.email.split('@')[0]}</span>
-            <span class="dropdown-arrow">▼</span>
-          </button>
-          <div class="dropdown-menu" id="userDropdown">
-            <a href="/dashboard" class="dropdown-item">📊 Dashboard</a>
-            <a href="/pricing" class="dropdown-item">💰 Buy Credits</a>
-            <a href="/account" class="dropdown-item">⚙️ Account</a>
-            <hr class="dropdown-divider">
-            <button onclick="logout()" class="dropdown-item logout-btn">🚪 Logout</button>
+      <div class="sidebar-user-section">
+        <div class="sidebar-user-info" onclick="toggleSidebarUserMenu()">
+          <div class="sidebar-user-avatar">${(user.name || user.email)[0].toUpperCase()}</div>
+          <div class="sidebar-user-details">
+            <div class="sidebar-user-name">${user.name || 'User'}</div>
+            <div class="sidebar-user-email">${user.email}</div>
           </div>
+        </div>
+        <div class="sidebar-user-menu" id="sidebarUserMenu">
+          <a href="/dashboard" class="sidebar-menu-item">📊 Dashboard</a>
+          <a href="/pricing" class="sidebar-menu-item">💰 Buy Credits</a>
+          <a href="/account" class="sidebar-menu-item">⚙️ Account</a>
+          <a href="/logout" class="sidebar-menu-item logout">🚪 Logout</a>
         </div>
       </div>
     `;
   } else {
     return `
-      <div class="auth-buttons">
-        <a href="/login" class="auth-btn login-btn">Log In</a>
-        <a href="/register" class="auth-btn signup-btn">Sign Up Free</a>
+      <div class="sidebar-user-section">
+        <div class="sidebar-auth-buttons">
+          <a href="/login" class="sidebar-auth-btn sidebar-login-btn">Log In</a>
+          <a href="/register" class="sidebar-auth-btn sidebar-signup-btn">Sign Up Free</a>
+        </div>
       </div>
     `;
   }
@@ -2423,22 +2430,39 @@ function getHomePage(user?: User) {
   <style>
     * { font-family: 'Inter', system-ui, sans-serif; }
     
-    /* Sidebar - Compact 180px */
+    /* Sidebar - ElevenLabs style */
     .sidebar {
       position: fixed;
       left: 0;
       top: 0;
       bottom: 0;
-      width: 180px;
+      width: 200px;
       background: white;
       border-right: 1px solid #E5E7EB;
       z-index: 30;
       display: flex;
       flex-direction: column;
     }
+    .sidebar-logo {
+      padding: 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border-bottom: 1px solid #E5E7EB;
+    }
+    .sidebar-logo-icon {
+      width: 32px;
+      height: 32px;
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .sidebar-logo-icon svg { width: 18px; height: 18px; color: white; }
+    .sidebar-logo-text { font-size: 18px; font-weight: 700; color: #1F2937; }
     .sidebar-header {
       padding: 12px;
-      border-bottom: 1px solid #E5E7EB;
     }
     .new-btn {
       width: 100%;
@@ -2447,8 +2471,8 @@ function getHomePage(user?: User) {
       color: white;
       border: none;
       border-radius: 8px;
-      font-size: 14px;
-      font-weight: 500;
+      font-size: 13px;
+      font-weight: 600;
       cursor: pointer;
       display: flex;
       align-items: center;
@@ -2457,6 +2481,14 @@ function getHomePage(user?: User) {
       transition: all 0.2s;
     }
     .new-btn:hover { opacity: 0.9; transform: translateY(-1px); }
+    .sidebar-section-label {
+      font-size: 10px;
+      font-weight: 600;
+      color: #9CA3AF;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 12px 12px 6px;
+    }
     
     .session-list {
       flex: 1;
@@ -2538,10 +2570,103 @@ function getHomePage(user?: User) {
       color: #9CA3AF;
     }
     
-    .credits-indicator {
-      margin: 8px;
+    /* User section in sidebar */
+    .sidebar-user-section {
       padding: 12px;
+      border-top: 1px solid #E5E7EB;
+    }
+    .sidebar-auth-buttons {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .sidebar-auth-btn {
+      display: block;
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      text-decoration: none;
+      text-align: center;
+      transition: all 0.2s;
+    }
+    .sidebar-login-btn {
+      color: #374151;
+      border: 1px solid #E5E7EB;
       background: white;
+    }
+    .sidebar-login-btn:hover { background: #F9FAFB; }
+    .sidebar-signup-btn {
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      color: white;
+      border: none;
+    }
+    .sidebar-signup-btn:hover { opacity: 0.9; }
+    .sidebar-user-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .sidebar-user-info:hover { background: #F3F4F6; }
+    .sidebar-user-avatar {
+      width: 32px;
+      height: 32px;
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: 600;
+      font-size: 13px;
+      flex-shrink: 0;
+    }
+    .sidebar-user-details { flex: 1; min-width: 0; }
+    .sidebar-user-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: #1F2937;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .sidebar-user-email {
+      font-size: 11px;
+      color: #9CA3AF;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .sidebar-user-menu {
+      display: none;
+      flex-direction: column;
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid #E5E7EB;
+    }
+    .sidebar-user-menu.show { display: flex; }
+    .sidebar-menu-item {
+      display: block;
+      padding: 8px 12px;
+      font-size: 12px;
+      color: #374151;
+      text-decoration: none;
+      border-radius: 6px;
+      transition: background 0.15s;
+    }
+    .sidebar-menu-item:hover { background: #F3F4F6; }
+    .sidebar-menu-item.logout { color: #DC2626; }
+    .sidebar-menu-item.logout:hover { background: #FEF2F2; }
+    
+    /* Credits section in sidebar */
+    .credits-indicator {
+      margin: 0 12px 12px;
+      padding: 12px;
+      background: #F9FAFB;
       border: 1px solid #E5E7EB;
       border-radius: 10px;
       cursor: pointer;
@@ -2559,10 +2684,10 @@ function getHomePage(user?: User) {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 10px;
+      margin-bottom: 8px;
     }
     .credits-title {
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 600;
       color: #6B7280;
       text-transform: uppercase;
@@ -2572,9 +2697,9 @@ function getHomePage(user?: User) {
       background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
       color: white;
       border: none;
-      padding: 4px 10px;
-      border-radius: 6px;
-      font-size: 10px;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 9px;
       font-weight: 600;
       cursor: pointer;
       transition: all 0.2s;
@@ -2583,35 +2708,35 @@ function getHomePage(user?: User) {
     .credits-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 8px;
+      gap: 6px;
     }
     .credit-item {
-      background: #F9FAFB;
-      border-radius: 8px;
-      padding: 8px;
+      background: white;
+      border-radius: 6px;
+      padding: 6px;
       text-align: center;
     }
     .credit-item.standard { background: linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%); }
     .credit-item.pro { background: linear-gradient(135deg, #F3E8FF 0%, #E9D5FF 100%); }
     .credit-item-label {
-      font-size: 9px;
+      font-size: 8px;
       color: #6B7280;
       text-transform: uppercase;
       letter-spacing: 0.3px;
     }
     .credit-item-value {
-      font-size: 16px;
+      font-size: 14px;
       font-weight: 800;
     }
     .credit-item-value.standard { color: #059669; }
     .credit-item-value.pro { color: #6D28D9; }
     .credit-item-icon {
-      font-size: 10px;
+      font-size: 9px;
     }
     
     /* Main content */
     .main-content {
-      margin-left: 180px;
+      margin-left: 200px;
       min-height: 100vh;
       background: radial-gradient(circle at 50% 30%, rgba(225, 245, 254, 1) 0%, rgba(243, 232, 255, 1) 50%, rgba(237, 233, 254, 1) 100%);
       position: relative;
@@ -2659,28 +2784,16 @@ function getHomePage(user?: User) {
       box-shadow: 0 16px 40px rgba(59, 130, 246, 0.3);
     }
     
-    /* Header */
+    /* Header - minimal, no auth buttons */
     .header {
-      height: 60px;
-      background: white;
-      border-bottom: 1px solid #E5E7EB;
+      height: 50px;
+      background: transparent;
       display: flex;
       align-items: center;
-      justify-content: space-between;
+      justify-content: flex-end;
       padding: 0 24px;
     }
-    .logo { display: flex; align-items: center; gap: 8px; }
-    .logo-icon {
-      width: 28px;
-      height: 28px;
-      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
-      border-radius: 6px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .logo-icon svg { width: 16px; height: 16px; color: white; }
-    .logo-text { font-size: 18px; font-weight: 700; color: #1F2937; }
+    .logo { display: none; }
     .hamburger { display: none; }
     
     /* Upload area - centered, compact premium */
@@ -3246,7 +3359,7 @@ function getHomePage(user?: User) {
     @media (max-width: 768px) {
       .sidebar {
         transform: translateX(-100%);
-        width: 280px;
+        width: 260px;
         z-index: 50;
       }
       .sidebar.open { transform: translateX(0); }
@@ -3259,6 +3372,11 @@ function getHomePage(user?: User) {
       }
       .sidebar-overlay.open { display: block; }
       .main-content { margin-left: 0; }
+      .header {
+        justify-content: flex-start;
+        background: white;
+        border-bottom: 1px solid #E5E7EB;
+      }
       .hamburger {
         display: flex;
         width: 40px;
@@ -3269,7 +3387,6 @@ function getHomePage(user?: User) {
         align-items: center;
         justify-content: center;
         cursor: pointer;
-        margin-right: 12px;
       }
       .upload-container {
         padding: 24px 16px;
@@ -3375,18 +3492,38 @@ function getHomePage(user?: User) {
   <!-- Sidebar overlay (mobile) -->
   <div id="sidebar-overlay" class="sidebar-overlay" onclick="toggleSidebar()"></div>
   
-  <!-- Compact Sidebar -->
+  <!-- Sidebar - ElevenLabs style -->
   <aside id="sidebar" class="sidebar">
+    <!-- Logo -->
+    <div class="sidebar-logo">
+      <div class="sidebar-logo-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/>
+          <circle cx="12" cy="12" r="3"/>
+        </svg>
+      </div>
+      <span class="sidebar-logo-text">ShopShot</span>
+    </div>
+    
+    <!-- Generate New Button -->
     <div class="sidebar-header">
       <button class="new-btn" onclick="resetToUpload()">
-        + New Generation
+        ✨ Generate New
       </button>
     </div>
+    
+    <!-- History Section -->
+    <div class="sidebar-section-label">History</div>
     <div id="session-list" class="session-list">
-      <div style="text-align:center; padding:24px 8px; color:#9CA3AF; font-size:13px;">
+      <div style="text-align:center; padding:16px 8px; color:#9CA3AF; font-size:12px;">
         No sessions yet
       </div>
     </div>
+    
+    <!-- User Section -->
+    ${getSidebarUserHTML(user)}
+    
+    <!-- Credits Section -->
     <div id="credits-indicator" class="credits-indicator" onclick="window.location.href='/pricing'">
       <div class="credits-header">
         <span class="credits-title">Credits</span>
@@ -3394,7 +3531,7 @@ function getHomePage(user?: User) {
       </div>
       <div class="credits-grid">
         <div class="credit-item standard">
-          <div class="credit-item-label"><span class="credit-item-icon">⚡</span> Standard</div>
+          <div class="credit-item-label"><span class="credit-item-icon">⚡</span> Std</div>
           <div id="cheaper-credits-display" class="credit-item-value standard">--</div>
         </div>
         <div class="credit-item pro">
@@ -3403,26 +3540,13 @@ function getHomePage(user?: User) {
         </div>
       </div>
     </div>
-    <div class="sidebar-footer">
-      <span id="session-count">0 generations</span>
-    </div>
   </aside>
 
   <!-- Main Content -->
   <div class="main-content">
-    <!-- Header -->
+    <!-- Mobile Header (only shows hamburger on mobile) -->
     <header class="header">
-      <div class="logo">
-        <button class="hamburger" onclick="toggleSidebar()">☰</button>
-        <div class="logo-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="10"/>
-            <circle cx="12" cy="12" r="3"/>
-          </svg>
-        </div>
-        <span class="logo-text">ShopShot</span>
-      </div>
-      ${getUserMenuHTML(user)}
+      <button class="hamburger" onclick="toggleSidebar()">☰</button>
     </header>
     
     <!-- Paywall Modal -->
@@ -3590,11 +3714,20 @@ function getHomePage(user?: User) {
       if (menu) menu.classList.toggle('show');
     }
     
+    function toggleSidebarUserMenu() {
+      const menu = document.getElementById('sidebarUserMenu');
+      if (menu) menu.classList.toggle('show');
+    }
+    
     // Close dropdown when clicking outside
     document.addEventListener('click', (e) => {
       const dropdown = document.getElementById('userDropdown');
       const userBtn = e.target.closest('.user-btn');
       if (dropdown && !userBtn) dropdown.classList.remove('show');
+      
+      const sidebarMenu = document.getElementById('sidebarUserMenu');
+      const sidebarUserInfo = e.target.closest('.sidebar-user-info');
+      if (sidebarMenu && !sidebarUserInfo) sidebarMenu.classList.remove('show');
     });
     
     async function logout() {
