@@ -4356,7 +4356,16 @@ function getHomePage(user?: User) {
       formData.append('thumbnail', canvas.toDataURL('image/jpeg', 0.7));
 
       // SECURITY: Redirect to signup if not logged in
+      // Store image in localStorage so user can continue after signup
       if (!currentUser) {
+        try {
+          // Store image data and filename for restoration after signup
+          localStorage.setItem('shopshot_pending_image', currentOriginalImage);
+          localStorage.setItem('shopshot_pending_filename', selectedFile.name);
+          localStorage.setItem('shopshot_pending_model', selectedModel);
+        } catch (e) {
+          console.warn('Could not store image in localStorage:', e);
+        }
         window.location.href = '/get-started?redirect=' + encodeURIComponent(window.location.pathname);
         return;
       }
@@ -4729,6 +4738,20 @@ function getHomePage(user?: User) {
       document.getElementById('error-toast').classList.add('show');
       setTimeout(() => document.getElementById('error-toast').classList.remove('show'), 4000);
     }
+    
+    function showNotification(msg) {
+      // Create success toast if it doesn't exist
+      let toast = document.getElementById('success-toast');
+      if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'success-toast';
+        toast.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,#059669,#10B981);color:white;padding:16px 24px;border-radius:12px;font-size:14px;font-weight:500;z-index:9999;opacity:0;transition:opacity 0.3s;box-shadow:0 4px 20px rgba(0,0,0,0.15);';
+        document.body.appendChild(toast);
+      }
+      toast.textContent = msg;
+      toast.style.opacity = '1';
+      setTimeout(() => toast.style.opacity = '0', 5000);
+    }
 
     // Fetch and update credits display
     async function updateCreditsDisplay() {
@@ -4787,8 +4810,54 @@ function getHomePage(user?: User) {
 
     // Init
     document.addEventListener('DOMContentLoaded', () => {
-      loadSessions();
-      updateCreditsDisplay();
+      // Only load sessions and credits for logged-in users
+      if (currentUser) {
+        loadSessions();
+        updateCreditsDisplay();
+      }
+      
+      // Check if user just signed up and has a pending image to restore
+      if (currentUser) {
+        const pendingImage = localStorage.getItem('shopshot_pending_image');
+        const pendingFilename = localStorage.getItem('shopshot_pending_filename');
+        const pendingModel = localStorage.getItem('shopshot_pending_model');
+        
+        if (pendingImage) {
+          // Restore the image
+          currentOriginalImage = pendingImage;
+          selectedModel = pendingModel || 'flash';
+          
+          // Update model selector UI
+          document.querySelectorAll('.quality-btn').forEach(btn => {
+            btn.classList.remove('active');
+            if (btn.dataset.model === selectedModel) btn.classList.add('active');
+          });
+          
+          // Show the image preview
+          const preview = document.getElementById('image-preview');
+          const uploadZone = document.getElementById('upload-zone');
+          if (preview && uploadZone) {
+            preview.innerHTML = '<img src="' + pendingImage + '" style="max-width:100%; max-height:300px; border-radius:8px;">';
+            preview.style.display = 'block';
+            uploadZone.classList.add('has-preview');
+          }
+          
+          // Enable generate button
+          const genBtn = document.getElementById('generate-btn');
+          if (genBtn) genBtn.disabled = false;
+          
+          // Create a mock file object for the filename
+          selectedFile = { name: pendingFilename || 'product.jpg' };
+          
+          // Clear the stored data
+          localStorage.removeItem('shopshot_pending_image');
+          localStorage.removeItem('shopshot_pending_filename');
+          localStorage.removeItem('shopshot_pending_model');
+          
+          // Show a welcome message
+          showNotification('Welcome! Your image is ready - click Generate to create your product photos!');
+        }
+      }
     });
 
     // Keyboard
@@ -6140,6 +6209,17 @@ function getGetStartedPage() {
     if (redirectTo) {
       document.getElementById('header-login-link').href = '/login?redirect=' + encodeURIComponent(redirectTo);
       document.getElementById('login-btn').href = '/login?redirect=' + encodeURIComponent(redirectTo);
+    }
+    
+    // Check if user has a pending image (came from upload attempt)
+    const hasPendingImage = localStorage.getItem('shopshot_pending_image');
+    if (hasPendingImage) {
+      // Update the headline to be more conversion-focused
+      document.querySelector('.value-section h1').textContent = "You're One Step Away From Your Professional Photos!";
+      document.querySelector('.value-section > p').textContent = "Your image is ready and waiting. Create your free account to generate 10 stunning product photos in under 60 seconds.";
+      document.querySelector('.signup-card h2').textContent = "Almost There!";
+      document.querySelector('.signup-card .subtitle').textContent = "Sign up to see your product transformed";
+      document.querySelector('.signup-btn').textContent = "Create Account & Generate Photos";
     }
     
     async function handleSignup(e) {
