@@ -628,6 +628,22 @@ async function ensureDatabase(db: D1Database) {
       )
     `).run()
     
+    // Migration: Add user_id column if it doesn't exist
+    try {
+      await db.prepare('ALTER TABLE sessions ADD COLUMN user_id TEXT').run();
+    } catch (e) { /* Column already exists */ }
+    
+    // Migration: Add credits columns if they don't exist
+    try {
+      await db.prepare('ALTER TABLE sessions ADD COLUMN credits_charged INTEGER DEFAULT 0').run();
+    } catch (e) { /* Column already exists */ }
+    try {
+      await db.prepare('ALTER TABLE sessions ADD COLUMN credits_refunded INTEGER DEFAULT 0').run();
+    } catch (e) { /* Column already exists */ }
+    try {
+      await db.prepare('ALTER TABLE sessions ADD COLUMN generation_count INTEGER DEFAULT 0').run();
+    } catch (e) { /* Column already exists */ }
+    
     // Generated images table
     await db.prepare(`
       CREATE TABLE IF NOT EXISTS generated_images (
@@ -901,6 +917,12 @@ app.get('/register', (c) => {
   return c.html(getRegisterPage())
 })
 
+// Logout page (GET for easy access)
+app.get('/logout', async (c) => {
+  deleteCookie(c, 'session', { path: '/' })
+  return c.redirect('/login')
+})
+
 // Dashboard page
 app.get('/dashboard', (c) => {
   const user = c.get('user')
@@ -925,6 +947,9 @@ app.get('/account', (c) => {
 app.get('/api/sessions', async (c) => {
   try {
     const db = c.env.TESCO_DB
+    if (!db) {
+      return c.json({ success: false, error: 'Database not configured' }, 500)
+    }
     await ensureDatabase(db)
     
     const user = c.get('user')
@@ -939,9 +964,9 @@ app.get('/api/sessions', async (c) => {
       // Guest mode - no sessions
       return c.json({ success: true, sessions: [] })
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error fetching sessions:', error)
-    return c.json({ success: false, error: 'Failed to fetch sessions' }, 500)
+    return c.json({ success: false, error: 'Failed to fetch sessions', details: error?.message || String(error) }, 500)
   }
 })
 
@@ -1225,18 +1250,25 @@ app.post('/api/billing/create-checkout', async (c) => {
   if (authResult instanceof Response) return authResult;
   const user = authResult;
   
-  const { type } = await c.req.json(); // 'subscription' or 'topup'
+  const { type, creditType, amount } = await c.req.json(); // 'subscription', 'topup', or 'pack'
   const db = c.env.TESCO_DB;
   
-  if (!['subscription', 'topup'].includes(type)) {
+  if (!['subscription', 'topup', 'pack'].includes(type)) {
     return c.json({ success: false, error: 'Invalid checkout type' }, 400);
   }
   
-  const priceId = type === 'subscription' 
-    ? c.env.STRIPE_PRICE_ID_SUBSCRIPTION 
-    : c.env.STRIPE_PRICE_ID_TOPUP;
+  // Determine price ID based on type
+  let priceId: string;
+  let mode: 'subscription' | 'payment';
   
-  const mode = type === 'subscription' ? 'subscription' : 'payment';
+  if (type === 'subscription') {
+    priceId = c.env.STRIPE_PRICE_ID_SUBSCRIPTION;
+    mode = 'subscription';
+  } else {
+    // For 'topup' or 'pack', use the topup price ID
+    priceId = c.env.STRIPE_PRICE_ID_TOPUP;
+    mode = 'payment';
+  }
   
   // Get or create Stripe customer
   let stripeCustomerId = user.stripe_customer_id;
@@ -1461,7 +1493,9 @@ app.get('/api/health', async (c) => {
     hasGeminiKey: !!c.env.GEMINI_API_KEY,
     keyLength: c.env.GEMINI_API_KEY?.length || 0,
     hasDB: !!c.env.TESCO_DB,
-    hasStripe: !!c.env.STRIPE_SECRET_KEY
+    hasStripe: !!c.env.STRIPE_SECRET_KEY,
+    stripeKeyLength: c.env.STRIPE_SECRET_KEY?.length || 0,
+    envKeys: Object.keys(c.env).filter(k => !k.includes('KEY') && !k.includes('SECRET'))
   })
 })
 
@@ -1557,9 +1591,9 @@ app.post('/api/upload', async (c) => {
       better_credits: user.better_credits,
       credits_required: CREDITS.PER_IMAGE
     })
-  } catch (error) {
+  } catch (error: any) {
     console.error('Upload error:', error)
-    return c.json({ success: false, error: 'Failed to process upload' }, 500)
+    return c.json({ success: false, error: 'Failed to process upload', details: error?.message || String(error) }, 500)
   }
 })
 
