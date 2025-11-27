@@ -917,6 +917,13 @@ app.get('/register', (c) => {
   return c.html(getRegisterPage())
 })
 
+// Get Started page (conversion-focused signup + login + value prop)
+app.get('/get-started', (c) => {
+  const user = c.get('user')
+  if (user) return c.redirect('/')
+  return c.html(getGetStartedPage())
+})
+
 // Logout page (GET for easy access)
 app.get('/logout', async (c) => {
   deleteCookie(c, 'session', { path: '/' })
@@ -4034,8 +4041,8 @@ function getHomePage(user?: User) {
           currentSessionId = data.sessionId;
           loadSessions();
         } else if (data.needsAuth) {
-          // Redirect to register (most uploaders are new users)
-          window.location.href = '/register?redirect=' + encodeURIComponent(window.location.pathname);
+          // Redirect to get-started page (conversion-focused signup + login)
+          window.location.href = '/get-started?redirect=' + encodeURIComponent(window.location.pathname);
         } else if (data.needsUpgrade) {
           // Show paywall modal
           showPaywallModal(data.required, data.current);
@@ -4207,7 +4214,7 @@ function getHomePage(user?: User) {
         const data = await res.json();
         
         if (data.needsAuth) {
-          window.location.href = '/register?redirect=' + encodeURIComponent(window.location.pathname);
+          window.location.href = '/get-started?redirect=' + encodeURIComponent(window.location.pathname);
           return;
         }
         
@@ -5372,6 +5379,409 @@ function getRegisterPage() {
         errEl.classList.add('show');
         btn.disabled = false;
         btn.textContent = 'Create Account';
+      }
+    }
+  </script>
+</body>
+</html>`
+}
+
+// ============================================================================
+// GET STARTED PAGE (Conversion-focused: value prop + signup + login)
+// ============================================================================
+function getGetStartedPage() {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Get Started - ShopShot</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'><stop offset='0%25' style='stop-color:%233B82F6'/><stop offset='100%25' style='stop-color:%238B5CF6'/></linearGradient></defs><rect width='100' height='100' rx='22' fill='url(%23g)'/><circle cx='50' cy='50' r='28' fill='none' stroke='white' stroke-width='6'/><circle cx='50' cy='50' r='12' fill='white'/></svg>">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { font-family: 'Inter', system-ui, sans-serif; box-sizing: border-box; }
+    body { 
+      margin: 0; 
+      min-height: 100vh;
+      background: radial-gradient(circle at 50% 30%, rgba(225, 245, 254, 1) 0%, rgba(243, 232, 255, 1) 50%, rgba(237, 233, 254, 1) 100%);
+    }
+    .container {
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 40px 24px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 40px;
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .logo-icon {
+      width: 36px;
+      height: 36px;
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .logo-icon svg { width: 20px; height: 20px; color: white; }
+    .logo-text { font-size: 22px; font-weight: 700; color: #1F2937; }
+    .login-link {
+      font-size: 14px;
+      color: #6B7280;
+    }
+    .login-link a {
+      color: #3B82F6;
+      text-decoration: none;
+      font-weight: 500;
+    }
+    .login-link a:hover { text-decoration: underline; }
+    
+    .main-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 48px;
+      align-items: start;
+    }
+    @media (max-width: 768px) {
+      .main-grid { grid-template-columns: 1fr; gap: 32px; }
+    }
+    
+    /* Left side - Value prop */
+    .value-section h1 {
+      font-size: 36px;
+      font-weight: 800;
+      color: #1F2937;
+      line-height: 1.2;
+      margin-bottom: 16px;
+    }
+    .value-section > p {
+      font-size: 16px;
+      color: #6B7280;
+      margin-bottom: 32px;
+      line-height: 1.6;
+    }
+    .benefits {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .benefit {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+    }
+    .benefit-icon {
+      width: 32px;
+      height: 32px;
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+    .benefit-text h3 {
+      font-size: 15px;
+      font-weight: 600;
+      color: #1F2937;
+      margin: 0 0 2px 0;
+    }
+    .benefit-text p {
+      font-size: 13px;
+      color: #6B7280;
+      margin: 0;
+    }
+    
+    .free-credits-banner {
+      margin-top: 32px;
+      padding: 16px 20px;
+      background: linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%);
+      border: 1px solid #6EE7B7;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .free-credits-banner .icon {
+      font-size: 28px;
+    }
+    .free-credits-banner .text h4 {
+      font-size: 15px;
+      font-weight: 700;
+      color: #065F46;
+      margin: 0;
+    }
+    .free-credits-banner .text p {
+      font-size: 13px;
+      color: #047857;
+      margin: 4px 0 0 0;
+    }
+    
+    /* Right side - Signup form */
+    .signup-card {
+      background: white;
+      border-radius: 16px;
+      padding: 32px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+    }
+    .signup-card h2 {
+      font-size: 22px;
+      font-weight: 700;
+      color: #1F2937;
+      margin: 0 0 6px 0;
+    }
+    .signup-card .subtitle {
+      font-size: 14px;
+      color: #6B7280;
+      margin-bottom: 24px;
+    }
+    .form-group {
+      margin-bottom: 16px;
+    }
+    .form-label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      color: #374151;
+      margin-bottom: 6px;
+    }
+    .form-input {
+      width: 100%;
+      padding: 12px 14px;
+      border: 1px solid #E5E7EB;
+      border-radius: 8px;
+      font-size: 14px;
+      transition: border-color 0.2s;
+    }
+    .form-input:focus {
+      outline: none;
+      border-color: #3B82F6;
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
+    .signup-btn {
+      width: 100%;
+      padding: 14px;
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      color: white;
+      border: none;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-top: 8px;
+    }
+    .signup-btn:hover { opacity: 0.9; transform: translateY(-1px); }
+    .signup-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+    
+    .divider {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 24px 0;
+    }
+    .divider-line {
+      flex: 1;
+      height: 1px;
+      background: #E5E7EB;
+    }
+    .divider-text {
+      font-size: 12px;
+      color: #9CA3AF;
+    }
+    
+    .login-btn {
+      width: 100%;
+      padding: 12px;
+      background: white;
+      color: #374151;
+      border: 1px solid #E5E7EB;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-decoration: none;
+      display: block;
+      text-align: center;
+    }
+    .login-btn:hover { background: #F9FAFB; border-color: #D1D5DB; }
+    
+    .error-msg {
+      background: #FEF2F2;
+      border: 1px solid #FECACA;
+      color: #DC2626;
+      padding: 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      margin-bottom: 16px;
+      display: none;
+    }
+    .error-msg.show { display: block; }
+    
+    .terms {
+      font-size: 11px;
+      color: #9CA3AF;
+      text-align: center;
+      margin-top: 16px;
+      line-height: 1.5;
+    }
+    .terms a { color: #6B7280; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <a href="/" class="logo" style="text-decoration:none;">
+        <div class="logo-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+        </div>
+        <span class="logo-text">ShopShot</span>
+      </a>
+      <div class="login-link">
+        Already a member? <a href="/login" id="header-login-link">Log in</a>
+      </div>
+    </header>
+    
+    <div class="main-grid">
+      <!-- Left: Value Proposition -->
+      <div class="value-section">
+        <h1>Transform Product Photos Into Professional Shots</h1>
+        <p>Upload any product photo and get 10 stunning variations in under 60 seconds. Perfect for e-commerce, social media, and marketing.</p>
+        
+        <div class="benefits">
+          <div class="benefit">
+            <div class="benefit-icon">📸</div>
+            <div class="benefit-text">
+              <h3>10 Professional Variations</h3>
+              <p>Hero shots, lifestyle, flat-lay, and more</p>
+            </div>
+          </div>
+          <div class="benefit">
+            <div class="benefit-icon">⚡</div>
+            <div class="benefit-text">
+              <h3>Ready in 36 Seconds</h3>
+              <p>AI-powered generation, no waiting around</p>
+            </div>
+          </div>
+          <div class="benefit">
+            <div class="benefit-icon">🎯</div>
+            <div class="benefit-text">
+              <h3>Works With Any Photo</h3>
+              <p>Even crumpled or low-quality images work great</p>
+            </div>
+          </div>
+        </div>
+        
+        <div class="free-credits-banner">
+          <span class="icon">🎁</span>
+          <div class="text">
+            <h4>${CREDITS.SIGNUP_CHEAPER + CREDITS.SIGNUP_BETTER} Free Credits on Signup</h4>
+            <p>Enough to generate your first batch of professional shots</p>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Right: Signup Form -->
+      <div class="signup-card">
+        <h2>Create Your Account</h2>
+        <p class="subtitle">Start generating professional product photos</p>
+        
+        <div id="error-msg" class="error-msg"></div>
+        
+        <form id="signup-form" onsubmit="handleSignup(event)">
+          <div class="form-group">
+            <label class="form-label">Name (optional)</label>
+            <input type="text" id="name" class="form-input" placeholder="Your name">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Email</label>
+            <input type="email" id="email" class="form-input" placeholder="you@example.com" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Password</label>
+            <input type="password" id="password" class="form-input" placeholder="At least 6 characters" required minlength="6">
+          </div>
+          <button type="submit" id="signup-btn" class="signup-btn">
+            Get Started Free
+          </button>
+        </form>
+        
+        <div class="divider">
+          <div class="divider-line"></div>
+          <span class="divider-text">or</span>
+          <div class="divider-line"></div>
+        </div>
+        
+        <a href="/login" id="login-btn" class="login-btn">
+          Log in to existing account
+        </a>
+        
+        <p class="terms">
+          By signing up, you agree to our <a href="#">Terms</a> and <a href="#">Privacy Policy</a>
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Get redirect param from URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const redirectTo = urlParams.get('redirect');
+    
+    // Update login links to preserve redirect
+    if (redirectTo) {
+      document.getElementById('header-login-link').href = '/login?redirect=' + encodeURIComponent(redirectTo);
+      document.getElementById('login-btn').href = '/login?redirect=' + encodeURIComponent(redirectTo);
+    }
+    
+    async function handleSignup(e) {
+      e.preventDefault();
+      const btn = document.getElementById('signup-btn');
+      const errEl = document.getElementById('error-msg');
+      
+      btn.disabled = true;
+      btn.textContent = 'Creating account...';
+      errEl.classList.remove('show');
+      
+      try {
+        const res = await fetch('/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: document.getElementById('name').value || null,
+            email: document.getElementById('email').value,
+            password: document.getElementById('password').value
+          })
+        });
+        
+        const data = await res.json();
+        
+        if (data.success) {
+          window.location.href = redirectTo || '/?welcome=1';
+        } else {
+          errEl.textContent = data.error || 'Registration failed';
+          errEl.classList.add('show');
+          btn.disabled = false;
+          btn.textContent = 'Get Started Free';
+        }
+      } catch (err) {
+        errEl.textContent = 'Something went wrong. Please try again.';
+        errEl.classList.add('show');
+        btn.disabled = false;
+        btn.textContent = 'Get Started Free';
       }
     }
   </script>
