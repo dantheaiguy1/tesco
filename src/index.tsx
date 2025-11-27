@@ -2516,34 +2516,64 @@ function getMarketingPage() {
     
     /* Hero Section */
     .hero {
-      padding: 140px 32px 80px;
-      background: radial-gradient(circle at 50% 0%, rgba(99, 102, 241, 0.08) 0%, transparent 50%),
-                  radial-gradient(circle at 80% 80%, rgba(139, 92, 246, 0.06) 0%, transparent 40%);
+      position: relative;
+      padding: 160px 32px 100px;
       text-align: center;
+      overflow: hidden;
+      min-height: 90vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: url('https://www.genspark.ai/api/files/s/xjmdyDXv') center center / cover no-repeat;
+      z-index: 0;
+    }
+    .hero::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: linear-gradient(180deg, 
+        rgba(255,255,255,0.92) 0%, 
+        rgba(255,255,255,0.85) 40%,
+        rgba(255,255,255,0.95) 100%);
+      z-index: 1;
+    }
+    .hero > * {
+      position: relative;
+      z-index: 2;
     }
     .hero-badge {
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      padding: 8px 16px;
-      background: linear-gradient(135deg, #EEF2FF 0%, #E0E7FF 100%);
+      padding: 10px 20px;
+      background: rgba(255,255,255,0.95);
       border: 1px solid #C7D2FE;
       border-radius: 100px;
       font-size: 13px;
       font-weight: 600;
       color: #4338CA;
-      margin-bottom: 24px;
+      margin-bottom: 28px;
+      box-shadow: 0 4px 20px rgba(99, 102, 241, 0.15);
     }
     .hero-badge svg { width: 16px; height: 16px; }
     .hero h1 {
-      font-size: clamp(40px, 6vw, 64px);
+      font-size: clamp(42px, 6vw, 68px);
       font-weight: 900;
-      line-height: 1.1;
-      max-width: 900px;
-      margin: 0 auto 20px;
-      background: linear-gradient(135deg, #1F2937 0%, #4B5563 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
+      line-height: 1.08;
+      max-width: 950px;
+      margin: 0 auto 24px;
+      color: #1F2937;
     }
     .hero-highlight {
       background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
@@ -2551,11 +2581,11 @@ function getMarketingPage() {
       -webkit-text-fill-color: transparent;
     }
     .hero p {
-      font-size: 20px;
-      color: #6B7280;
-      max-width: 600px;
-      margin: 0 auto 40px;
-      line-height: 1.6;
+      font-size: 21px;
+      color: #4B5563;
+      max-width: 650px;
+      margin: 0 auto 44px;
+      line-height: 1.7;
     }
     .hero-ctas {
       display: flex;
@@ -2594,26 +2624,94 @@ function getMarketingPage() {
     }
     .btn-secondary:hover { border-color: #8B5CF6; color: #7C3AED; }
     
-    /* Video/Demo Section */
-    .hero-video {
-      max-width: 1000px;
+    /* Demo Showcase */
+    .hero-showcase {
+      max-width: 1100px;
       margin: 0 auto;
-      border-radius: 20px;
-      overflow: hidden;
-      box-shadow: 0 25px 80px rgba(0,0,0,0.15);
-      background: linear-gradient(135deg, #1F2937 0%, #374151 100%);
-      aspect-ratio: 16/9;
       display: flex;
       align-items: center;
       justify-content: center;
-      position: relative;
+      gap: 32px;
+      padding: 20px;
     }
-    .video-placeholder {
+    @media (max-width: 900px) { 
+      .hero-showcase { flex-direction: column; gap: 24px; }
+    }
+    .showcase-before {
+      background: white;
+      border-radius: 20px;
+      padding: 20px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.12);
       text-align: center;
-      color: white;
+      flex: 0 0 280px;
     }
-    .video-placeholder svg { width: 80px; height: 80px; opacity: 0.8; margin-bottom: 16px; }
-    .video-placeholder p { font-size: 18px; opacity: 0.7; }
+    .showcase-before-img {
+      width: 240px;
+      height: 240px;
+      background: linear-gradient(135deg, #F3F4F6 0%, #E5E7EB 100%);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 80px;
+      margin-bottom: 12px;
+    }
+    .showcase-before-label {
+      font-size: 14px;
+      font-weight: 600;
+      color: #6B7280;
+    }
+    .showcase-arrow {
+      font-size: 48px;
+      color: #8B5CF6;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.1); opacity: 0.8; }
+    }
+    @media (max-width: 900px) { 
+      .showcase-arrow { transform: rotate(90deg); }
+    }
+    .showcase-after {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+      flex: 0 0 400px;
+    }
+    @media (max-width: 900px) { 
+      .showcase-after { flex: 0 0 auto; }
+    }
+    .showcase-result {
+      background: white;
+      border-radius: 16px;
+      padding: 12px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+      text-align: center;
+      transition: all 0.3s;
+    }
+    .showcase-result:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 15px 50px rgba(0,0,0,0.15);
+    }
+    .showcase-result-img {
+      width: 100%;
+      aspect-ratio: 1;
+      background: linear-gradient(135deg, #EEF2FF 0%, #E0E7FF 100%);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 48px;
+      margin-bottom: 8px;
+    }
+    .showcase-result-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: #6B7280;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
     
     /* Stats Bar */
     .stats-bar {
@@ -2915,14 +3013,30 @@ function getMarketingPage() {
       </a>
     </div>
     
-    <!-- Video Placeholder -->
-    <div class="hero-video">
-      <div class="video-placeholder">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <circle cx="12" cy="12" r="10"/>
-          <polygon points="10 8 16 12 10 16 10 8" fill="currentColor"/>
-        </svg>
-        <p>Product demo video coming soon</p>
+    <!-- Before/After Showcase -->
+    <div class="hero-showcase">
+      <div class="showcase-before">
+        <div class="showcase-before-img">📱</div>
+        <div class="showcase-before-label">Your phone snap</div>
+      </div>
+      <div class="showcase-arrow">→</div>
+      <div class="showcase-after">
+        <div class="showcase-result">
+          <div class="showcase-result-img">🌟</div>
+          <div class="showcase-result-label">Hero Shot</div>
+        </div>
+        <div class="showcase-result">
+          <div class="showcase-result-img">🏠</div>
+          <div class="showcase-result-label">Lifestyle</div>
+        </div>
+        <div class="showcase-result">
+          <div class="showcase-result-img">📐</div>
+          <div class="showcase-result-label">Flat Lay</div>
+        </div>
+        <div class="showcase-result">
+          <div class="showcase-result-img">🔍</div>
+          <div class="showcase-result-label">Detail</div>
+        </div>
       </div>
     </div>
   </section>
