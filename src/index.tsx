@@ -2532,7 +2532,9 @@ function getMarketingPage() {
       left: 0;
       right: 0;
       bottom: 0;
-      background: url('https://www.genspark.ai/api/files/s/xjmdyDXv') center center / cover no-repeat;
+      background-image: url('https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=1920&q=80');
+      background-size: cover;
+      background-position: center;
       z-index: 0;
     }
     .hero::after {
@@ -2543,8 +2545,8 @@ function getMarketingPage() {
       right: 0;
       bottom: 0;
       background: linear-gradient(180deg, 
-        rgba(255,255,255,0.92) 0%, 
-        rgba(255,255,255,0.85) 40%,
+        rgba(255,255,255,0.93) 0%, 
+        rgba(255,255,255,0.88) 50%,
         rgba(255,255,255,0.95) 100%);
       z-index: 1;
     }
