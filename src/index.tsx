@@ -2524,31 +2524,9 @@ function getMarketingPage() {
       display: flex;
       flex-direction: column;
       justify-content: center;
-    }
-    .hero::before {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
       background-image: url('https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=1920&q=80');
       background-size: cover;
       background-position: center;
-      z-index: 0;
-    }
-    .hero::after {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: linear-gradient(180deg, 
-        rgba(255,255,255,0.93) 0%, 
-        rgba(255,255,255,0.88) 50%,
-        rgba(255,255,255,0.95) 100%);
-      z-index: 1;
     }
     .hero > * {
       position: relative;
@@ -2569,12 +2547,23 @@ function getMarketingPage() {
       box-shadow: 0 4px 20px rgba(99, 102, 241, 0.15);
     }
     .hero-badge svg { width: 16px; height: 16px; }
+    .hero-content {
+      background: rgba(255,255,255,0.92);
+      backdrop-filter: blur(10px);
+      padding: 48px 64px;
+      border-radius: 24px;
+      max-width: 900px;
+      margin: 0 auto;
+      box-shadow: 0 25px 80px rgba(0,0,0,0.15);
+    }
+    @media (max-width: 768px) {
+      .hero-content { padding: 32px 24px; margin: 0 16px; }
+    }
     .hero h1 {
-      font-size: clamp(42px, 6vw, 68px);
+      font-size: clamp(36px, 5vw, 56px);
       font-weight: 900;
-      line-height: 1.08;
-      max-width: 950px;
-      margin: 0 auto 24px;
+      line-height: 1.1;
+      margin: 0 auto 20px;
       color: #1F2937;
     }
     .hero-highlight {
@@ -2583,11 +2572,11 @@ function getMarketingPage() {
       -webkit-text-fill-color: transparent;
     }
     .hero p {
-      font-size: 21px;
+      font-size: 18px;
       color: #4B5563;
-      max-width: 650px;
-      margin: 0 auto 44px;
-      line-height: 1.7;
+      max-width: 600px;
+      margin: 0 auto 32px;
+      line-height: 1.6;
     }
     .hero-ctas {
       display: flex;
@@ -2998,21 +2987,19 @@ function getMarketingPage() {
 
   <!-- Hero Section -->
   <section class="hero">
-    <div class="hero-badge">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-      AI-Powered Product Photography
-    </div>
-    <h1>Turn Any Product Photo Into <span class="hero-highlight">10 Professional Shots</span> in Seconds</h1>
-    <p>Upload a single photo. Get hero shots, lifestyle images, flat-lays, and more. No photography skills needed. Perfect for online sellers.</p>
-    <div class="hero-ctas">
-      <a href="/app" class="btn-primary">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-        Start Free - 15 Credits
-      </a>
-      <a href="#how-it-works" class="btn-secondary">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8" fill="currentColor"/></svg>
-        See How It Works
-      </a>
+    <div class="hero-content">
+      <h1>Turn Any Product Photo Into <span class="hero-highlight">10 Professional Shots</span> in Seconds</h1>
+      <p>Upload a single photo. Get hero shots, lifestyle images, flat-lays, and more. No photography skills needed. Perfect for online sellers.</p>
+      <div class="hero-ctas">
+        <a href="/app" class="btn-primary">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+          Start Free - 15 Credits
+        </a>
+        <a href="#how-it-works" class="btn-secondary">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8" fill="currentColor"/></svg>
+          See How It Works
+        </a>
+      </div>
     </div>
     
     <!-- Before/After Showcase -->
