@@ -1647,13 +1647,13 @@ app.post('/api/anonymous-upload', async (c) => {
     const base64 = btoa(binary)
     const dataUrl = `data:${file.type};base64,${base64}`
 
-    // Create anonymous session (user_id = NULL)
+    // Create anonymous session (user_id = NULL indicates anonymous)
     const sessionId = generateId()
     const productName = file.name.replace(/\.[^.]+$/, '')
     
     await db.prepare(`
       INSERT INTO sessions (id, product_name, source_type, original_image, status, model, user_id)
-      VALUES (?, ?, 'upload', ?, 'anonymous', ?, NULL)
+      VALUES (?, ?, 'upload', ?, 'pending', ?, NULL)
     `).bind(sessionId, productName, thumbnail || '', model).run()
 
     return c.json({ 
@@ -1729,11 +1729,22 @@ app.post('/api/preview-generate/:sessionId/:index', async (c) => {
 
     // Save to database
     const variationTypes = ['macro_texture', 'label_branding', 'construction_detail']
-    await db.prepare(`
-      INSERT INTO generated_images (session_id, variation_type, variation_index, image_data, prompt)
-      VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT (session_id, variation_index) DO UPDATE SET image_data = excluded.image_data
-    `).bind(sessionId, variationTypes[index], index, result.image, prompt).run()
+    
+    // Check if record exists
+    const existing = await db.prepare(`
+      SELECT id FROM generated_images WHERE session_id = ? AND variation_index = ?
+    `).bind(sessionId, index).first()
+    
+    if (existing) {
+      await db.prepare(`
+        UPDATE generated_images SET image_data = ?, model = ? WHERE session_id = ? AND variation_index = ?
+      `).bind(result.image, model, sessionId, index).run()
+    } else {
+      await db.prepare(`
+        INSERT INTO generated_images (session_id, variation_type, variation_index, image_data, model)
+        VALUES (?, ?, ?, ?, ?)
+      `).bind(sessionId, variationTypes[index], index, result.image, model).run()
+    }
 
     return c.json({ 
       success: true, 
@@ -1769,9 +1780,9 @@ app.post('/api/claim-session', async (c) => {
       return c.json({ success: false, error: 'Session not found or already claimed' }, 404)
     }
     
-    // Link session to user
-    await db.prepare('UPDATE sessions SET user_id = ?, status = ? WHERE id = ?')
-      .bind(user.id, 'claimed', sessionId).run()
+    // Link session to user (use 'pending' status - valid for DB constraint)
+    await db.prepare('UPDATE sessions SET user_id = ? WHERE id = ?')
+      .bind(user.id, sessionId).run()
     
     return c.json({ 
       success: true, 
@@ -4344,6 +4355,9 @@ function getHomePage(user?: User) {
     }
 
     async function loadSessions() {
+      // Skip for anonymous users - sidebar is hidden anyway
+      if (!currentUser) return;
+      
       try {
         const res = await fetch('/api/sessions');
         const data = await res.json();
