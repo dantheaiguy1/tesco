@@ -4034,8 +4034,8 @@ function getHomePage(user?: User) {
           currentSessionId = data.sessionId;
           loadSessions();
         } else if (data.needsAuth) {
-          // Redirect to login
-          window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname);
+          // Redirect to register (most uploaders are new users)
+          window.location.href = '/register?redirect=' + encodeURIComponent(window.location.pathname);
         } else if (data.needsUpgrade) {
           // Show paywall modal
           showPaywallModal(data.required, data.current);
@@ -4207,7 +4207,7 @@ function getHomePage(user?: User) {
         const data = await res.json();
         
         if (data.needsAuth) {
-          window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname);
+          window.location.href = '/register?redirect=' + encodeURIComponent(window.location.pathname);
           return;
         }
         
@@ -5188,13 +5188,25 @@ function getLoginPage() {
         <button type="submit" id="submit-btn" class="auth-btn">Log In</button>
       </form>
       
-      <p class="auth-footer">
+      <p class="auth-footer" id="register-link">
         Don't have an account? <a href="/register">Sign up free</a>
       </p>
     </div>
   </div>
 
   <script>
+    // Get redirect param from URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const redirectTo = urlParams.get('redirect');
+    
+    // Update register link to preserve redirect
+    if (redirectTo) {
+      const registerLink = document.querySelector('#register-link a');
+      if (registerLink) {
+        registerLink.href = '/register?redirect=' + encodeURIComponent(redirectTo);
+      }
+    }
+    
     async function handleLogin(e) {
       e.preventDefault();
       const btn = document.getElementById('submit-btn');
@@ -5217,7 +5229,8 @@ function getLoginPage() {
         const data = await res.json();
         
         if (data.success) {
-          window.location.href = '/';
+          // Redirect to original page or home
+          window.location.href = redirectTo || '/';
         } else {
           errEl.textContent = data.error || 'Login failed';
           errEl.classList.add('show');
@@ -5304,13 +5317,25 @@ function getRegisterPage() {
         <button type="submit" id="submit-btn" class="auth-btn">Create Account</button>
       </form>
       
-      <p class="auth-footer">
+      <p class="auth-footer" id="login-link">
         Already have an account? <a href="/login">Log in</a>
       </p>
     </div>
   </div>
 
   <script>
+    // Get redirect param from URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const redirectTo = urlParams.get('redirect');
+    
+    // Update login link to preserve redirect
+    if (redirectTo) {
+      const loginLink = document.querySelector('#login-link a');
+      if (loginLink) {
+        loginLink.href = '/login?redirect=' + encodeURIComponent(redirectTo);
+      }
+    }
+    
     async function handleRegister(e) {
       e.preventDefault();
       const btn = document.getElementById('submit-btn');
@@ -5334,7 +5359,8 @@ function getRegisterPage() {
         const data = await res.json();
         
         if (data.success) {
-          window.location.href = '/?welcome=1';
+          // Redirect to original page or home
+          window.location.href = redirectTo || '/?welcome=1';
         } else {
           errEl.textContent = data.error || 'Registration failed';
           errEl.classList.add('show');
