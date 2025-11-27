@@ -5851,7 +5851,7 @@ function getRegisterPage() {
 }
 
 // ============================================================================
-// GET STARTED PAGE (Login + Signup + Pricing - All in One Conversion Page)
+// GET STARTED PAGE (75% Pricing Left, 25% Login Right - Light Theme)
 // ============================================================================
 function getGetStartedPage() {
   return `<!DOCTYPE html>
@@ -5868,31 +5868,7 @@ function getGetStartedPage() {
     
     body { 
       min-height: 100vh;
-      background: #0F0F1A;
-      color: white;
-      overflow-x: hidden;
-    }
-    
-    /* Animated gradient background */
-    .bg-gradient {
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: 
-        radial-gradient(ellipse at 20% 20%, rgba(124, 58, 237, 0.15) 0%, transparent 50%),
-        radial-gradient(ellipse at 80% 80%, rgba(59, 130, 246, 0.15) 0%, transparent 50%),
-        radial-gradient(ellipse at 50% 50%, rgba(139, 92, 246, 0.1) 0%, transparent 70%);
-      z-index: 0;
-    }
-    
-    .container {
-      position: relative;
-      z-index: 1;
-      max-width: 1200px;
-      margin: 0 auto;
-      padding: 24px;
+      background: radial-gradient(circle at 50% 30%, rgba(225, 245, 254, 1) 0%, rgba(243, 232, 255, 1) 50%, rgba(237, 233, 254, 1) 100%);
     }
     
     /* Header */
@@ -5900,252 +5876,108 @@ function getGetStartedPage() {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 16px 0;
-      margin-bottom: 40px;
+      padding: 16px 32px;
+      background: rgba(255,255,255,0.9);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid rgba(229,231,235,0.5);
     }
     .logo {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
       text-decoration: none;
     }
     .logo-icon {
-      width: 40px;
-      height: 40px;
+      width: 36px;
+      height: 36px;
       background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
-      border-radius: 12px;
+      border-radius: 10px;
       display: flex;
       align-items: center;
       justify-content: center;
     }
-    .logo-icon svg { width: 22px; height: 22px; color: white; }
-    .logo-text { font-size: 24px; font-weight: 800; color: white; }
+    .logo-icon svg { width: 20px; height: 20px; color: white; }
+    .logo-text { font-size: 22px; font-weight: 700; color: #1F2937; }
     
-    /* Hero Section */
-    .hero {
-      text-align: center;
-      max-width: 700px;
-      margin: 0 auto 60px;
-    }
-    .hero-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 16px;
-      background: rgba(139, 92, 246, 0.2);
-      border: 1px solid rgba(139, 92, 246, 0.3);
-      border-radius: 100px;
-      font-size: 13px;
-      font-weight: 500;
-      color: #C4B5FD;
-      margin-bottom: 24px;
-    }
-    .hero h1 {
-      font-size: 48px;
-      font-weight: 800;
-      line-height: 1.1;
-      margin-bottom: 20px;
-      background: linear-gradient(135deg, #ffffff 0%, #C4B5FD 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-    }
-    .hero p {
-      font-size: 18px;
-      color: #9CA3AF;
-      line-height: 1.6;
-    }
-    
-    @media (max-width: 768px) {
-      .hero h1 { font-size: 32px; }
-      .hero p { font-size: 16px; }
-    }
-    
-    /* Auth Section - Login/Signup Toggle */
-    .auth-section {
-      max-width: 440px;
-      margin: 0 auto 80px;
-    }
-    .auth-card {
-      background: rgba(255, 255, 255, 0.03);
-      backdrop-filter: blur(20px);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 24px;
-      padding: 36px;
-    }
-    .auth-tabs {
+    /* Main Layout - 75% / 25% split */
+    .main-layout {
       display: flex;
-      background: rgba(255, 255, 255, 0.05);
-      border-radius: 12px;
-      padding: 4px;
-      margin-bottom: 28px;
-    }
-    .auth-tab {
-      flex: 1;
-      padding: 12px 20px;
-      border: none;
-      background: transparent;
-      color: #9CA3AF;
-      font-size: 14px;
-      font-weight: 600;
-      cursor: pointer;
-      border-radius: 10px;
-      transition: all 0.2s;
-    }
-    .auth-tab.active {
-      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
-      color: white;
-    }
-    .auth-tab:hover:not(.active) { color: white; }
-    
-    .auth-form { display: none; }
-    .auth-form.active { display: block; }
-    
-    .form-group { margin-bottom: 20px; }
-    .form-label {
-      display: block;
-      font-size: 13px;
-      font-weight: 500;
-      color: #D1D5DB;
-      margin-bottom: 8px;
-    }
-    .form-input {
-      width: 100%;
-      padding: 14px 16px;
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 12px;
-      font-size: 15px;
-      color: white;
-      transition: all 0.2s;
-    }
-    .form-input::placeholder { color: #6B7280; }
-    .form-input:focus {
-      outline: none;
-      border-color: #8B5CF6;
-      background: rgba(255, 255, 255, 0.08);
+      min-height: calc(100vh - 65px);
     }
     
-    .submit-btn {
-      width: 100%;
-      padding: 16px;
-      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
-      border: none;
-      border-radius: 12px;
-      font-size: 15px;
-      font-weight: 600;
-      color: white;
-      cursor: pointer;
-      transition: all 0.2s;
-      margin-top: 8px;
-    }
-    .submit-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(139, 92, 246, 0.4); }
-    .submit-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
-    
-    .error-msg {
-      background: rgba(239, 68, 68, 0.1);
-      border: 1px solid rgba(239, 68, 68, 0.3);
-      color: #FCA5A5;
-      padding: 12px 16px;
-      border-radius: 10px;
-      font-size: 13px;
-      margin-bottom: 20px;
-      display: none;
-    }
-    .error-msg.show { display: block; }
-    
-    .auth-footer {
-      text-align: center;
-      margin-top: 20px;
-      font-size: 12px;
-      color: #6B7280;
-    }
-    .auth-footer a { color: #8B5CF6; text-decoration: none; }
-    .auth-footer a:hover { text-decoration: underline; }
-    
-    /* Free Credits Banner */
-    .free-banner {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 10px;
-      padding: 14px 20px;
-      background: linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(52, 211, 153, 0.1) 100%);
-      border: 1px solid rgba(52, 211, 153, 0.3);
-      border-radius: 12px;
-      margin-bottom: 28px;
-    }
-    .free-banner span { font-size: 20px; }
-    .free-banner p { font-size: 14px; font-weight: 600; color: #6EE7B7; }
-    
-    /* Section Divider */
-    .section-divider {
-      text-align: center;
-      margin: 60px 0;
-      position: relative;
-    }
-    .section-divider::before {
-      content: '';
-      position: absolute;
-      left: 0;
-      right: 0;
-      top: 50%;
-      height: 1px;
-      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
-    }
-    .section-divider span {
-      position: relative;
-      background: #0F0F1A;
-      padding: 0 24px;
-      color: #6B7280;
-      font-size: 14px;
-      font-weight: 500;
-    }
-    
-    /* Pricing Section */
+    /* Left Side - Pricing (75%) */
     .pricing-section {
-      margin-bottom: 80px;
+      flex: 3;
+      padding: 40px 48px;
+      overflow-y: auto;
     }
+    
+    /* Right Side - Auth (25%) */
+    .auth-section {
+      flex: 1;
+      min-width: 320px;
+      max-width: 360px;
+      background: white;
+      border-left: 1px solid #E5E7EB;
+      padding: 32px 28px;
+      display: flex;
+      flex-direction: column;
+      box-shadow: -4px 0 20px rgba(0,0,0,0.03);
+    }
+    
+    @media (max-width: 1100px) {
+      .main-layout { flex-direction: column-reverse; }
+      .pricing-section { padding: 32px 24px; }
+      .auth-section { 
+        max-width: 100%; 
+        min-width: auto;
+        border-left: none; 
+        border-bottom: 1px solid #E5E7EB;
+        box-shadow: none;
+      }
+    }
+    
+    /* Pricing Header */
     .pricing-header {
-      text-align: center;
-      margin-bottom: 48px;
+      margin-bottom: 32px;
     }
-    .pricing-header h2 {
-      font-size: 36px;
+    .pricing-header h1 {
+      font-size: 28px;
       font-weight: 800;
-      margin-bottom: 12px;
+      color: #1F2937;
+      margin-bottom: 6px;
     }
     .pricing-header p {
-      font-size: 16px;
-      color: #9CA3AF;
+      font-size: 15px;
+      color: #6B7280;
     }
     
+    /* Pricing Grid */
     .pricing-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 24px;
-      max-width: 1000px;
-      margin: 0 auto;
+      gap: 20px;
+      margin-bottom: 36px;
     }
     @media (max-width: 900px) {
-      .pricing-grid { grid-template-columns: 1fr; max-width: 400px; }
+      .pricing-grid { grid-template-columns: 1fr; }
     }
     
     .pricing-card {
-      background: rgba(255, 255, 255, 0.03);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 20px;
-      padding: 32px;
+      background: white;
+      border: 1px solid #E5E7EB;
+      border-radius: 16px;
+      padding: 24px;
       position: relative;
-      transition: all 0.3s;
+      transition: all 0.2s;
     }
     .pricing-card:hover {
-      border-color: rgba(139, 92, 246, 0.3);
-      transform: translateY(-4px);
+      border-color: #8B5CF6;
+      box-shadow: 0 8px 30px rgba(139, 92, 246, 0.12);
     }
     .pricing-card.featured {
-      background: linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(59, 130, 246, 0.1) 100%);
-      border-color: rgba(139, 92, 246, 0.4);
+      border: 2px solid #8B5CF6;
+      box-shadow: 0 8px 30px rgba(139, 92, 246, 0.15);
     }
     .pricing-card.featured::before {
       content: 'Most Popular';
@@ -6154,226 +5986,335 @@ function getGetStartedPage() {
       left: 50%;
       transform: translateX(-50%);
       background: linear-gradient(135deg, #8B5CF6 0%, #3B82F6 100%);
-      padding: 6px 16px;
+      color: white;
+      padding: 5px 14px;
       border-radius: 100px;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 600;
     }
     
     .pricing-card h3 {
-      font-size: 20px;
+      font-size: 17px;
       font-weight: 700;
-      margin-bottom: 8px;
-    }
-    .pricing-card .price {
-      font-size: 42px;
-      font-weight: 800;
+      color: #1F2937;
       margin-bottom: 4px;
     }
-    .pricing-card .price span { font-size: 16px; font-weight: 500; color: #9CA3AF; }
-    .pricing-card .price-note { font-size: 13px; color: #6B7280; margin-bottom: 24px; }
+    .pricing-card .price {
+      font-size: 32px;
+      font-weight: 800;
+      color: #1F2937;
+      margin-bottom: 4px;
+    }
+    .pricing-card .price span { 
+      font-size: 14px; 
+      font-weight: 500; 
+      color: #9CA3AF; 
+    }
+    .pricing-card .price-note { 
+      font-size: 12px; 
+      color: #9CA3AF; 
+      margin-bottom: 16px; 
+    }
     
     .pricing-card .credits {
       display: flex;
-      gap: 12px;
-      margin-bottom: 24px;
+      gap: 8px;
+      margin-bottom: 16px;
     }
     .credit-badge {
       flex: 1;
-      padding: 12px;
-      background: rgba(255, 255, 255, 0.05);
-      border-radius: 10px;
+      padding: 8px;
+      background: #F9FAFB;
+      border-radius: 8px;
       text-align: center;
     }
-    .credit-badge .count { font-size: 24px; font-weight: 700; }
-    .credit-badge .label { font-size: 11px; color: #9CA3AF; margin-top: 2px; }
-    .credit-badge.standard .count { color: #60A5FA; }
-    .credit-badge.pro .count { color: #C084FC; }
+    .credit-badge .count { 
+      font-size: 20px; 
+      font-weight: 700; 
+    }
+    .credit-badge .label { 
+      font-size: 9px; 
+      color: #6B7280; 
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .credit-badge.standard .count { color: #3B82F6; }
+    .credit-badge.pro .count { color: #8B5CF6; }
     
     .pricing-card ul {
       list-style: none;
-      margin-bottom: 24px;
+      margin-bottom: 16px;
     }
     .pricing-card li {
       display: flex;
       align-items: center;
-      gap: 10px;
-      font-size: 14px;
-      color: #D1D5DB;
-      margin-bottom: 12px;
+      gap: 8px;
+      font-size: 12px;
+      color: #4B5563;
+      margin-bottom: 8px;
     }
     .pricing-card li::before {
-      content: '✓';
-      color: #10B981;
-      font-weight: 600;
+      content: '';
+      width: 16px;
+      height: 16px;
+      background: #10B981;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='white'%3E%3Cpath fill-rule='evenodd' d='M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z' clip-rule='evenodd'/%3E%3C/svg%3E");
+      background-size: 10px;
+      background-repeat: no-repeat;
+      background-position: center;
     }
     
     .pricing-btn {
       width: 100%;
-      padding: 14px;
-      border-radius: 12px;
-      font-size: 14px;
+      padding: 11px;
+      border-radius: 10px;
+      font-size: 13px;
       font-weight: 600;
       cursor: pointer;
       transition: all 0.2s;
+      text-align: center;
       text-decoration: none;
       display: block;
-      text-align: center;
     }
     .pricing-btn.primary {
       background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
       border: none;
       color: white;
     }
-    .pricing-btn.primary:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(139, 92, 246, 0.4); }
+    .pricing-btn.primary:hover { 
+      transform: translateY(-2px); 
+      box-shadow: 0 6px 20px rgba(139, 92, 246, 0.3); 
+    }
     .pricing-btn.secondary {
-      background: transparent;
-      border: 1px solid rgba(255, 255, 255, 0.2);
-      color: white;
+      background: white;
+      border: 1px solid #E5E7EB;
+      color: #374151;
     }
-    .pricing-btn.secondary:hover { border-color: rgba(255, 255, 255, 0.4); background: rgba(255, 255, 255, 0.05); }
+    .pricing-btn.secondary:hover { 
+      border-color: #8B5CF6; 
+      color: #8B5CF6;
+    }
     
-    /* Features Grid */
-    .features-section {
-      margin-bottom: 80px;
-    }
-    .features-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
+    /* Features Row */
+    .features-row {
+      display: flex;
       gap: 24px;
+      padding-top: 28px;
+      border-top: 1px solid #E5E7EB;
     }
     @media (max-width: 768px) {
-      .features-grid { grid-template-columns: 1fr; }
+      .features-row { flex-direction: column; gap: 16px; }
     }
-    .feature-card {
-      background: rgba(255, 255, 255, 0.03);
-      border: 1px solid rgba(255, 255, 255, 0.06);
-      border-radius: 16px;
-      padding: 28px;
-      text-align: center;
+    .feature-item {
+      flex: 1;
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
     }
     .feature-icon {
-      width: 56px;
-      height: 56px;
-      background: linear-gradient(135deg, rgba(139, 92, 246, 0.2) 0%, rgba(59, 130, 246, 0.2) 100%);
-      border-radius: 14px;
+      width: 36px;
+      height: 36px;
+      background: linear-gradient(135deg, #EEF2FF 0%, #F3E8FF 100%);
+      border-radius: 10px;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 26px;
-      margin: 0 auto 16px;
+      font-size: 16px;
+      flex-shrink: 0;
     }
-    .feature-card h4 { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
-    .feature-card p { font-size: 13px; color: #9CA3AF; line-height: 1.5; }
+    .feature-text h4 { 
+      font-size: 13px; 
+      font-weight: 600; 
+      color: #1F2937; 
+      margin-bottom: 2px;
+    }
+    .feature-text p { 
+      font-size: 11px; 
+      color: #6B7280; 
+      line-height: 1.4;
+    }
     
-    /* Footer */
-    .footer {
-      text-align: center;
-      padding: 40px 0;
-      border-top: 1px solid rgba(255, 255, 255, 0.06);
+    /* Auth Section Styles */
+    .auth-header {
+      margin-bottom: 20px;
+    }
+    .auth-header h2 {
+      font-size: 20px;
+      font-weight: 700;
+      color: #1F2937;
+      margin-bottom: 4px;
+    }
+    .auth-header p {
       font-size: 13px;
       color: #6B7280;
     }
+    
+    .free-banner {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 14px;
+      background: linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%);
+      border: 1px solid #6EE7B7;
+      border-radius: 10px;
+      margin-bottom: 20px;
+    }
+    .free-banner span { font-size: 18px; }
+    .free-banner p { 
+      font-size: 13px; 
+      font-weight: 600; 
+      color: #065F46; 
+      margin: 0;
+    }
+    
+    .auth-tabs {
+      display: flex;
+      background: #F3F4F6;
+      border-radius: 10px;
+      padding: 4px;
+      margin-bottom: 20px;
+    }
+    .auth-tab {
+      flex: 1;
+      padding: 10px 14px;
+      border: none;
+      background: transparent;
+      color: #6B7280;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      border-radius: 8px;
+      transition: all 0.2s;
+    }
+    .auth-tab.active {
+      background: white;
+      color: #1F2937;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    
+    .auth-form { display: none; }
+    .auth-form.active { display: block; }
+    
+    .form-group { margin-bottom: 14px; }
+    .form-label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      color: #374151;
+      margin-bottom: 5px;
+    }
+    .form-input {
+      width: 100%;
+      padding: 11px 13px;
+      background: #F9FAFB;
+      border: 1px solid #E5E7EB;
+      border-radius: 10px;
+      font-size: 14px;
+      color: #1F2937;
+      transition: all 0.2s;
+    }
+    .form-input::placeholder { color: #9CA3AF; }
+    .form-input:focus {
+      outline: none;
+      border-color: #8B5CF6;
+      background: white;
+      box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+    }
+    
+    .submit-btn {
+      width: 100%;
+      padding: 13px;
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      border: none;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      color: white;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-top: 6px;
+    }
+    .submit-btn:hover { 
+      transform: translateY(-1px); 
+      box-shadow: 0 6px 20px rgba(139, 92, 246, 0.3); 
+    }
+    .submit-btn:disabled { 
+      opacity: 0.6; 
+      cursor: not-allowed; 
+      transform: none; 
+    }
+    
+    .error-msg {
+      background: #FEF2F2;
+      border: 1px solid #FECACA;
+      color: #DC2626;
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      margin-bottom: 14px;
+      display: none;
+    }
+    .error-msg.show { display: block; }
+    
+    .auth-footer {
+      text-align: center;
+      margin-top: 14px;
+      font-size: 11px;
+      color: #9CA3AF;
+      line-height: 1.5;
+    }
+    .auth-footer a { color: #8B5CF6; text-decoration: none; }
+    .auth-footer a:hover { text-decoration: underline; }
+    
+    .auth-spacer { flex: 1; }
+    
+    .auth-help {
+      padding-top: 16px;
+      border-top: 1px solid #E5E7EB;
+      margin-top: 16px;
+    }
+    .auth-help p {
+      font-size: 12px;
+      color: #6B7280;
+      text-align: center;
+    }
+    .auth-help a { color: #8B5CF6; text-decoration: none; }
   </style>
 </head>
 <body>
-  <div class="bg-gradient"></div>
+  <!-- Header -->
+  <header class="header">
+    <a href="/" class="logo">
+      <div class="logo-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/>
+          <circle cx="12" cy="12" r="3"/>
+        </svg>
+      </div>
+      <span class="logo-text">ShopShot</span>
+    </a>
+  </header>
   
-  <div class="container">
-    <!-- Header -->
-    <header class="header">
-      <a href="/" class="logo">
-        <div class="logo-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="10"/>
-            <circle cx="12" cy="12" r="3"/>
-          </svg>
-        </div>
-        <span class="logo-text">ShopShot</span>
-      </a>
-    </header>
-    
-    <!-- Hero -->
-    <section class="hero">
-      <div class="hero-badge">
-        <span>✨</span>
-        AI-Powered Product Photography
-      </div>
-      <h1>Transform Any Product Photo Into Professional Shots</h1>
-      <p>Upload once, get 10 stunning variations in under 60 seconds. Perfect for e-commerce, social media, and marketing campaigns.</p>
-    </section>
-    
-    <!-- Auth Section -->
-    <section class="auth-section">
-      <div class="auth-card">
-        <div class="free-banner">
-          <span>🎁</span>
-          <p>${CREDITS.SIGNUP_CHEAPER + CREDITS.SIGNUP_BETTER} Free Credits When You Sign Up!</p>
-        </div>
-        
-        <div class="auth-tabs">
-          <button class="auth-tab active" onclick="showTab('signup')">Create Account</button>
-          <button class="auth-tab" onclick="showTab('login')">Log In</button>
-        </div>
-        
-        <div id="error-msg" class="error-msg"></div>
-        
-        <!-- Signup Form -->
-        <form id="signup-form" class="auth-form active" onsubmit="handleSignup(event)">
-          <div class="form-group">
-            <label class="form-label">Email</label>
-            <input type="email" id="signup-email" class="form-input" placeholder="you@example.com" required>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Password</label>
-            <input type="password" id="signup-password" class="form-input" placeholder="At least 6 characters" required minlength="6">
-          </div>
-          <button type="submit" id="signup-btn" class="submit-btn">
-            Get Started Free
-          </button>
-          <p class="auth-footer">
-            By signing up, you agree to our <a href="#">Terms</a> and <a href="#">Privacy Policy</a>
-          </p>
-        </form>
-        
-        <!-- Login Form -->
-        <form id="login-form" class="auth-form" onsubmit="handleLogin(event)">
-          <div class="form-group">
-            <label class="form-label">Email</label>
-            <input type="email" id="login-email" class="form-input" placeholder="you@example.com" required>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Password</label>
-            <input type="password" id="login-password" class="form-input" placeholder="Your password" required>
-          </div>
-          <button type="submit" id="login-btn" class="submit-btn">
-            Log In
-          </button>
-          <p class="auth-footer">
-            <a href="#">Forgot your password?</a>
-          </p>
-        </form>
-      </div>
-    </section>
-    
-    <!-- Section Divider -->
-    <div class="section-divider">
-      <span>See What You Get</span>
-    </div>
-    
-    <!-- Pricing Section -->
+  <!-- Main Layout -->
+  <div class="main-layout">
+    <!-- Left: Pricing (75%) -->
     <section class="pricing-section">
       <div class="pricing-header">
-        <h2>Simple, Transparent Pricing</h2>
-        <p>Start free, upgrade when you need more</p>
+        <h1>Simple, Transparent Pricing</h1>
+        <p>Start free with 15 credits. Upgrade anytime for more.</p>
       </div>
       
       <div class="pricing-grid">
         <!-- Free Plan -->
         <div class="pricing-card">
           <h3>Free</h3>
-          <div class="price">$0</div>
-          <div class="price-note">Get started instantly</div>
+          <div class="price">£0</div>
+          <div class="price-note">One-time signup bonus</div>
           <div class="credits">
             <div class="credit-badge standard">
               <div class="count">${CREDITS.SIGNUP_CHEAPER}</div>
@@ -6389,7 +6330,7 @@ function getGetStartedPage() {
             <li>High-resolution downloads</li>
             <li>All variation types</li>
           </ul>
-          <button class="pricing-btn secondary" onclick="showTab('signup'); window.scrollTo({top: 0, behavior: 'smooth'})">
+          <button class="pricing-btn secondary" onclick="document.getElementById('signup-email').focus()">
             Sign Up Free
           </button>
         </div>
@@ -6397,7 +6338,7 @@ function getGetStartedPage() {
         <!-- Standard Plan -->
         <div class="pricing-card featured">
           <h3>Standard</h3>
-          <div class="price">${PRICING.STANDARD_MONTHLY}<span>/mo</span></div>
+          <div class="price">£${PRICING.STANDARD}<span>/mo</span></div>
           <div class="price-note">Best for regular sellers</div>
           <div class="credits">
             <div class="credit-badge standard">
@@ -6415,7 +6356,7 @@ function getGetStartedPage() {
             <li>Monthly credit refresh</li>
             <li>Cancel anytime</li>
           </ul>
-          <button class="pricing-btn primary" onclick="showTab('signup'); window.scrollTo({top: 0, behavior: 'smooth'})">
+          <button class="pricing-btn primary" onclick="document.getElementById('signup-email').focus()">
             Get Started
           </button>
         </div>
@@ -6423,7 +6364,7 @@ function getGetStartedPage() {
         <!-- Pro Plan -->
         <div class="pricing-card">
           <h3>Pro</h3>
-          <div class="price">${PRICING.PRO_MONTHLY}<span>/mo</span></div>
+          <div class="price">£${PRICING.PRO}<span>/mo</span></div>
           <div class="price-note">For power users</div>
           <div class="credits">
             <div class="credit-badge standard">
@@ -6441,38 +6382,99 @@ function getGetStartedPage() {
             <li>Best quality AI model</li>
             <li>Priority support</li>
           </ul>
-          <button class="pricing-btn secondary" onclick="showTab('signup'); window.scrollTo({top: 0, behavior: 'smooth'})">
+          <button class="pricing-btn secondary" onclick="document.getElementById('signup-email').focus()">
             Get Started
           </button>
         </div>
       </div>
-    </section>
-    
-    <!-- Features Section -->
-    <section class="features-section">
-      <div class="features-grid">
-        <div class="feature-card">
+      
+      <!-- Features Row -->
+      <div class="features-row">
+        <div class="feature-item">
           <div class="feature-icon">📸</div>
-          <h4>10 Professional Variations</h4>
-          <p>Hero shots, lifestyle scenes, flat-lays, macro details, and more from a single upload.</p>
+          <div class="feature-text">
+            <h4>10 Professional Variations</h4>
+            <p>Hero shots, lifestyle, flat-lay, macro details from one upload</p>
+          </div>
         </div>
-        <div class="feature-card">
+        <div class="feature-item">
           <div class="feature-icon">⚡</div>
-          <h4>Ready in 36 Seconds</h4>
-          <p>AI-powered generation means no waiting. Get your photos faster than making coffee.</p>
+          <div class="feature-text">
+            <h4>Ready in 36 Seconds</h4>
+            <p>AI-powered generation, faster than making coffee</p>
+          </div>
         </div>
-        <div class="feature-card">
+        <div class="feature-item">
           <div class="feature-icon">🎯</div>
-          <h4>Works With Any Photo</h4>
-          <p>Even crumpled, low-quality, or poorly lit images transform into professional shots.</p>
+          <div class="feature-text">
+            <h4>Works With Any Photo</h4>
+            <p>Even crumpled or low-quality images work great</p>
+          </div>
         </div>
       </div>
     </section>
     
-    <!-- Footer -->
-    <footer class="footer">
-      <p>&copy; 2024 ShopShot. All rights reserved.</p>
-    </footer>
+    <!-- Right: Auth (25%) -->
+    <section class="auth-section">
+      <div class="auth-header">
+        <h2 id="auth-title">Create Account</h2>
+        <p id="auth-subtitle">Start generating professional photos</p>
+      </div>
+      
+      <div class="free-banner">
+        <span>🎁</span>
+        <p>${CREDITS.SIGNUP_CHEAPER + CREDITS.SIGNUP_BETTER} Free Credits!</p>
+      </div>
+      
+      <div class="auth-tabs">
+        <button class="auth-tab active" onclick="showTab('signup')">Sign Up</button>
+        <button class="auth-tab" onclick="showTab('login')">Log In</button>
+      </div>
+      
+      <div id="error-msg" class="error-msg"></div>
+      
+      <!-- Signup Form -->
+      <form id="signup-form" class="auth-form active" onsubmit="handleSignup(event)">
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input type="email" id="signup-email" class="form-input" placeholder="you@example.com" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Password</label>
+          <input type="password" id="signup-password" class="form-input" placeholder="At least 6 characters" required minlength="6">
+        </div>
+        <button type="submit" id="signup-btn" class="submit-btn">
+          Create Free Account
+        </button>
+        <p class="auth-footer">
+          By signing up, you agree to our <a href="#">Terms</a> and <a href="#">Privacy</a>
+        </p>
+      </form>
+      
+      <!-- Login Form -->
+      <form id="login-form" class="auth-form" onsubmit="handleLogin(event)">
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input type="email" id="login-email" class="form-input" placeholder="you@example.com" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Password</label>
+          <input type="password" id="login-password" class="form-input" placeholder="Your password" required>
+        </div>
+        <button type="submit" id="login-btn" class="submit-btn">
+          Log In
+        </button>
+        <p class="auth-footer">
+          <a href="#">Forgot your password?</a>
+        </p>
+      </form>
+      
+      <div class="auth-spacer"></div>
+      
+      <div class="auth-help">
+        <p>Questions? <a href="mailto:support@shopshot.ai">Contact support</a></p>
+      </div>
+    </section>
   </div>
 
   <script>
@@ -6483,12 +6485,21 @@ function getGetStartedPage() {
       document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
       document.querySelectorAll('.auth-form').forEach(f => f.classList.remove('active'));
       
+      const title = document.getElementById('auth-title');
+      const subtitle = document.getElementById('auth-subtitle');
+      
       if (tab === 'signup') {
         document.querySelector('.auth-tab:first-child').classList.add('active');
         document.getElementById('signup-form').classList.add('active');
+        title.textContent = 'Create Account';
+        subtitle.textContent = 'Start generating professional photos';
+        document.querySelector('.free-banner').style.display = 'flex';
       } else {
         document.querySelector('.auth-tab:last-child').classList.add('active');
         document.getElementById('login-form').classList.add('active');
+        title.textContent = 'Welcome Back';
+        subtitle.textContent = 'Log in to your account';
+        document.querySelector('.free-banner').style.display = 'none';
       }
       document.getElementById('error-msg').classList.remove('show');
     }
@@ -6496,8 +6507,8 @@ function getGetStartedPage() {
     // Check if user has pending image
     const hasPendingImage = localStorage.getItem('shopshot_pending_image');
     if (hasPendingImage) {
-      document.querySelector('.hero h1').textContent = "You're One Step Away!";
-      document.querySelector('.hero p').textContent = "Your image is ready and waiting. Create your free account to generate 10 stunning product photos.";
+      document.getElementById('auth-title').textContent = "Almost There!";
+      document.getElementById('auth-subtitle').textContent = "Sign up to generate your photos";
     }
     
     async function handleSignup(e) {
@@ -6527,13 +6538,13 @@ function getGetStartedPage() {
           errEl.textContent = data.error || 'Registration failed';
           errEl.classList.add('show');
           btn.disabled = false;
-          btn.textContent = 'Get Started Free';
+          btn.textContent = 'Create Free Account';
         }
       } catch (err) {
         errEl.textContent = 'Something went wrong. Please try again.';
         errEl.classList.add('show');
         btn.disabled = false;
-        btn.textContent = 'Get Started Free';
+        btn.textContent = 'Create Free Account';
       }
     }
     
