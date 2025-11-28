@@ -10510,57 +10510,57 @@ function getPricingPage(user?: User) {
       
       <!-- Cheaper/Standard Packs -->
       <div id="packs-cheaper" class="packs-grid">
-        <div class="pack-card cheaper" onclick="!${!user} && startPackCheckout('cheaper', 25)">
+        <div class="pack-card cheaper" onclick="${user ? "startPackCheckout('cheaper', 25)" : "window.location='/register'"}">
           <div class="pack-price">£25</div>
           <div class="pack-credits cheaper">${CREDITS.PACKS.CHEAPER.PACK_25} credits</div>
           <div class="pack-per">£0.063 per credit</div>
-          <button class="pack-btn cheaper" ${!user ? 'disabled' : ''}>Buy Now</button>
+          <button class="pack-btn cheaper">Buy Now</button>
         </div>
-        <div class="pack-card cheaper" onclick="!${!user} && startPackCheckout('cheaper', 50)">
+        <div class="pack-card cheaper" onclick="${user ? "startPackCheckout('cheaper', 50)" : "window.location='/register'"}">
           <div class="pack-price">£50</div>
           <div class="pack-credits cheaper">${CREDITS.PACKS.CHEAPER.PACK_50} credits</div>
           <div class="pack-per">£0.063 per credit</div>
-          <button class="pack-btn cheaper" ${!user ? 'disabled' : ''}>Buy Now</button>
+          <button class="pack-btn cheaper">Buy Now</button>
         </div>
-        <div class="pack-card cheaper" onclick="!${!user} && startPackCheckout('cheaper', 75)">
+        <div class="pack-card cheaper" onclick="${user ? "startPackCheckout('cheaper', 75)" : "window.location='/register'"}">
           <div class="pack-price">£75</div>
           <div class="pack-credits cheaper">${CREDITS.PACKS.CHEAPER.PACK_75} credits</div>
           <div class="pack-per">£0.063 per credit</div>
-          <button class="pack-btn cheaper" ${!user ? 'disabled' : ''}>Buy Now</button>
+          <button class="pack-btn cheaper">Buy Now</button>
         </div>
-        <div class="pack-card cheaper" onclick="!${!user} && startPackCheckout('cheaper', 100)">
+        <div class="pack-card cheaper" onclick="${user ? "startPackCheckout('cheaper', 100)" : "window.location='/register'"}">
           <div class="pack-price">£100</div>
           <div class="pack-credits cheaper">${CREDITS.PACKS.CHEAPER.PACK_100} credits</div>
           <div class="pack-per">£0.063 per credit</div>
-          <button class="pack-btn cheaper" ${!user ? 'disabled' : ''}>Buy Now</button>
+          <button class="pack-btn cheaper">Buy Now</button>
         </div>
       </div>
       
       <!-- Better/Pro Packs -->
       <div id="packs-better" class="packs-grid hidden">
-        <div class="pack-card better" onclick="!${!user} && startPackCheckout('better', 25)">
+        <div class="pack-card better" onclick="${user ? "startPackCheckout('better', 25)" : "window.location='/register'"}">
           <div class="pack-price">£25</div>
           <div class="pack-credits better">${CREDITS.PACKS.BETTER.PACK_25} credits</div>
           <div class="pack-per">£0.22 per credit</div>
-          <button class="pack-btn better" ${!user ? 'disabled' : ''}>Buy Now</button>
+          <button class="pack-btn better">Buy Now</button>
         </div>
-        <div class="pack-card better" onclick="!${!user} && startPackCheckout('better', 50)">
+        <div class="pack-card better" onclick="${user ? "startPackCheckout('better', 50)" : "window.location='/register'"}">
           <div class="pack-price">£50</div>
           <div class="pack-credits better">${CREDITS.PACKS.BETTER.PACK_50} credits</div>
           <div class="pack-per">£0.22 per credit</div>
-          <button class="pack-btn better" ${!user ? 'disabled' : ''}>Buy Now</button>
+          <button class="pack-btn better">Buy Now</button>
         </div>
-        <div class="pack-card better" onclick="!${!user} && startPackCheckout('better', 75)">
+        <div class="pack-card better" onclick="${user ? "startPackCheckout('better', 75)" : "window.location='/register'"}">
           <div class="pack-price">£75</div>
           <div class="pack-credits better">${CREDITS.PACKS.BETTER.PACK_75} credits</div>
           <div class="pack-per">£0.22 per credit</div>
-          <button class="pack-btn better" ${!user ? 'disabled' : ''}>Buy Now</button>
+          <button class="pack-btn better">Buy Now</button>
         </div>
-        <div class="pack-card better" onclick="!${!user} && startPackCheckout('better', 100)">
+        <div class="pack-card better" onclick="${user ? "startPackCheckout('better', 100)" : "window.location='/register'"}">
           <div class="pack-price">£100</div>
           <div class="pack-credits better">${CREDITS.PACKS.BETTER.PACK_100} credits</div>
           <div class="pack-per">£0.22 per credit</div>
-          <button class="pack-btn better" ${!user ? 'disabled' : ''}>Buy Now</button>
+          <button class="pack-btn better">Buy Now</button>
         </div>
       </div>
       
