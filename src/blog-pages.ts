@@ -1,13 +1,21 @@
 // Blog Page Templates for ShopShot
 
-// Google Tag Manager snippets
+// Google Tag Manager + Google Analytics snippets
 const GTM_HEAD = `<!-- Google Tag Manager -->
 <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
 new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
 j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
 'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
 })(window,document,'script','dataLayer','GTM-PNKMSPJN');</script>
-<!-- End Google Tag Manager -->`;
+<!-- End Google Tag Manager -->
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-FJR6WVMLHE"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-FJR6WVMLHE');
+</script>`;
 
 const GTM_BODY = `<!-- Google Tag Manager (noscript) -->
 <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-PNKMSPJN"
@@ -1319,16 +1327,6 @@ export function getBlogIndexPage(): string {
 
       <!-- Sidebar -->
       <aside class="lg:w-1/3 mt-12 lg:mt-0">
-        <!-- Newsletter Signup -->
-        <div class="bg-purple-50 rounded-xl p-6 mb-8">
-          <h3 class="text-lg font-bold text-gray-900 mb-2">Get Photography Tips</h3>
-          <p class="text-gray-600 text-sm mb-4">Join 5,000+ sellers getting weekly tips on product photography.</p>
-          <form class="space-y-3">
-            <input type="email" placeholder="Your email address" class="w-full px-4 py-2 rounded-lg border border-gray-200 focus:ring-2 focus:ring-purple-500 focus:border-transparent">
-            <button type="submit" class="w-full bg-purple-600 text-white py-2 rounded-lg font-semibold hover:bg-purple-700">Subscribe</button>
-          </form>
-        </div>
-
         <!-- Popular Posts -->
         <div class="bg-white rounded-xl shadow-md p-6 mb-8">
           <h3 class="text-lg font-bold text-gray-900 mb-4">Popular Articles</h3>

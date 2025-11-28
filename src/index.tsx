@@ -5,14 +5,22 @@ import { getPrivacyPage, getTermsPage, getRefundsPage, getCookiesPage } from './
 import { getFaqPage, getAboutPage, getContactPage } from './info-pages'
 import { getBlogIndexPage, getBlogPostPage, getAllBlogPosts } from './blog-pages'
 
-// Google Tag Manager snippets
+// Google Tag Manager + Google Analytics snippets
 const GTM_HEAD = `<!-- Google Tag Manager -->
 <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
 new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
 j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
 'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
 })(window,document,'script','dataLayer','GTM-PNKMSPJN');</script>
-<!-- End Google Tag Manager -->`;
+<!-- End Google Tag Manager -->
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-FJR6WVMLHE"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-FJR6WVMLHE');
+</script>`;
 
 const GTM_BODY = `<!-- Google Tag Manager (noscript) -->
 <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-PNKMSPJN"
@@ -5223,6 +5231,7 @@ function getMarketingPage() {
           <li><a href="/pricing" class="hover:text-white">Pricing</a></li>
           <li><a href="/faq" class="hover:text-white">FAQ</a></li>
           <li><a href="/about" class="hover:text-white">About</a></li>
+          <li><a href="/blog" class="hover:text-white">Blog</a></li>
         </ul>
       </div>
       <div>
@@ -10878,6 +10887,7 @@ function getPricingPage(user?: User) {
             <li style="margin-bottom: 8px;"><a href="/pricing" style="color: #9CA3AF; text-decoration: none;">Pricing</a></li>
             <li style="margin-bottom: 8px;"><a href="/faq" style="color: #9CA3AF; text-decoration: none;">FAQ</a></li>
             <li style="margin-bottom: 8px;"><a href="/about" style="color: #9CA3AF; text-decoration: none;">About</a></li>
+            <li style="margin-bottom: 8px;"><a href="/blog" style="color: #9CA3AF; text-decoration: none;">Blog</a></li>
           </ul>
         </div>
         <div>
