@@ -4008,7 +4008,7 @@ function getMarketingPage() {
       display: flex;
       flex-direction: column;
       justify-content: center;
-      background-image: url('https://www.genspark.ai/api/files/s/KrgrcnIu');
+      background-image: url('/images/hero-studio.jpg');
       background-size: cover;
       background-position: center;
     }
