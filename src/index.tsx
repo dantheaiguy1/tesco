@@ -4008,7 +4008,7 @@ function getMarketingPage() {
       display: flex;
       flex-direction: column;
       justify-content: center;
-      background-image: url('/images/hero-studio.jpg');
+      background-image: url('/static/hero-studio.jpg');
       background-size: cover;
       background-position: center;
     }
