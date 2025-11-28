@@ -17,6 +17,11 @@ type Bindings = {
   STRIPE_PRICE_ID_TOPUP: string;
   // Session
   SESSION_SECRET: string;
+  // Email (Resend)
+  RESEND_API_KEY: string;
+  // Google OAuth
+  GOOGLE_CLIENT_ID: string;
+  GOOGLE_CLIENT_SECRET: string;
 }
 
 // User type for authenticated requests
@@ -29,6 +34,8 @@ type User = {
   subscription_status: 'free' | 'active' | 'canceled' | 'past_due';
   subscription_plan: 'free' | 'standard' | 'pro';
   stripe_customer_id: string | null;
+  email_verified: boolean;
+  google_id: string | null;
 }
 
 type Variables = {
@@ -384,6 +391,136 @@ async function verifyPassword(password: string, storedHash: string): Promise<boo
 }
 
 // ============================================================================
+// EMAIL VERIFICATION (Resend)
+// ============================================================================
+function generateVerificationCode(): string {
+  // Generate 6-digit code
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+async function sendVerificationEmail(apiKey: string, to: string, code: string, name?: string): Promise<boolean> {
+  try {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        from: 'ShopShot <noreply@shopshot.ai>',
+        to: [to],
+        subject: 'Verify your ShopShot account',
+        html: `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          </head>
+          <body style="font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #F3F4F6; padding: 40px 20px; margin: 0;">
+            <div style="max-width: 480px; margin: 0 auto; background: white; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.08);">
+              <div style="background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%); padding: 32px; text-align: center;">
+                <h1 style="color: white; margin: 0; font-size: 28px; font-weight: 700;">ShopShot</h1>
+                <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0; font-size: 14px;">AI Product Photography</p>
+              </div>
+              <div style="padding: 40px 32px; text-align: center;">
+                <h2 style="color: #1F2937; margin: 0 0 12px; font-size: 24px;">Verify your email</h2>
+                <p style="color: #6B7280; margin: 0 0 32px; font-size: 15px; line-height: 1.5;">
+                  ${name ? `Hi ${name}! ` : ''}Enter this code to complete your registration:
+                </p>
+                <div style="background: linear-gradient(135deg, #EEF2FF 0%, #E0E7FF 100%); border: 2px dashed #C7D2FE; border-radius: 12px; padding: 24px; margin-bottom: 32px;">
+                  <span style="font-size: 36px; font-weight: 800; letter-spacing: 8px; color: #4338CA;">${code}</span>
+                </div>
+                <p style="color: #9CA3AF; font-size: 13px; margin: 0;">
+                  This code expires in 10 minutes.<br>
+                  If you didn't create an account, you can ignore this email.
+                </p>
+              </div>
+              <div style="background: #F9FAFB; padding: 20px 32px; text-align: center; border-top: 1px solid #E5E7EB;">
+                <p style="color: #9CA3AF; font-size: 12px; margin: 0;">
+                  &copy; 2024 ShopShot. All rights reserved.
+                </p>
+              </div>
+            </div>
+          </body>
+          </html>
+        `
+      })
+    });
+    
+    if (!response.ok) {
+      const error = await response.text();
+      console.error('Resend error:', error);
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.error('Email send error:', error);
+    return false;
+  }
+}
+
+// ============================================================================
+// GOOGLE OAUTH HELPERS
+// ============================================================================
+function getGoogleAuthUrl(clientId: string, redirectUri: string, state: string): string {
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    response_type: 'code',
+    scope: 'openid email profile',
+    state: state,
+    access_type: 'offline',
+    prompt: 'consent'
+  });
+  return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+}
+
+async function exchangeGoogleCode(
+  code: string, 
+  clientId: string, 
+  clientSecret: string, 
+  redirectUri: string
+): Promise<{ access_token: string; id_token: string } | null> {
+  try {
+    const response = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code,
+        client_id: clientId,
+        client_secret: clientSecret,
+        redirect_uri: redirectUri,
+        grant_type: 'authorization_code'
+      })
+    });
+    
+    if (!response.ok) return null;
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+async function getGoogleUserInfo(accessToken: string): Promise<{
+  id: string;
+  email: string;
+  name: string;
+  picture: string;
+} | null> {
+  try {
+    const response = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+      headers: { 'Authorization': `Bearer ${accessToken}` }
+    });
+    
+    if (!response.ok) return null;
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+// ============================================================================
 // SESSION MANAGEMENT
 // ============================================================================
 function generateSessionToken(): string {
@@ -689,6 +826,24 @@ async function ensureDatabase(db: D1Database) {
     try {
       await db.prepare('UPDATE users SET cheaper_credits = credits_balance WHERE cheaper_credits = 10 AND credits_balance != 10').run();
     } catch (e) { /* Migration done */ }
+    
+    // Add email verification and Google OAuth columns
+    try {
+      await db.prepare('ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0').run();
+    } catch (e) { /* Column exists */ }
+    try {
+      await db.prepare('ALTER TABLE users ADD COLUMN email_verification_code TEXT').run();
+    } catch (e) { /* Column exists */ }
+    try {
+      await db.prepare('ALTER TABLE users ADD COLUMN email_verification_expires DATETIME').run();
+    } catch (e) { /* Column exists */ }
+    try {
+      await db.prepare('ALTER TABLE users ADD COLUMN google_id TEXT').run();
+    } catch (e) { /* Column exists */ }
+    try {
+      await db.prepare('ALTER TABLE users ADD COLUMN password_hash_nullable TEXT').run();
+      // For Google OAuth users who don't have a password
+    } catch (e) { /* Column exists */ }
     
     // Credit transactions table (dual credit system)
     await db.prepare(`
@@ -1077,10 +1232,15 @@ app.post('/api/auth/register', async (c) => {
     const db = c.env.TESCO_DB;
     await ensureDatabase(db);
     
-    const { email, password, name } = await c.req.json();
+    const { email, password, confirmPassword, name } = await c.req.json();
     
     if (!email || !password) {
       return c.json({ success: false, error: 'Email and password required' }, 400);
+    }
+    
+    // Validate password confirmation
+    if (password !== confirmPassword) {
+      return c.json({ success: false, error: 'Passwords do not match' }, 400);
     }
     
     // Validate email format
@@ -1090,39 +1250,134 @@ app.post('/api/auth/register', async (c) => {
     }
     
     // Check password strength
-    if (password.length < 6) {
-      return c.json({ success: false, error: 'Password must be at least 6 characters' }, 400);
+    if (password.length < 8) {
+      return c.json({ success: false, error: 'Password must be at least 8 characters' }, 400);
+    }
+    
+    // Check for password complexity
+    const hasUpperCase = /[A-Z]/.test(password);
+    const hasLowerCase = /[a-z]/.test(password);
+    const hasNumber = /[0-9]/.test(password);
+    if (!hasUpperCase || !hasLowerCase || !hasNumber) {
+      return c.json({ success: false, error: 'Password must contain uppercase, lowercase, and a number' }, 400);
     }
     
     // Check if user exists
-    const existingUser = await db.prepare('SELECT id FROM users WHERE email = ?').bind(email.toLowerCase()).first();
+    const existingUser = await db.prepare('SELECT id, email_verified FROM users WHERE email = ?').bind(email.toLowerCase()).first() as any;
     if (existingUser) {
+      // If user exists but not verified, allow re-registration (resend code)
+      if (!existingUser.email_verified) {
+        // Generate new verification code
+        const verificationCode = generateVerificationCode();
+        const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+        
+        await db.prepare(`
+          UPDATE users SET email_verification_code = ?, email_verification_expires = ?, password_hash = ?
+          WHERE email = ?
+        `).bind(verificationCode, expiresAt.toISOString(), await hashPassword(password), email.toLowerCase()).run();
+        
+        // Send verification email
+        if (c.env.RESEND_API_KEY) {
+          await sendVerificationEmail(c.env.RESEND_API_KEY, email, verificationCode, name);
+        }
+        
+        return c.json({ 
+          success: true, 
+          needsVerification: true,
+          message: 'Verification code sent to your email'
+        });
+      }
       return c.json({ success: false, error: 'Email already registered' }, 400);
     }
     
-    // Create user with dual credits
+    // Generate verification code
+    const verificationCode = generateVerificationCode();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+    
+    // Create user with dual credits (but not verified yet)
     const userId = generateId();
     const passwordHash = await hashPassword(password);
     
     await db.prepare(`
-      INSERT INTO users (id, email, password_hash, name, cheaper_credits, better_credits)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).bind(userId, email.toLowerCase(), passwordHash, name || null, CREDITS.SIGNUP_CHEAPER, CREDITS.SIGNUP_BETTER).run();
+      INSERT INTO users (id, email, password_hash, name, cheaper_credits, better_credits, email_verified, email_verification_code, email_verification_expires)
+      VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
+    `).bind(userId, email.toLowerCase(), passwordHash, name || null, CREDITS.SIGNUP_CHEAPER, CREDITS.SIGNUP_BETTER, verificationCode, expiresAt.toISOString()).run();
+    
+    // Send verification email
+    if (c.env.RESEND_API_KEY) {
+      const emailSent = await sendVerificationEmail(c.env.RESEND_API_KEY, email, verificationCode, name);
+      if (!emailSent) {
+        console.error('Failed to send verification email');
+      }
+    }
+    
+    return c.json({ 
+      success: true, 
+      needsVerification: true,
+      userId,
+      message: 'Verification code sent to your email'
+    });
+  } catch (error) {
+    console.error('Registration error:', error);
+    return c.json({ success: false, error: 'Registration failed' }, 500);
+  }
+});
+
+// Verify email with code
+app.post('/api/auth/verify-email', async (c) => {
+  try {
+    const db = c.env.TESCO_DB;
+    await ensureDatabase(db);
+    
+    const { email, code } = await c.req.json();
+    
+    if (!email || !code) {
+      return c.json({ success: false, error: 'Email and code required' }, 400);
+    }
+    
+    const user = await db.prepare(`
+      SELECT id, email_verification_code, email_verification_expires, email_verified, name
+      FROM users WHERE email = ?
+    `).bind(email.toLowerCase()).first() as any;
+    
+    if (!user) {
+      return c.json({ success: false, error: 'User not found' }, 404);
+    }
+    
+    if (user.email_verified) {
+      return c.json({ success: false, error: 'Email already verified' }, 400);
+    }
+    
+    // Check if code expired
+    if (new Date(user.email_verification_expires) < new Date()) {
+      return c.json({ success: false, error: 'Verification code expired. Please register again.' }, 400);
+    }
+    
+    // Check code
+    if (user.email_verification_code !== code) {
+      return c.json({ success: false, error: 'Invalid verification code' }, 400);
+    }
+    
+    // Mark as verified
+    await db.prepare(`
+      UPDATE users SET email_verified = 1, email_verification_code = NULL, email_verification_expires = NULL
+      WHERE id = ?
+    `).bind(user.id).run();
     
     // Log signup bonus for cheaper credits
     await db.prepare(`
       INSERT INTO credit_transactions (id, user_id, amount, balance_after, credit_type, type, description)
       VALUES (?, ?, ?, ?, 'cheaper', 'signup_bonus', 'Welcome bonus - Recommended credits')
-    `).bind(generateId(), userId, CREDITS.SIGNUP_CHEAPER, CREDITS.SIGNUP_CHEAPER).run();
+    `).bind(generateId(), user.id, CREDITS.SIGNUP_CHEAPER, CREDITS.SIGNUP_CHEAPER).run();
     
     // Log signup bonus for better credits
     await db.prepare(`
       INSERT INTO credit_transactions (id, user_id, amount, balance_after, credit_type, type, description)
       VALUES (?, ?, ?, ?, 'better', 'signup_bonus', 'Welcome bonus - Premium credits')
-    `).bind(generateId(), userId, CREDITS.SIGNUP_BETTER, CREDITS.SIGNUP_BETTER).run();
+    `).bind(generateId(), user.id, CREDITS.SIGNUP_BETTER, CREDITS.SIGNUP_BETTER).run();
     
     // Create session
-    const sessionId = await createUserSession(db, userId);
+    const sessionId = await createUserSession(db, user.id);
     
     // Set cookie
     setCookie(c, 'session', sessionId, {
@@ -1136,18 +1391,64 @@ app.post('/api/auth/register', async (c) => {
     return c.json({ 
       success: true, 
       user: {
-        id: userId,
+        id: user.id,
         email: email.toLowerCase(),
-        name: name || null,
+        name: user.name || null,
         cheaper_credits: CREDITS.SIGNUP_CHEAPER,
         better_credits: CREDITS.SIGNUP_BETTER,
         subscription_status: 'free',
-        subscription_plan: 'free'
+        subscription_plan: 'free',
+        email_verified: true
       }
     });
   } catch (error) {
-    console.error('Registration error:', error);
-    return c.json({ success: false, error: 'Registration failed' }, 500);
+    console.error('Email verification error:', error);
+    return c.json({ success: false, error: 'Verification failed' }, 500);
+  }
+});
+
+// Resend verification code
+app.post('/api/auth/resend-verification', async (c) => {
+  try {
+    const db = c.env.TESCO_DB;
+    await ensureDatabase(db);
+    
+    const { email } = await c.req.json();
+    
+    if (!email) {
+      return c.json({ success: false, error: 'Email required' }, 400);
+    }
+    
+    const user = await db.prepare(`
+      SELECT id, name, email_verified FROM users WHERE email = ?
+    `).bind(email.toLowerCase()).first() as any;
+    
+    if (!user) {
+      return c.json({ success: false, error: 'User not found' }, 404);
+    }
+    
+    if (user.email_verified) {
+      return c.json({ success: false, error: 'Email already verified' }, 400);
+    }
+    
+    // Generate new code
+    const verificationCode = generateVerificationCode();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    
+    await db.prepare(`
+      UPDATE users SET email_verification_code = ?, email_verification_expires = ?
+      WHERE id = ?
+    `).bind(verificationCode, expiresAt.toISOString(), user.id).run();
+    
+    // Send email
+    if (c.env.RESEND_API_KEY) {
+      await sendVerificationEmail(c.env.RESEND_API_KEY, email, verificationCode, user.name);
+    }
+    
+    return c.json({ success: true, message: 'Verification code sent' });
+  } catch (error) {
+    console.error('Resend verification error:', error);
+    return c.json({ success: false, error: 'Failed to resend code' }, 500);
   }
 });
 
@@ -1164,7 +1465,7 @@ app.post('/api/auth/login', async (c) => {
     }
     
     const user = await db.prepare(`
-      SELECT id, email, password_hash, name, cheaper_credits, better_credits, subscription_status, subscription_plan, stripe_customer_id
+      SELECT id, email, password_hash, name, cheaper_credits, better_credits, subscription_status, subscription_plan, stripe_customer_id, email_verified, google_id
       FROM users WHERE email = ?
     `).bind(email.toLowerCase()).first() as any;
     
@@ -1172,9 +1473,24 @@ app.post('/api/auth/login', async (c) => {
       return c.json({ success: false, error: 'Invalid email or password' }, 401);
     }
     
+    // Check if this is a Google-only account
+    if (user.google_id && !user.password_hash) {
+      return c.json({ success: false, error: 'Please sign in with Google' }, 401);
+    }
+    
     const validPassword = await verifyPassword(password, user.password_hash);
     if (!validPassword) {
       return c.json({ success: false, error: 'Invalid email or password' }, 401);
+    }
+    
+    // Check if email is verified
+    if (!user.email_verified && !user.google_id) {
+      return c.json({ 
+        success: false, 
+        error: 'Please verify your email first',
+        needsVerification: true,
+        email: user.email
+      }, 401);
     }
     
     // Create session
@@ -1198,7 +1514,8 @@ app.post('/api/auth/login', async (c) => {
         cheaper_credits: user.cheaper_credits,
         better_credits: user.better_credits,
         subscription_status: user.subscription_status,
-        subscription_plan: user.subscription_plan
+        subscription_plan: user.subscription_plan,
+        email_verified: !!user.email_verified
       }
     });
   } catch (error) {
@@ -1224,6 +1541,134 @@ app.get('/api/auth/me', async (c) => {
     return c.json({ success: false, user: null });
   }
   return c.json({ success: true, user });
+});
+
+// ============================================================================
+// GOOGLE OAUTH ROUTES
+// ============================================================================
+
+// Initiate Google OAuth
+app.get('/api/auth/google', async (c) => {
+  const clientId = c.env.GOOGLE_CLIENT_ID;
+  if (!clientId) {
+    return c.json({ success: false, error: 'Google OAuth not configured' }, 500);
+  }
+  
+  // Get redirect URL from query params
+  const redirectTo = c.req.query('redirect') || '/';
+  const plan = c.req.query('plan') || '';
+  
+  // Create state with redirect info
+  const state = btoa(JSON.stringify({ redirect: redirectTo, plan }));
+  
+  const baseUrl = new URL(c.req.url).origin;
+  const redirectUri = `${baseUrl}/api/auth/google/callback`;
+  
+  const authUrl = getGoogleAuthUrl(clientId, redirectUri, state);
+  return c.redirect(authUrl);
+});
+
+// Google OAuth callback
+app.get('/api/auth/google/callback', async (c) => {
+  const db = c.env.TESCO_DB;
+  await ensureDatabase(db);
+  
+  const code = c.req.query('code');
+  const state = c.req.query('state');
+  const error = c.req.query('error');
+  
+  if (error) {
+    return c.redirect('/login?error=google_denied');
+  }
+  
+  if (!code) {
+    return c.redirect('/login?error=no_code');
+  }
+  
+  // Parse state
+  let redirectTo = '/';
+  let plan = '';
+  try {
+    const stateData = JSON.parse(atob(state || ''));
+    redirectTo = stateData.redirect || '/';
+    plan = stateData.plan || '';
+  } catch {}
+  
+  const clientId = c.env.GOOGLE_CLIENT_ID;
+  const clientSecret = c.env.GOOGLE_CLIENT_SECRET;
+  
+  if (!clientId || !clientSecret) {
+    return c.redirect('/login?error=oauth_not_configured');
+  }
+  
+  const baseUrl = new URL(c.req.url).origin;
+  const redirectUri = `${baseUrl}/api/auth/google/callback`;
+  
+  // Exchange code for tokens
+  const tokens = await exchangeGoogleCode(code, clientId, clientSecret, redirectUri);
+  if (!tokens) {
+    return c.redirect('/login?error=token_exchange_failed');
+  }
+  
+  // Get user info
+  const googleUser = await getGoogleUserInfo(tokens.access_token);
+  if (!googleUser || !googleUser.email) {
+    return c.redirect('/login?error=no_user_info');
+  }
+  
+  // Check if user exists
+  let user = await db.prepare(`
+    SELECT id, email, google_id, email_verified FROM users WHERE email = ? OR google_id = ?
+  `).bind(googleUser.email.toLowerCase(), googleUser.id).first() as any;
+  
+  if (user) {
+    // User exists - update Google ID if needed and log them in
+    if (!user.google_id) {
+      await db.prepare(`
+        UPDATE users SET google_id = ?, email_verified = 1 WHERE id = ?
+      `).bind(googleUser.id, user.id).run();
+    }
+  } else {
+    // Create new user
+    const userId = generateId();
+    
+    await db.prepare(`
+      INSERT INTO users (id, email, password_hash, name, cheaper_credits, better_credits, email_verified, google_id)
+      VALUES (?, ?, '', ?, ?, ?, 1, ?)
+    `).bind(userId, googleUser.email.toLowerCase(), googleUser.name || null, CREDITS.SIGNUP_CHEAPER, CREDITS.SIGNUP_BETTER, googleUser.id).run();
+    
+    // Log signup bonus
+    await db.prepare(`
+      INSERT INTO credit_transactions (id, user_id, amount, balance_after, credit_type, type, description)
+      VALUES (?, ?, ?, ?, 'cheaper', 'signup_bonus', 'Welcome bonus - Recommended credits')
+    `).bind(generateId(), userId, CREDITS.SIGNUP_CHEAPER, CREDITS.SIGNUP_CHEAPER).run();
+    
+    await db.prepare(`
+      INSERT INTO credit_transactions (id, user_id, amount, balance_after, credit_type, type, description)
+      VALUES (?, ?, ?, ?, 'better', 'signup_bonus', 'Welcome bonus - Premium credits')
+    `).bind(generateId(), userId, CREDITS.SIGNUP_BETTER, CREDITS.SIGNUP_BETTER).run();
+    
+    user = { id: userId };
+  }
+  
+  // Create session
+  const sessionId = await createUserSession(db, user.id);
+  
+  // Set cookie
+  setCookie(c, 'session', sessionId, {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'Strict',
+    maxAge: 30 * 24 * 60 * 60,
+    path: '/'
+  });
+  
+  // If plan selected, redirect to Stripe checkout
+  if (plan === 'standard' || plan === 'pro') {
+    return c.redirect(`/pricing?plan=${plan}&checkout=1`);
+  }
+  
+  return c.redirect(redirectTo + '?welcome=1');
 });
 
 // ============================================================================
@@ -1517,6 +1962,8 @@ app.get('/api/health', async (c) => {
     hasDB: !!c.env.TESCO_DB,
     hasStripe: !!c.env.STRIPE_SECRET_KEY,
     stripeKeyLength: c.env.STRIPE_SECRET_KEY?.length || 0,
+    hasResend: !!c.env.RESEND_API_KEY,
+    hasGoogleOAuth: !!c.env.GOOGLE_CLIENT_ID && !!c.env.GOOGLE_CLIENT_SECRET,
     envKeys: Object.keys(c.env).filter(k => !k.includes('KEY') && !k.includes('SECRET'))
   })
 })
@@ -7010,6 +7457,48 @@ function getLoginPage() {
   <style>
     * { font-family: 'Inter', system-ui, sans-serif; }
     ${getAuthPageStyles()}
+    .divider {
+      display: flex;
+      align-items: center;
+      margin: 20px 0;
+      color: #9CA3AF;
+      font-size: 13px;
+    }
+    .divider::before, .divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: #E5E7EB;
+    }
+    .divider span { padding: 0 16px; }
+    .google-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      width: 100%;
+      padding: 14px 20px;
+      background: white;
+      border: 1px solid #E5E7EB;
+      border-radius: 12px;
+      font-size: 15px;
+      font-weight: 600;
+      color: #374151;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .google-btn:hover { background: #F9FAFB; border-color: #D1D5DB; }
+    .google-btn svg { width: 20px; height: 20px; }
+    .info-msg {
+      padding: 12px 16px;
+      background: #FEF3C7;
+      border: 1px solid #FCD34D;
+      border-radius: 10px;
+      color: #92400E;
+      font-size: 14px;
+      margin-bottom: 16px;
+      text-align: center;
+    }
   </style>
 </head>
 <body>
@@ -7028,16 +7517,25 @@ function getLoginPage() {
       <h1 class="auth-title">Welcome Back</h1>
       <p class="auth-subtitle">Log in to continue generating product photos</p>
       
+      <!-- Google Sign In -->
+      <button onclick="signInWithGoogle()" class="google-btn" style="margin-top: 20px;">
+        <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+        Continue with Google
+      </button>
+      
+      <div class="divider"><span>or</span></div>
+      
+      <div id="info-msg" class="info-msg" style="display: none;"></div>
       <div id="error-msg" class="auth-error"></div>
       
       <form class="auth-form" onsubmit="handleLogin(event)">
         <div class="form-group">
           <label class="form-label">Email</label>
-          <input type="email" id="email" class="form-input" placeholder="you@example.com" required>
+          <input type="email" id="email" class="form-input" placeholder="you@example.com" required autocomplete="email">
         </div>
         <div class="form-group">
           <label class="form-label">Password</label>
-          <input type="password" id="password" class="form-input" placeholder="Enter your password" required>
+          <input type="password" id="password" class="form-input" placeholder="Enter your password" required autocomplete="current-password">
         </div>
         <button type="submit" id="submit-btn" class="auth-btn">Log In</button>
       </form>
@@ -7052,6 +7550,21 @@ function getLoginPage() {
     // Get redirect param from URL
     const urlParams = new URLSearchParams(window.location.search);
     const redirectTo = urlParams.get('redirect');
+    const errorCode = urlParams.get('error');
+    
+    // Show error from Google OAuth
+    if (errorCode) {
+      const errEl = document.getElementById('error-msg');
+      const errorMessages = {
+        'google_denied': 'Google sign-in was cancelled',
+        'no_code': 'Authentication failed - no code received',
+        'oauth_not_configured': 'Google sign-in is not configured',
+        'token_exchange_failed': 'Failed to authenticate with Google',
+        'no_user_info': 'Could not retrieve your Google account info'
+      };
+      errEl.textContent = errorMessages[errorCode] || 'Authentication failed';
+      errEl.classList.add('show');
+    }
     
     // Update register link to preserve redirect
     if (redirectTo) {
@@ -7061,14 +7574,23 @@ function getLoginPage() {
       }
     }
     
+    // Google Sign In
+    function signInWithGoogle() {
+      let url = '/api/auth/google';
+      if (redirectTo) url += '?redirect=' + encodeURIComponent(redirectTo);
+      window.location.href = url;
+    }
+    
     async function handleLogin(e) {
       e.preventDefault();
       const btn = document.getElementById('submit-btn');
       const errEl = document.getElementById('error-msg');
+      const infoEl = document.getElementById('info-msg');
       
       btn.disabled = true;
       btn.textContent = 'Logging in...';
       errEl.classList.remove('show');
+      infoEl.style.display = 'none';
       
       try {
         const res = await fetch('/api/auth/login', {
@@ -7085,6 +7607,16 @@ function getLoginPage() {
         if (data.success) {
           // Redirect to original page or home
           window.location.href = redirectTo || '/';
+        } else if (data.needsVerification) {
+          // User needs to verify email first
+          infoEl.textContent = 'Please verify your email first. Check your inbox for the verification code.';
+          infoEl.style.display = 'block';
+          btn.disabled = false;
+          btn.textContent = 'Log In';
+          // Optionally redirect to verification page
+          setTimeout(() => {
+            window.location.href = '/register?verify=' + encodeURIComponent(data.email);
+          }, 2000);
         } else {
           errEl.textContent = data.error || 'Login failed';
           errEl.classList.add('show');
@@ -7155,6 +7687,95 @@ function getRegisterPage() {
       border-color: #C4B5FD;
       color: #7C3AED;
     }
+    .divider {
+      display: flex;
+      align-items: center;
+      margin: 20px 0;
+      color: #9CA3AF;
+      font-size: 13px;
+    }
+    .divider::before, .divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: #E5E7EB;
+    }
+    .divider span { padding: 0 16px; }
+    .google-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      width: 100%;
+      padding: 14px 20px;
+      background: white;
+      border: 1px solid #E5E7EB;
+      border-radius: 12px;
+      font-size: 15px;
+      font-weight: 600;
+      color: #374151;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .google-btn:hover { background: #F9FAFB; border-color: #D1D5DB; }
+    .google-btn svg { width: 20px; height: 20px; }
+    .password-requirements {
+      margin-top: 8px;
+      font-size: 12px;
+      color: #6B7280;
+    }
+    .password-requirements li {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 4px;
+    }
+    .password-requirements li.valid { color: #059669; }
+    .password-requirements li.invalid { color: #9CA3AF; }
+    .password-requirements .check { color: #059669; }
+    .password-requirements .cross { color: #9CA3AF; }
+    
+    /* Verification code screen */
+    .verification-screen { display: none; }
+    .verification-screen.active { display: block; }
+    .register-screen.hidden { display: none; }
+    .code-inputs {
+      display: flex;
+      gap: 8px;
+      justify-content: center;
+      margin: 24px 0;
+    }
+    .code-input {
+      width: 48px;
+      height: 56px;
+      text-align: center;
+      font-size: 24px;
+      font-weight: 700;
+      border: 2px solid #E5E7EB;
+      border-radius: 12px;
+      outline: none;
+      transition: all 0.2s;
+    }
+    .code-input:focus {
+      border-color: #8B5CF6;
+      box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+    }
+    .resend-link {
+      color: #6B7280;
+      font-size: 14px;
+      text-align: center;
+      margin-top: 16px;
+    }
+    .resend-link a {
+      color: #7C3AED;
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .resend-link a:hover { text-decoration: underline; }
+    .resend-link a.disabled {
+      color: #9CA3AF;
+      pointer-events: none;
+    }
   </style>
 </head>
 <body>
@@ -7170,33 +7791,83 @@ function getRegisterPage() {
         <span class="auth-logo-text">ShopShot</span>
       </div>
       
-      <h1 class="auth-title" id="page-title">Create Account</h1>
-      <p class="auth-subtitle" id="page-subtitle">Start generating professional product photos</p>
-      <div style="text-align:center;" id="badge-container">
-        <span class="bonus-badge">🎁 Get ${CREDITS.SIGNUP_CHEAPER + CREDITS.SIGNUP_BETTER} free credits on signup!</span>
+      <!-- REGISTRATION FORM -->
+      <div id="register-screen" class="register-screen">
+        <h1 class="auth-title" id="page-title">Create Account</h1>
+        <p class="auth-subtitle" id="page-subtitle">Start generating professional product photos</p>
+        <div style="text-align:center;" id="badge-container">
+          <span class="bonus-badge">🎁 Get ${CREDITS.SIGNUP_CHEAPER + CREDITS.SIGNUP_BETTER} free credits on signup!</span>
+        </div>
+        
+        <!-- Google Sign In -->
+        <button onclick="signInWithGoogle()" class="google-btn" style="margin-top: 20px;">
+          <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+          Continue with Google
+        </button>
+        
+        <div class="divider"><span>or</span></div>
+        
+        <div id="error-msg" class="auth-error"></div>
+        
+        <form class="auth-form" onsubmit="handleRegister(event)">
+          <div class="form-group">
+            <label class="form-label">Name (optional)</label>
+            <input type="text" id="name" class="form-input" placeholder="Your name" autocomplete="name">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Email</label>
+            <input type="email" id="email" class="form-input" placeholder="you@example.com" required autocomplete="email">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Password</label>
+            <input type="password" id="password" class="form-input" placeholder="Create a strong password" required minlength="8" autocomplete="new-password" oninput="checkPasswordStrength()">
+            <ul class="password-requirements" id="password-requirements">
+              <li id="req-length" class="invalid"><span class="cross">✗</span> At least 8 characters</li>
+              <li id="req-upper" class="invalid"><span class="cross">✗</span> One uppercase letter</li>
+              <li id="req-lower" class="invalid"><span class="cross">✗</span> One lowercase letter</li>
+              <li id="req-number" class="invalid"><span class="cross">✗</span> One number</li>
+            </ul>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Confirm Password</label>
+            <input type="password" id="confirm-password" class="form-input" placeholder="Re-enter your password" required autocomplete="new-password" oninput="checkPasswordMatch()">
+            <p id="password-match-msg" style="font-size: 12px; margin-top: 6px; display: none;"></p>
+          </div>
+          <button type="submit" id="submit-btn" class="auth-btn">Create Account</button>
+        </form>
+        
+        <p class="auth-footer" id="login-link">
+          Already have an account? <a href="/login">Log in</a>
+        </p>
       </div>
       
-      <div id="error-msg" class="auth-error" style="margin-top:16px;"></div>
-      
-      <form class="auth-form" onsubmit="handleRegister(event)" style="margin-top:20px;">
-        <div class="form-group">
-          <label class="form-label">Name (optional)</label>
-          <input type="text" id="name" class="form-input" placeholder="Your name">
+      <!-- EMAIL VERIFICATION SCREEN -->
+      <div id="verification-screen" class="verification-screen">
+        <h1 class="auth-title">Check Your Email</h1>
+        <p class="auth-subtitle">We sent a 6-digit code to<br><strong id="verification-email"></strong></p>
+        
+        <div id="verify-error-msg" class="auth-error"></div>
+        
+        <div class="code-inputs">
+          <input type="text" maxlength="1" class="code-input" data-index="0" oninput="handleCodeInput(this)" onkeydown="handleCodeKeydown(event, this)" autofocus>
+          <input type="text" maxlength="1" class="code-input" data-index="1" oninput="handleCodeInput(this)" onkeydown="handleCodeKeydown(event, this)">
+          <input type="text" maxlength="1" class="code-input" data-index="2" oninput="handleCodeInput(this)" onkeydown="handleCodeKeydown(event, this)">
+          <input type="text" maxlength="1" class="code-input" data-index="3" oninput="handleCodeInput(this)" onkeydown="handleCodeKeydown(event, this)">
+          <input type="text" maxlength="1" class="code-input" data-index="4" oninput="handleCodeInput(this)" onkeydown="handleCodeKeydown(event, this)">
+          <input type="text" maxlength="1" class="code-input" data-index="5" oninput="handleCodeInput(this)" onkeydown="handleCodeKeydown(event, this)">
         </div>
-        <div class="form-group">
-          <label class="form-label">Email</label>
-          <input type="email" id="email" class="form-input" placeholder="you@example.com" required>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Password</label>
-          <input type="password" id="password" class="form-input" placeholder="At least 6 characters" required minlength="6">
-        </div>
-        <button type="submit" id="submit-btn" class="auth-btn">Create Account</button>
-      </form>
-      
-      <p class="auth-footer" id="login-link">
-        Already have an account? <a href="/login">Log in</a>
-      </p>
+        
+        <button onclick="verifyCode()" id="verify-btn" class="auth-btn">Verify Email</button>
+        
+        <p class="resend-link">
+          Didn't receive the code? <a href="#" onclick="resendCode(event)" id="resend-link">Resend</a>
+          <span id="resend-timer"></span>
+        </p>
+        
+        <p class="auth-footer">
+          <a href="#" onclick="backToRegister(event)">← Back to registration</a>
+        </p>
+      </div>
     </div>
   </div>
 
@@ -7204,7 +7875,9 @@ function getRegisterPage() {
     // Get params from URL
     const urlParams = new URLSearchParams(window.location.search);
     const redirectTo = urlParams.get('redirect');
-    const selectedPlan = urlParams.get('plan'); // 'free', 'standard', or 'pro'
+    const selectedPlan = urlParams.get('plan');
+    let userEmail = '';
+    let resendCooldown = 0;
     
     // Update page based on selected plan
     const title = document.getElementById('page-title');
@@ -7224,15 +7897,58 @@ function getRegisterPage() {
       btn.textContent = 'Create Account & Subscribe';
     }
     
-    // Update login link to preserve params
-    const loginLink = document.querySelector('#login-link a');
-    if (loginLink) {
-      let loginUrl = '/login';
+    // Google Sign In
+    function signInWithGoogle() {
+      let url = '/api/auth/google';
       const params = [];
       if (redirectTo) params.push('redirect=' + encodeURIComponent(redirectTo));
       if (selectedPlan) params.push('plan=' + selectedPlan);
-      if (params.length) loginUrl += '?' + params.join('&');
-      loginLink.href = loginUrl;
+      if (params.length) url += '?' + params.join('&');
+      window.location.href = url;
+    }
+    
+    // Password strength checker
+    function checkPasswordStrength() {
+      const password = document.getElementById('password').value;
+      const requirements = {
+        length: password.length >= 8,
+        upper: /[A-Z]/.test(password),
+        lower: /[a-z]/.test(password),
+        number: /[0-9]/.test(password)
+      };
+      
+      Object.keys(requirements).forEach(key => {
+        const el = document.getElementById('req-' + key);
+        if (requirements[key]) {
+          el.className = 'valid';
+          el.innerHTML = '<span class="check">✓</span> ' + el.textContent.replace('✗ ', '').replace('✓ ', '');
+        } else {
+          el.className = 'invalid';
+          el.innerHTML = '<span class="cross">✗</span> ' + el.textContent.replace('✗ ', '').replace('✓ ', '');
+        }
+      });
+      
+      checkPasswordMatch();
+    }
+    
+    function checkPasswordMatch() {
+      const password = document.getElementById('password').value;
+      const confirm = document.getElementById('confirm-password').value;
+      const msg = document.getElementById('password-match-msg');
+      
+      if (!confirm) {
+        msg.style.display = 'none';
+        return;
+      }
+      
+      msg.style.display = 'block';
+      if (password === confirm) {
+        msg.textContent = '✓ Passwords match';
+        msg.style.color = '#059669';
+      } else {
+        msg.textContent = '✗ Passwords do not match';
+        msg.style.color = '#DC2626';
+      }
     }
     
     async function handleRegister(e) {
@@ -7240,8 +7956,24 @@ function getRegisterPage() {
       const btn = document.getElementById('submit-btn');
       const errEl = document.getElementById('error-msg');
       
+      const password = document.getElementById('password').value;
+      const confirmPassword = document.getElementById('confirm-password').value;
+      
+      // Client-side validation
+      if (password !== confirmPassword) {
+        errEl.textContent = 'Passwords do not match';
+        errEl.classList.add('show');
+        return;
+      }
+      
+      if (password.length < 8 || !/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/[0-9]/.test(password)) {
+        errEl.textContent = 'Password does not meet requirements';
+        errEl.classList.add('show');
+        return;
+      }
+      
       btn.disabled = true;
-      btn.textContent = selectedPlan && selectedPlan !== 'free' ? 'Creating account...' : 'Creating account...';
+      btn.textContent = 'Creating account...';
       errEl.classList.remove('show');
       
       try {
@@ -7251,35 +7983,20 @@ function getRegisterPage() {
           body: JSON.stringify({
             name: document.getElementById('name').value || null,
             email: document.getElementById('email').value,
-            password: document.getElementById('password').value
+            password: password,
+            confirmPassword: confirmPassword
           })
         });
         
         const data = await res.json();
         
-        if (data.success) {
-          // If paid plan selected, trigger Stripe checkout
-          if (selectedPlan === 'standard' || selectedPlan === 'pro') {
-            btn.textContent = 'Redirecting to payment...';
-            
-            const checkoutRes = await fetch('/api/billing/create-checkout', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ type: 'subscription', plan: selectedPlan })
-            });
-            
-            const checkoutData = await checkoutRes.json();
-            
-            if (checkoutData.success && checkoutData.url) {
-              window.location.href = checkoutData.url;
-            } else {
-              // Checkout failed, but account created - go to pricing page
-              window.location.href = '/pricing?signup=success&checkout=failed';
-            }
-          } else {
-            // Free plan - just redirect
-            window.location.href = redirectTo || '/?welcome=1';
-          }
+        if (data.success && data.needsVerification) {
+          // Show verification screen
+          userEmail = document.getElementById('email').value;
+          showVerificationScreen();
+        } else if (data.success) {
+          // Direct login (shouldn't happen with email verification)
+          window.location.href = redirectTo || '/?welcome=1';
         } else {
           errEl.textContent = data.error || 'Registration failed';
           errEl.classList.add('show');
@@ -7291,6 +8008,144 @@ function getRegisterPage() {
         errEl.classList.add('show');
         btn.disabled = false;
         btn.textContent = selectedPlan && selectedPlan !== 'free' ? 'Create Account & Subscribe' : 'Create Account';
+      }
+    }
+    
+    function showVerificationScreen() {
+      document.getElementById('register-screen').classList.add('hidden');
+      document.getElementById('verification-screen').classList.add('active');
+      document.getElementById('verification-email').textContent = userEmail;
+      document.querySelector('.code-input').focus();
+      startResendCooldown();
+    }
+    
+    function backToRegister(e) {
+      e.preventDefault();
+      document.getElementById('register-screen').classList.remove('hidden');
+      document.getElementById('verification-screen').classList.remove('active');
+    }
+    
+    function handleCodeInput(input) {
+      const value = input.value.replace(/[^0-9]/g, '');
+      input.value = value;
+      
+      if (value && input.dataset.index < 5) {
+        const next = document.querySelector('.code-input[data-index="' + (parseInt(input.dataset.index) + 1) + '"]');
+        if (next) next.focus();
+      }
+      
+      // Auto-submit if all filled
+      const allInputs = document.querySelectorAll('.code-input');
+      const code = Array.from(allInputs).map(i => i.value).join('');
+      if (code.length === 6) {
+        verifyCode();
+      }
+    }
+    
+    function handleCodeKeydown(e, input) {
+      if (e.key === 'Backspace' && !input.value && input.dataset.index > 0) {
+        const prev = document.querySelector('.code-input[data-index="' + (parseInt(input.dataset.index) - 1) + '"]');
+        if (prev) {
+          prev.focus();
+          prev.value = '';
+        }
+      }
+    }
+    
+    async function verifyCode() {
+      const btn = document.getElementById('verify-btn');
+      const errEl = document.getElementById('verify-error-msg');
+      
+      const allInputs = document.querySelectorAll('.code-input');
+      const code = Array.from(allInputs).map(i => i.value).join('');
+      
+      if (code.length !== 6) {
+        errEl.textContent = 'Please enter the 6-digit code';
+        errEl.classList.add('show');
+        return;
+      }
+      
+      btn.disabled = true;
+      btn.textContent = 'Verifying...';
+      errEl.classList.remove('show');
+      
+      try {
+        const res = await fetch('/api/auth/verify-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: userEmail, code })
+        });
+        
+        const data = await res.json();
+        
+        if (data.success) {
+          // If paid plan, go to checkout
+          if (selectedPlan === 'standard' || selectedPlan === 'pro') {
+            btn.textContent = 'Redirecting to payment...';
+            const checkoutRes = await fetch('/api/billing/create-checkout', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ type: 'subscription', plan: selectedPlan })
+            });
+            const checkoutData = await checkoutRes.json();
+            if (checkoutData.success && checkoutData.url) {
+              window.location.href = checkoutData.url;
+            } else {
+              window.location.href = '/pricing?signup=success&checkout=failed';
+            }
+          } else {
+            window.location.href = redirectTo || '/?welcome=1';
+          }
+        } else {
+          errEl.textContent = data.error || 'Verification failed';
+          errEl.classList.add('show');
+          btn.disabled = false;
+          btn.textContent = 'Verify Email';
+          // Clear inputs
+          allInputs.forEach(i => i.value = '');
+          allInputs[0].focus();
+        }
+      } catch (err) {
+        errEl.textContent = 'Something went wrong. Please try again.';
+        errEl.classList.add('show');
+        btn.disabled = false;
+        btn.textContent = 'Verify Email';
+      }
+    }
+    
+    function startResendCooldown() {
+      resendCooldown = 60;
+      updateResendTimer();
+    }
+    
+    function updateResendTimer() {
+      const link = document.getElementById('resend-link');
+      const timer = document.getElementById('resend-timer');
+      
+      if (resendCooldown > 0) {
+        link.classList.add('disabled');
+        timer.textContent = ' (' + resendCooldown + 's)';
+        resendCooldown--;
+        setTimeout(updateResendTimer, 1000);
+      } else {
+        link.classList.remove('disabled');
+        timer.textContent = '';
+      }
+    }
+    
+    async function resendCode(e) {
+      e.preventDefault();
+      if (resendCooldown > 0) return;
+      
+      try {
+        await fetch('/api/auth/resend-verification', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: userEmail })
+        });
+        startResendCooldown();
+      } catch (err) {
+        console.error('Failed to resend code');
       }
     }
   </script>
