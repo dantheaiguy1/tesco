@@ -1654,11 +1654,11 @@ app.get('/api/auth/google/callback', async (c) => {
   // Create session
   const sessionId = await createUserSession(db, user.id);
   
-  // Set cookie
+  // Set cookie - use Lax for OAuth compatibility (Strict blocks cross-site redirects)
   setCookie(c, 'session', sessionId, {
     httpOnly: true,
     secure: true,
-    sameSite: 'Strict',
+    sameSite: 'Lax',
     maxAge: 30 * 24 * 60 * 60,
     path: '/'
   });
