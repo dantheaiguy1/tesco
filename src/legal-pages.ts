@@ -10,6 +10,7 @@ const LEGAL_FOOTER_HTML = `
           <li><a href="/pricing" class="hover:text-white">Pricing</a></li>
           <li><a href="/faq" class="hover:text-white">FAQ</a></li>
           <li><a href="/about" class="hover:text-white">About</a></li>
+          <li><a href="/blog" class="hover:text-white">Blog</a></li>
         </ul>
       </div>
       <div>

@@ -3,6 +3,7 @@ import { cors } from 'hono/cors'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { getPrivacyPage, getTermsPage, getRefundsPage, getCookiesPage } from './legal-pages'
 import { getFaqPage, getAboutPage, getContactPage } from './info-pages'
+import { getBlogIndexPage, getBlogPostPage, getAllBlogPosts } from './blog-pages'
 
 type Bindings = {
   TESCO_DB: D1Database;
@@ -1350,6 +1351,21 @@ app.get('/contact', (c) => {
   return c.html(getContactPage())
 })
 
+// Blog Index Page
+app.get('/blog', (c) => {
+  return c.html(getBlogIndexPage())
+})
+
+// Individual Blog Post Pages
+app.get('/blog/:slug', (c) => {
+  const slug = c.req.param('slug')
+  const page = getBlogPostPage(slug)
+  if (!page) {
+    return c.redirect('/blog')
+  }
+  return c.html(page)
+})
+
 // SEO: robots.txt
 app.get('/robots.txt', (c) => {
   const robotsTxt = `User-agent: *
@@ -1377,6 +1393,7 @@ app.get('/sitemap.xml', (c) => {
   const pages = [
     { url: '/', priority: '1.0', changefreq: 'weekly' },
     { url: '/pricing', priority: '0.9', changefreq: 'weekly' },
+    { url: '/blog', priority: '0.9', changefreq: 'weekly' },
     { url: '/faq', priority: '0.8', changefreq: 'monthly' },
     { url: '/about', priority: '0.7', changefreq: 'monthly' },
     { url: '/contact', priority: '0.7', changefreq: 'monthly' },
@@ -1386,11 +1403,26 @@ app.get('/sitemap.xml', (c) => {
     { url: '/cookies', priority: '0.3', changefreq: 'yearly' },
   ]
   
+  // Add blog posts dynamically
+  const blogPosts = getAllBlogPosts()
+  const blogUrls = blogPosts.map(post => ({
+    url: `/blog/${post.slug}`,
+    priority: '0.8',
+    changefreq: 'monthly',
+    lastmod: post.publishDate
+  }))
+  
   const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 ${pages.map(p => `  <url>
     <loc>${baseUrl}${p.url}</loc>
     <lastmod>${today}</lastmod>
+    <changefreq>${p.changefreq}</changefreq>
+    <priority>${p.priority}</priority>
+  </url>`).join('\n')}
+${blogUrls.map(p => `  <url>
+    <loc>${baseUrl}${p.url}</loc>
+    <lastmod>${p.lastmod}</lastmod>
     <changefreq>${p.changefreq}</changefreq>
     <priority>${p.priority}</priority>
   </url>`).join('\n')}
