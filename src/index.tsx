@@ -6092,6 +6092,37 @@ function getHomePage(user?: User) {
     .nano-warning.show { display: block; animation: pulse 2s ease-in-out infinite; }
     @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.85; } }
     
+    /* Pro generation time banner */
+    .pro-time-banner {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 18px;
+      background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%);
+      border: 2px solid #F59E0B;
+      border-radius: 12px;
+      margin-bottom: 16px;
+    }
+    .pro-time-icon {
+      font-size: 24px;
+      flex-shrink: 0;
+    }
+    .pro-time-text {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .pro-time-text strong {
+      font-size: 14px;
+      font-weight: 700;
+      color: #92400E;
+    }
+    .pro-time-text span {
+      font-size: 12px;
+      color: #B45309;
+      line-height: 1.4;
+    }
+    
     /* Advanced mode link */
     .advanced-link {
       display: inline-flex;
@@ -6930,7 +6961,7 @@ function getHomePage(user?: User) {
           You have: <strong id="available-credit-count">--</strong> credits
         </div>
         <div id="nano-warning" class="nano-warning">
-          ⚠️ <strong>Pro</strong> is in beta and may be slower (60-90s). 
+          ⏱️ <strong>Pro quality takes longer:</strong> 60-120 seconds per image, sometimes up to 5 minutes if servers are busy. 
           Use <strong>Standard</strong> for faster results (~8s per image).
         </div>
       </div>
@@ -6948,6 +6979,14 @@ function getHomePage(user?: User) {
 
     <!-- Results Screen (hidden initially) -->
     <div id="results-screen" class="results-container" style="display:none">
+      <!-- Pro Generation Time Banner -->
+      <div id="pro-time-banner" class="pro-time-banner" style="display:none">
+        <div class="pro-time-icon">⏱️</div>
+        <div class="pro-time-text">
+          <strong>Pro Quality Generation</strong>
+          <span>Each image takes 60-120 seconds. If servers are busy, it may take up to 5 minutes. Please be patient!</span>
+        </div>
+      </div>
       <div class="results-header">
         <input type="text" id="product-name-edit" class="product-name-edit" value="Product" 
                onblur="saveProductName()" onkeypress="if(event.key==='Enter')this.blur()">
@@ -7402,6 +7441,14 @@ function getHomePage(user?: User) {
       document.getElementById('upload-screen').style.display = 'none';
       document.getElementById('results-screen').style.display = 'block';
       document.getElementById('product-name-edit').value = selectedFile?.name?.replace(/\\.[^.]+$/, '') || 'Product';
+      
+      // Show Pro time banner if using Pro model
+      const proTimeBanner = document.getElementById('pro-time-banner');
+      if (selectedModel === 'nano') {
+        proTimeBanner.style.display = 'flex';
+      } else {
+        proTimeBanner.style.display = 'none';
+      }
 
       const grid = document.getElementById('thumb-grid');
       lightboxImages = [];
