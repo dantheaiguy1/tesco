@@ -90,7 +90,7 @@ export function getFaqPage(): string {
             <span class="faq-icon transition-transform">▼</span>
           </div>
           <div class="faq-answer px-4 pb-4 text-gray-600">
-            <p>ShopShot uses advanced AI (Google Gemini) to transform your product photos into professional e-commerce images. Simply upload a photo of your product, and our AI generates 10 different professional variations including studio shots, lifestyle images, close-ups, and more.</p>
+            <p>ShopShot uses advanced AI to transform your product photos into professional e-commerce images. Simply upload a photo of your product, and our AI generates 10 different professional variations including studio shots, lifestyle images, close-ups, and more.</p>
           </div>
         </div>
         <div class="faq-item">

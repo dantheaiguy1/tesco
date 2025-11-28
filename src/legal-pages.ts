@@ -870,15 +870,15 @@ export function getCookiesPage(): string {
           <li><strong>Privacy Policy:</strong> <a href="https://www.cloudflare.com/privacypolicy/" target="_blank">https://www.cloudflare.com/privacypolicy/</a></li>
         </ul>
         
-        <h3>Google (AI Processing - Backend Only)</h3>
+        <h3>AI Processing (Backend Only)</h3>
         <ul>
           <li><strong>Purpose:</strong> AI image generation (server-side, no browser cookies)</li>
           <li><strong>Data Collected:</strong> Uploaded images (processed securely)</li>
-          <li><strong>Privacy Policy:</strong> <a href="https://policies.google.com/privacy" target="_blank">https://policies.google.com/privacy</a></li>
+          <li>Images are processed by third-party AI providers and not stored beyond the generation session</li>
         </ul>
         
         <div class="success-box">
-          <p><strong>Note:</strong> We do NOT use Google Analytics or advertising cookies. No behavioral tracking occurs on the Service.</p>
+          <p><strong>Note:</strong> We do NOT use analytics or advertising cookies. No behavioral tracking occurs on the Service.</p>
         </div>
         
         <h2>4. Managing Cookies</h2>

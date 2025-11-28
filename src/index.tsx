@@ -284,14 +284,14 @@ async function generateImageWithVertex(
         }
         
         // For other errors, don't retry
-        let errorMsg = 'Vertex AI error';
+        let errorMsg = 'AI generation error';
         try {
           const errJson = JSON.parse(errorText);
           errorMsg = errJson.error?.message || errJson.error?.status || `API error: ${response.status}`;
         } catch {
           errorMsg = `API error: ${response.status}`;
         }
-        return { success: false, error: `${errorMsg} [Model: ${vertexModel}]` };
+        return { success: false, error: errorMsg };
       }
 
       const data = await response.json() as any;
@@ -316,14 +316,14 @@ async function generateImageWithVertex(
       if (err instanceof Error && err.name === 'AbortError') {
         lastError = 'Request timed out (60s). The model may be overloaded.';
         // Don't retry on timeout - just fail fast
-        return { success: false, error: `Request timed out. Try the "Cheaper" option which uses a faster model. [Model: ${vertexModel}]` };
+        return { success: false, error: 'Request timed out. Try the "Standard" option which uses a faster model.' };
       }
       // Continue to retry for other errors
     }
   }
   
   // All retries exhausted
-  return { success: false, error: `Generation failed after ${maxRetries} attempts. ${lastError} [Model: ${vertexModel}]` };
+  return { success: false, error: `Generation failed after ${maxRetries} attempts. ${lastError}` };
 }
 
 // ============================================================================
@@ -1125,7 +1125,7 @@ app.get('/api/test-vertex', async (c) => {
   const privateKey = c.env.VERTEX_PRIVATE_KEY;
   
   if (!projectId || !clientEmail || !privateKey) {
-    return c.json({ error: 'Missing Vertex AI credentials' });
+    return c.json({ error: 'AI service not configured' });
   }
   
   try {
@@ -3196,7 +3196,7 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
     
     // Check for Vertex AI credentials
     if (!projectId || !clientEmail || !privateKey) {
-      return c.json({ success: false, error: 'Vertex AI credentials not configured', field: variationDefinitions[variationIndex]?.field }, 500)
+      return c.json({ success: false, error: 'AI service not configured', field: variationDefinitions[variationIndex]?.field }, 500)
     }
 
     const prompts: Record<string, string> = getPrompts(productName)
@@ -3368,7 +3368,7 @@ app.post('/api/regenerate/:sessionId/:variationIndex', async (c) => {
     }
     
     if (!projectId || !clientEmail || !privateKey) {
-      return c.json({ success: false, error: 'Vertex AI credentials not configured' }, 500)
+      return c.json({ success: false, error: 'AI service not configured' }, 500)
     }
 
     const prompts = getPrompts(productName)
@@ -3460,7 +3460,7 @@ app.post('/api/generate/:id', async (c) => {
     const privateKey = c.env.VERTEX_PRIVATE_KEY
     
     if (!projectId || !clientEmail || !privateKey) {
-      return c.json({ success: false, error: 'Vertex AI credentials not configured' }, 500)
+      return c.json({ success: false, error: 'AI service not configured' }, 500)
     }
     
     const productName = session.product_name || 'product'
@@ -6919,8 +6919,8 @@ function getHomePage(user?: User) {
     ];
 
     const MODEL_INFO = {
-      nano: { name: 'Nano Pro', time: '~36s' },
-      flash: { name: 'Flash 2.5', time: '~15s' }
+      nano: { name: 'Pro', time: '~36s' },
+      flash: { name: 'Standard', time: '~15s' }
     };
 
     // Sidebar
@@ -6957,7 +6957,7 @@ function getHomePage(user?: User) {
       list.innerHTML = sessions.map(s => {
         const isActive = s.id === currentSessionId;
         const timeAgo = getTimeAgo(new Date(s.created_at));
-        const model = s.model === 'flash' ? 'Flash' : 'Nano';
+        const model = s.model === 'flash' ? 'Standard' : 'Pro';
         return '<div class="session-item' + (isActive ? ' active' : '') + '" onclick="loadSession(\\'' + s.id + '\\')">' +
           '<div class="session-icon">📸</div>' +
           '<div class="session-text">' +
@@ -11784,11 +11784,11 @@ function getAdminDashboardPage(user: any) {
             <!-- AI Usage Breakdown -->
             <div style="margin-top: 12px; padding: 10px; background: #1F1F23; border-radius: 8px;">
               <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 6px;">
-                <span style="color: #71717A;">Flash (Cheaper)</span>
+                <span style="color: #71717A;">Standard Credits</span>
                 <span style="color: #22C55E;" id="health-flash">0</span>
               </div>
               <div style="display: flex; justify-content: space-between; font-size: 11px;">
-                <span style="color: #71717A;">Pro (Better)</span>
+                <span style="color: #71717A;">Pro Credits</span>
                 <span style="color: #8B5CF6;" id="health-pro">0</span>
               </div>
             </div>
