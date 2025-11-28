@@ -2646,12 +2646,14 @@ function getMarketingPage() {
       .ticker-item { width: 100px; height: 100px; border-radius: 12px; }
       
       .stats-bar { 
-        flex-direction: column; 
-        gap: 20px; 
-        padding: 24px 16px;
+        flex-direction: row; 
+        gap: 16px; 
+        padding: 20px 12px;
+        justify-content: space-around;
       }
-      .stat-value { font-size: 32px; }
-      .stat-label { font-size: 12px; }
+      .stat-item { flex: 1; }
+      .stat-value { font-size: 28px; }
+      .stat-label { font-size: 10px; }
       
       .section { padding: 40px 16px; }
       .section-title { font-size: 28px; }
