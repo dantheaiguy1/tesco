@@ -101,7 +101,7 @@ const PRICING = {
 //
 // BETTER (Default): Nano Banana Pro - gemini-3-pro-image-preview
 //   - Best quality image generation (Gemini 3 Pro)
-//   - ~3-4 seconds per image (~36 seconds for 10)
+//   - ~60-90 seconds per image (~10-15 minutes for 10)
 //   - Cost: ~$0.03-0.05 per product shoot
 //
 // CHEAPER: Flash 2.5 - gemini-2.5-flash-preview-image-generation
@@ -10593,7 +10593,7 @@ function getPricingPage(user?: User) {
           <tr>
             <td>Generation Speed</td>
             <td>~2-3 seconds per image</td>
-            <td>~3-4 seconds per image</td>
+            <td>~60-90 seconds per image</td>
           </tr>
           <tr>
             <td>Image Quality</td>
