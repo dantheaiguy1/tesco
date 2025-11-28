@@ -1234,19 +1234,38 @@ app.get('/api/admin/dashboard', async (c) => {
       WHERE amount < 0 AND created_at > datetime('now', '-30 days')
     `).first() as any
     
-    // Today's activity
-    const todayJoins = await db.prepare(`
-      SELECT id, name, email, created_at, subscription_plan FROM users 
-      WHERE date(created_at) = date('now')
-      ORDER BY created_at DESC
-      LIMIT 50
+    // Recent signups (last 30 days, grouped by day)
+    const dailySignups = await db.prepare(`
+      SELECT date(created_at) as date, COUNT(*) as count
+      FROM users 
+      WHERE created_at > datetime('now', '-30 days')
+      GROUP BY date(created_at)
+      ORDER BY date DESC
     `).all() as any
     
-    const todayCancellations = await db.prepare(`
+    // Recent cancellations (last 30 days, grouped by day)
+    const dailyCancellations = await db.prepare(`
+      SELECT date(updated_at) as date, COUNT(*) as count
+      FROM users 
+      WHERE subscription_status = 'canceled' AND updated_at > datetime('now', '-30 days')
+      GROUP BY date(updated_at)
+      ORDER BY date DESC
+    `).all() as any
+    
+    // Recent signups list (last 7 days with details)
+    const recentSignups = await db.prepare(`
+      SELECT id, name, email, created_at, subscription_plan FROM users 
+      WHERE created_at > datetime('now', '-7 days')
+      ORDER BY created_at DESC
+      LIMIT 100
+    `).all() as any
+    
+    // Recent cancellations list (last 7 days with details)
+    const recentCancellations = await db.prepare(`
       SELECT id, name, email, updated_at, subscription_plan FROM users 
-      WHERE subscription_status = 'canceled' AND date(updated_at) = date('now')
+      WHERE subscription_status = 'canceled' AND updated_at > datetime('now', '-7 days')
       ORDER BY updated_at DESC
-      LIMIT 50
+      LIMIT 100
     `).all() as any
     
     // Revenue by plan
@@ -1300,8 +1319,10 @@ app.get('/api/admin/dashboard', async (c) => {
         mrr: mrr?.mrr || 0,
         creditsConsumed: creditsConsumed?.consumed || 0
       },
-      todayJoins: todayJoins?.results || [],
-      todayCancellations: todayCancellations?.results || [],
+      dailySignups: dailySignups?.results || [],
+      dailyCancellations: dailyCancellations?.results || [],
+      recentSignups: recentSignups?.results || [],
+      recentCancellations: recentCancellations?.results || [],
       planBreakdown: planBreakdown?.results || [],
       recentErrors: recentErrors?.results || [],
       recentTransactions: recentTransactions?.results || [],
@@ -10709,6 +10730,47 @@ function getAdminDashboardPage(user: any) {
       </div>
     </div>
     
+    <!-- Signups & Cancellations Row -->
+    <div class="stats-row" style="margin-bottom: 24px;">
+      <!-- Daily Signups -->
+      <div class="panel" style="flex: 1;">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span class="icon" style="background: #22C55E20; color: #22C55E;">✨</span>
+            New Signups (30 days)
+          </div>
+          <span class="panel-badge" id="signups-total">0</span>
+        </div>
+        <div class="chart-container" style="height: 200px;">
+          <canvas id="signups-chart"></canvas>
+        </div>
+        <div class="panel-content" style="max-height: 250px;">
+          <div id="signups-list">
+            <div class="empty-state"><div class="icon">📭</div>No recent signups</div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Daily Cancellations -->
+      <div class="panel" style="flex: 1;">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span class="icon" style="background: #EF444420; color: #EF4444;">👋</span>
+            Cancellations (30 days)
+          </div>
+          <span class="panel-badge" id="cancellations-total">0</span>
+        </div>
+        <div class="chart-container" style="height: 200px;">
+          <canvas id="cancellations-chart"></canvas>
+        </div>
+        <div class="panel-content" style="max-height: 250px;">
+          <div id="cancellations-list">
+            <div class="empty-state"><div class="icon">✨</div>No cancellations - great!</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
     <!-- Main Grid -->
     <div class="main-grid">
       <!-- User Activity -->
@@ -10716,14 +10778,14 @@ function getAdminDashboardPage(user: any) {
         <div class="panel-header">
           <div class="panel-title">
             <span class="icon" style="background: #22C55E20; color: #22C55E;">👥</span>
-            Today's Activity
+            Recent Activity (7 days)
           </div>
           <span class="panel-badge" id="activity-count">0</span>
         </div>
         <div class="panel-content" id="activity-feed">
           <div class="empty-state">
             <div class="icon">📭</div>
-            No activity yet today
+            No recent activity
           </div>
         </div>
       </div>
@@ -10894,7 +10956,9 @@ function getAdminDashboardPage(user: any) {
         if (data.success) {
           dashboardData = data;
           updateKPIs(data.kpis);
-          updateActivityFeed(data.todayJoins, data.todayCancellations);
+          updateSignupsChart(data.dailySignups, data.recentSignups);
+          updateCancellationsChart(data.dailyCancellations, data.recentCancellations);
+          updateActivityFeed(data.recentSignups, data.recentCancellations);
           updatePlanBreakdown(data.planBreakdown);
           updateErrorLog(data.recentErrors);
           updateRevenueChart(data.dailyRevenue);
@@ -10918,13 +10982,164 @@ function getAdminDashboardPage(user: any) {
       document.getElementById('kpi-credits').textContent = (kpis.creditsConsumed || 0).toLocaleString();
     }
     
+    let signupsChart = null;
+    let cancellationsChart = null;
+    
+    function updateSignupsChart(dailyData, recentList) {
+      // Update total
+      const total = (dailyData || []).reduce((sum, d) => sum + d.count, 0);
+      document.getElementById('signups-total').textContent = total;
+      
+      // Build chart data for last 30 days
+      const labels = [];
+      const data = [];
+      const dataMap = {};
+      (dailyData || []).forEach(d => { dataMap[d.date] = d.count; });
+      
+      for (let i = 29; i >= 0; i--) {
+        const date = new Date();
+        date.setDate(date.getDate() - i);
+        const dateStr = date.toISOString().split('T')[0];
+        labels.push(date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }));
+        data.push(dataMap[dateStr] || 0);
+      }
+      
+      const ctx = document.getElementById('signups-chart').getContext('2d');
+      if (signupsChart) signupsChart.destroy();
+      
+      signupsChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Signups',
+            data: data,
+            backgroundColor: '#22C55E40',
+            borderColor: '#22C55E',
+            borderWidth: 1,
+            borderRadius: 4
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { grid: { display: false }, ticks: { color: '#71717A', maxTicksLimit: 7, font: { size: 10 } } },
+            y: { grid: { color: '#27272A' }, ticks: { color: '#71717A', stepSize: 1 }, beginAtZero: true }
+          }
+        }
+      });
+      
+      // Update list
+      const listEl = document.getElementById('signups-list');
+      if (!recentList || recentList.length === 0) {
+        listEl.innerHTML = '<div class="empty-state"><div class="icon">📭</div>No recent signups</div>';
+        return;
+      }
+      
+      // Group by date
+      const grouped = {};
+      recentList.forEach(u => {
+        const date = new Date(u.created_at).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+        if (!grouped[date]) grouped[date] = [];
+        grouped[date].push(u);
+      });
+      
+      let html = '';
+      Object.keys(grouped).forEach(date => {
+        html += '<div style="font-size: 11px; color: #71717A; padding: 8px 0 4px; border-bottom: 1px solid #27272A; font-weight: 600;">' + date + ' (' + grouped[date].length + ')</div>';
+        grouped[date].forEach(u => {
+          html += '<div class="activity-item" onclick="openUserModal(\\'' + u.id + '\\')" style="padding: 8px 0;">' +
+            '<div class="activity-icon join" style="width: 24px; height: 24px; font-size: 11px;">✨</div>' +
+            '<div class="activity-details"><div class="activity-email" style="font-size: 12px;">' + u.email + '</div></div>' +
+            '</div>';
+        });
+      });
+      listEl.innerHTML = html;
+    }
+    
+    function updateCancellationsChart(dailyData, recentList) {
+      // Update total
+      const total = (dailyData || []).reduce((sum, d) => sum + d.count, 0);
+      document.getElementById('cancellations-total').textContent = total;
+      
+      // Build chart data for last 30 days
+      const labels = [];
+      const data = [];
+      const dataMap = {};
+      (dailyData || []).forEach(d => { dataMap[d.date] = d.count; });
+      
+      for (let i = 29; i >= 0; i--) {
+        const date = new Date();
+        date.setDate(date.getDate() - i);
+        const dateStr = date.toISOString().split('T')[0];
+        labels.push(date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }));
+        data.push(dataMap[dateStr] || 0);
+      }
+      
+      const ctx = document.getElementById('cancellations-chart').getContext('2d');
+      if (cancellationsChart) cancellationsChart.destroy();
+      
+      cancellationsChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Cancellations',
+            data: data,
+            backgroundColor: '#EF444440',
+            borderColor: '#EF4444',
+            borderWidth: 1,
+            borderRadius: 4
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { grid: { display: false }, ticks: { color: '#71717A', maxTicksLimit: 7, font: { size: 10 } } },
+            y: { grid: { color: '#27272A' }, ticks: { color: '#71717A', stepSize: 1 }, beginAtZero: true }
+          }
+        }
+      });
+      
+      // Update list
+      const listEl = document.getElementById('cancellations-list');
+      if (!recentList || recentList.length === 0) {
+        listEl.innerHTML = '<div class="empty-state"><div class="icon">✨</div>No cancellations - great!</div>';
+        return;
+      }
+      
+      // Group by date
+      const grouped = {};
+      recentList.forEach(u => {
+        const date = new Date(u.updated_at).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+        if (!grouped[date]) grouped[date] = [];
+        grouped[date].push(u);
+      });
+      
+      let html = '';
+      Object.keys(grouped).forEach(date => {
+        html += '<div style="font-size: 11px; color: #71717A; padding: 8px 0 4px; border-bottom: 1px solid #27272A; font-weight: 600;">' + date + ' (' + grouped[date].length + ')</div>';
+        grouped[date].forEach(u => {
+          html += '<div class="activity-item" onclick="openUserModal(\\'' + u.id + '\\')" style="padding: 8px 0;">' +
+            '<div class="activity-icon churn" style="width: 24px; height: 24px; font-size: 11px;">👋</div>' +
+            '<div class="activity-details"><div class="activity-email" style="font-size: 12px;">' + u.email + '</div></div>' +
+            '</div>';
+        });
+      });
+      listEl.innerHTML = html;
+    }
+    
     function updateActivityFeed(joins, cancellations) {
       const feed = document.getElementById('activity-feed');
       const count = (joins?.length || 0) + (cancellations?.length || 0);
       document.getElementById('activity-count').textContent = count;
       
       if (count === 0) {
-        feed.innerHTML = '<div class="empty-state"><div class="icon">📭</div>No activity yet today</div>';
+        feed.innerHTML = '<div class="empty-state"><div class="icon">📭</div>No recent activity</div>';
         return;
       }
       
@@ -10938,10 +11153,11 @@ function getAdminDashboardPage(user: any) {
       
       activities.forEach(item => {
         const time = new Date(item.created_at || item.updated_at);
+        const dateStr = time.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
         const timeStr = time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         const icon = item.type === 'join' ? 'join' : 'churn';
         const iconEmoji = item.type === 'join' ? '✨' : '👋';
-        const label = item.type === 'join' ? 'New signup' : 'Cancelled';
+        const label = item.type === 'join' ? 'Signup' : 'Cancelled';
         
         html += \`
           <div class="activity-item" onclick="openUserModal('\${item.id}')">
@@ -10950,7 +11166,7 @@ function getAdminDashboardPage(user: any) {
               <div class="activity-email">\${item.email}</div>
               <div class="activity-meta">\${label} - \${item.subscription_plan || 'free'}</div>
             </div>
-            <div class="activity-time">\${timeStr}</div>
+            <div class="activity-time">\${dateStr}<br>\${timeStr}</div>
           </div>
         \`;
       });
