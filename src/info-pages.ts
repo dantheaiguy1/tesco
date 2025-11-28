@@ -50,6 +50,54 @@ export function getFaqPage(): string {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>FAQ - ShopShot</title>
   <link rel="canonical" href="https://www.shopshot.co.uk/faq">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "What is ShopShot?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "ShopShot uses advanced AI to transform your product photos into professional e-commerce images. Upload one photo and get 10 different professional variations including lifestyle shots, flat-lays, and hero images."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How do credits work?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "1 credit = 1 generated image. A full product shoot creates 10 images and uses 10 credits. Standard Credits use our fast AI model (about 25 seconds for 10 images). Pro Credits use our premium AI model for the highest quality output (2-5 minutes)."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Do credits expire?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Subscription credits reset each billing cycle and don't roll over. Top-up credits don't expire as long as your account remains active."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Can I get a refund?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "We offer 15 free credits to test the service before purchasing. Due to the instant delivery of digital credits and AI processing costs, all sales are final. No refunds are provided except in cases of extended service outages (48+ hours)."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How do I cancel my subscription?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "You can cancel anytime from your account settings. You'll keep access until the end of your billing period. No penalties or fees for canceling."
+        }
+      }
+    ]
+  }
+  </script>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
