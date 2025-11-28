@@ -2695,6 +2695,20 @@ app.post('/api/billing/create-checkout', async (c) => {
     return c.json({ success: false, error: 'Invalid checkout type' }, 400);
   }
   
+  // Credit pack price IDs (Stripe)
+  const PACK_PRICE_IDS: Record<string, Record<number, string>> = {
+    cheaper: {
+      50: 'price_1SYWQGK5jVZf8VX1J5jY5poM',   // Standard 50
+      75: 'price_1SYWQTK5jVZf8VX1zqApkXAK',   // Standard 75
+      100: 'price_1SYWQcK5jVZf8VX1EP6g57IK',  // Standard 100
+    },
+    better: {
+      50: 'price_1SYWRBK5jVZf8VX1Qt1REGpZ',   // Pro 50
+      75: 'price_1SYWRKK5jVZf8VX1QauxPjTR',   // Pro 75
+      100: 'price_1SYWRUK5jVZf8VX1e59vipvr',  // Pro 100
+    }
+  };
+  
   // Determine price ID based on type
   let priceId: string;
   let mode: 'subscription' | 'payment';
@@ -2703,8 +2717,13 @@ app.post('/api/billing/create-checkout', async (c) => {
     priceId = c.env.STRIPE_PRICE_ID_SUBSCRIPTION;
     mode = 'subscription';
   } else {
-    // For 'topup' or 'pack', use the topup price ID
-    priceId = c.env.STRIPE_PRICE_ID_TOPUP;
+    // For 'topup' or 'pack', look up the correct price ID
+    const packPrices = PACK_PRICE_IDS[creditType as string];
+    if (packPrices && packPrices[amount as number]) {
+      priceId = packPrices[amount as number];
+    } else {
+      return c.json({ success: false, error: 'Invalid pack type or amount' }, 400);
+    }
     mode = 'payment';
   }
   
@@ -2724,7 +2743,7 @@ app.post('/api/billing/create-checkout', async (c) => {
   // Get the current URL for success/cancel redirects
   const origin = new URL(c.req.url).origin;
   
-  const session = await stripeRequest(c.env.STRIPE_SECRET_KEY, '/checkout/sessions', 'POST', {
+  const sessionParams: Record<string, any> = {
     customer: stripeCustomerId,
     mode: mode,
     'line_items[0][price]': priceId,
@@ -2733,8 +2752,16 @@ app.post('/api/billing/create-checkout', async (c) => {
     cancel_url: `${origin}/pricing?checkout=canceled`,
     client_reference_id: user.id,
     'metadata[user_id]': user.id,
-    'metadata[type]': type
-  });
+    'metadata[type]': type === 'pack' ? 'topup' : type
+  };
+  
+  // Add credit pack metadata if applicable
+  if (type === 'pack' || type === 'topup') {
+    sessionParams['metadata[credit_type]'] = creditType;
+    sessionParams['metadata[pack_amount]'] = String(amount);
+  }
+  
+  const session = await stripeRequest(c.env.STRIPE_SECRET_KEY, '/checkout/sessions', 'POST', sessionParams);
   
   return c.json({ success: true, url: session.url, sessionId: session.id });
 });
@@ -10481,12 +10508,6 @@ function getPricingPage(user?: User) {
       
       <!-- Cheaper/Standard Packs -->
       <div id="packs-cheaper" class="packs-grid">
-        <div class="pack-card cheaper" onclick="!${!user} && startPackCheckout('cheaper', 25)">
-          <div class="pack-price">£25</div>
-          <div class="pack-credits cheaper">${CREDITS.PACKS.CHEAPER.PACK_25} credits</div>
-          <div class="pack-per">£0.063 per credit</div>
-          <button class="pack-btn cheaper" ${!user ? 'disabled' : ''}>Buy Now</button>
-        </div>
         <div class="pack-card cheaper" onclick="!${!user} && startPackCheckout('cheaper', 50)">
           <div class="pack-price">£50</div>
           <div class="pack-credits cheaper">${CREDITS.PACKS.CHEAPER.PACK_50} credits</div>
@@ -10509,12 +10530,6 @@ function getPricingPage(user?: User) {
       
       <!-- Better/Pro Packs -->
       <div id="packs-better" class="packs-grid hidden">
-        <div class="pack-card better" onclick="!${!user} && startPackCheckout('better', 25)">
-          <div class="pack-price">£25</div>
-          <div class="pack-credits better">${CREDITS.PACKS.BETTER.PACK_25} credits</div>
-          <div class="pack-per">£0.22 per credit</div>
-          <button class="pack-btn better" ${!user ? 'disabled' : ''}>Buy Now</button>
-        </div>
         <div class="pack-card better" onclick="!${!user} && startPackCheckout('better', 50)">
           <div class="pack-price">£50</div>
           <div class="pack-credits better">${CREDITS.PACKS.BETTER.PACK_50} credits</div>
