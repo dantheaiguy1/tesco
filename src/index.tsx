@@ -1,6 +1,8 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
+import { getPrivacyPage, getTermsPage, getRefundsPage, getCookiesPage } from './legal-pages'
+import { getFaqPage, getAboutPage, getContactPage } from './info-pages'
 
 type Bindings = {
   TESCO_DB: D1Database;
@@ -1278,6 +1280,102 @@ app.get('/dashboard', (c) => {
 app.get('/pricing', (c) => {
   const user = c.get('user')
   return c.html(getPricingPage(user))
+})
+
+// ============================================================================
+// LEGAL & INFO PAGES
+// ============================================================================
+
+// Privacy Policy
+app.get('/privacy', (c) => {
+  return c.html(getPrivacyPage())
+})
+
+// Terms of Service
+app.get('/terms', (c) => {
+  return c.html(getTermsPage())
+})
+
+// Refund Policy
+app.get('/refunds', (c) => {
+  return c.html(getRefundsPage())
+})
+
+// Cookie Policy
+app.get('/cookies', (c) => {
+  return c.html(getCookiesPage())
+})
+
+// FAQ Page
+app.get('/faq', (c) => {
+  return c.html(getFaqPage())
+})
+
+// About Page
+app.get('/about', (c) => {
+  return c.html(getAboutPage())
+})
+
+// Contact Page
+app.get('/contact', (c) => {
+  return c.html(getContactPage())
+})
+
+// Contact Form API
+app.post('/api/contact', async (c) => {
+  try {
+    const { name, email, subject, message } = await c.req.json()
+    
+    if (!name || !email || !message) {
+      return c.json({ success: false, error: 'Name, email, and message are required' }, 400)
+    }
+    
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(email)) {
+      return c.json({ success: false, error: 'Invalid email address' }, 400)
+    }
+    
+    // Send email via Resend
+    const resendApiKey = c.env.RESEND_API_KEY
+    if (!resendApiKey) {
+      console.error('RESEND_API_KEY not configured')
+      return c.json({ success: false, error: 'Email service not configured' }, 500)
+    }
+    
+    const emailResponse = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + resendApiKey,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        from: 'ShopShot Contact <noreply@shopshot.ai>',
+        to: ['dan@danielnicholls.com'],
+        subject: '[ShopShot Contact] ' + (subject || 'General Inquiry') + ' - from ' + name,
+        html: '<h2>New Contact Form Submission</h2>' +
+          '<p><strong>From:</strong> ' + name + ' (' + email + ')</p>' +
+          '<p><strong>Subject:</strong> ' + (subject || 'General Inquiry') + '</p>' +
+          '<hr>' +
+          '<p><strong>Message:</strong></p>' +
+          '<p>' + message.replace(/\n/g, '<br>') + '</p>' +
+          '<hr>' +
+          '<p><em>Sent via ShopShot Contact Form</em></p>',
+        reply_to: email
+      })
+    })
+    
+    if (!emailResponse.ok) {
+      const errorData = await emailResponse.json()
+      console.error('Resend error:', errorData)
+      return c.json({ success: false, error: 'Failed to send message' }, 500)
+    }
+    
+    return c.json({ success: true, message: 'Message sent successfully' })
+  } catch (error) {
+    console.error('Contact form error:', error)
+    return c.json({ success: false, error: 'Failed to send message' }, 500)
+  }
 })
 
 // Account page
