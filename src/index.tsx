@@ -227,7 +227,7 @@ async function generateImageWithVertex(
       ]
     }],
     generationConfig: {
-      responseModalities: ['IMAGE', 'TEXT']
+      responseModalities: ['TEXT', 'IMAGE']
     }
   });
   
@@ -468,7 +468,7 @@ async function deductCredits(
   await db.prepare(`
     INSERT INTO credit_transactions (id, user_id, amount, balance_after, credit_type, type, description, session_id, image_data)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).bind(transactionId, userId, -amount, newBalance, creditType, type, description, sessionId || null, imageData || null).run();
+  `).bind(transactionId, userId, -amount, newBalance, creditType, type, description, sessionId || null, null).run(); // Don't store image_data to avoid SQLITE_TOOBIG error
   
   return { success: true, newBalance, transactionId };
 }
@@ -2548,8 +2548,8 @@ function getMarketingPage() {
     }
     .hero-badge svg { width: 16px; height: 16px; }
     .hero-content {
-      background: rgba(255,255,255,0.92);
-      backdrop-filter: blur(10px);
+      background: rgba(255,255,255,0.2);
+      backdrop-filter: blur(12px);
       padding: 48px 64px;
       border-radius: 24px;
       max-width: 900px;
@@ -2615,93 +2615,140 @@ function getMarketingPage() {
     }
     .btn-secondary:hover { border-color: #8B5CF6; color: #7C3AED; }
     
-    /* Demo Showcase */
-    .hero-showcase {
-      max-width: 1100px;
-      margin: 0 auto;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 32px;
-      padding: 20px;
+    /* Animated Ticker Tape */
+    .ticker-section {
+      padding: 40px 0 20px;
+      background: transparent;
     }
-    @media (max-width: 900px) { 
-      .hero-showcase { flex-direction: column; gap: 24px; }
-    }
-    .showcase-before {
-      background: white;
-      border-radius: 20px;
-      padding: 20px;
-      box-shadow: 0 20px 60px rgba(0,0,0,0.12);
+    .ticker-hint {
       text-align: center;
-      flex: 0 0 280px;
-    }
-    .showcase-before-img {
-      width: 240px;
-      height: 240px;
-      background: linear-gradient(135deg, #F3F4F6 0%, #E5E7EB 100%);
-      border-radius: 12px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 80px;
-      margin-bottom: 12px;
-    }
-    .showcase-before-label {
       font-size: 14px;
-      font-weight: 600;
-      color: #6B7280;
+      font-weight: 500;
+      color: #1F2937;
+      margin-bottom: 20px;
+      padding: 8px 16px;
+      background: rgba(255,255,255,0.95);
+      display: inline-block;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      border: 1px solid #E5E7EB;
     }
-    .showcase-arrow {
-      font-size: 48px;
-      color: #8B5CF6;
-      animation: pulse 2s infinite;
-    }
-    @keyframes pulse {
-      0%, 100% { transform: scale(1); opacity: 1; }
-      50% { transform: scale(1.1); opacity: 0.8; }
-    }
-    @media (max-width: 900px) { 
-      .showcase-arrow { transform: rotate(90deg); }
-    }
-    .showcase-after {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 16px;
-      flex: 0 0 400px;
-    }
-    @media (max-width: 900px) { 
-      .showcase-after { flex: 0 0 auto; }
-    }
-    .showcase-result {
-      background: white;
-      border-radius: 16px;
-      padding: 12px;
-      box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+    .ticker-hint-wrapper {
       text-align: center;
-      transition: all 0.3s;
     }
-    .showcase-result:hover {
-      transform: translateY(-4px);
-      box-shadow: 0 15px 50px rgba(0,0,0,0.15);
-    }
-    .showcase-result-img {
+    .ticker-container {
+      overflow: hidden;
       width: 100%;
-      aspect-ratio: 1;
-      background: linear-gradient(135deg, #EEF2FF 0%, #E0E7FF 100%);
-      border-radius: 10px;
+      position: relative;
+    }
+    .ticker-wrapper {
+      display: flex;
+      animation: ticker-scroll 40s linear infinite;
+      gap: 20px;
+      padding: 10px 0;
+    }
+    .ticker-wrapper:hover {
+      animation-play-state: paused;
+    }
+    @keyframes ticker-scroll {
+      0% { transform: translateX(0); }
+      100% { transform: translateX(-50%); }
+    }
+    .ticker-item {
+      flex-shrink: 0;
+      width: 140px;
+      height: 140px;
+      border-radius: 16px;
+      overflow: hidden;
+      cursor: pointer;
+      transition: all 0.3s;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+      border: 3px solid white;
+    }
+    .ticker-item:hover {
+      transform: scale(1.08);
+      box-shadow: 0 12px 40px rgba(99, 102, 241, 0.3);
+      border-color: #8B5CF6;
+    }
+    .ticker-item img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    
+    /* Lightbox Modal */
+    .lightbox-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.9);
+      z-index: 10000;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+    .lightbox-overlay.active {
+      display: flex;
+    }
+    .lightbox-content {
+      max-width: 95vw;
+      max-height: 90vh;
+      position: relative;
+    }
+    .lightbox-content img {
+      max-width: 100%;
+      max-height: 85vh;
+      border-radius: 12px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    }
+    .lightbox-close {
+      position: absolute;
+      top: -40px;
+      right: 0;
+      background: white;
+      border: none;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      font-size: 24px;
+      cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 48px;
-      margin-bottom: 8px;
+      color: #374151;
     }
-    .showcase-result-label {
-      font-size: 11px;
-      font-weight: 600;
-      color: #6B7280;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
+    .lightbox-close:hover {
+      background: #F3F4F6;
+    }
+    .lightbox-nav {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      background: white;
+      border: none;
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      font-size: 24px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #374151;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+    }
+    .lightbox-nav:hover {
+      background: #F3F4F6;
+    }
+    .lightbox-prev { left: -60px; }
+    .lightbox-next { right: -60px; }
+    @media (max-width: 768px) {
+      .lightbox-prev { left: 10px; }
+      .lightbox-next { right: 10px; }
+      .ticker-item { width: 120px; height: 120px; }
     }
     
     /* Stats Bar */
@@ -2722,6 +2769,91 @@ function getMarketingPage() {
       -webkit-text-fill-color: transparent;
     }
     .stat-label { font-size: 14px; color: #6B7280; margin-top: 4px; }
+    
+    /* Promo Video Section */
+    .promo-video-container {
+      max-width: 900px;
+      margin: 0 auto 48px;
+      padding: 0 24px;
+    }
+    .promo-video-wrapper {
+      position: relative;
+      border-radius: 20px;
+      overflow: hidden;
+      box-shadow: 0 25px 60px rgba(0,0,0,0.15);
+      aspect-ratio: 16/9;
+      background: #1F2937;
+    }
+    .promo-video-placeholder {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      cursor: pointer;
+    }
+    .promo-video-placeholder .video-thumbnail {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      filter: brightness(0.7);
+    }
+    .video-play-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      z-index: 2;
+    }
+    .play-button {
+      width: 80px;
+      height: 80px;
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 10px 40px rgba(99, 102, 241, 0.4);
+      transition: all 0.3s;
+    }
+    .promo-video-placeholder:hover .play-button {
+      transform: scale(1.1);
+      box-shadow: 0 15px 50px rgba(99, 102, 241, 0.5);
+    }
+    .play-button svg {
+      margin-left: 4px;
+    }
+    .play-text {
+      font-size: 16px;
+      font-weight: 600;
+      color: white;
+      text-shadow: 0 2px 10px rgba(0,0,0,0.3);
+    }
+    .promo-video-embed {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+    }
+    .promo-video-embed iframe {
+      border-radius: 20px;
+    }
+    .promo-video-caption {
+      text-align: center;
+      margin-top: 16px;
+      font-size: 14px;
+      color: #6B7280;
+    }
+    @media (max-width: 768px) {
+      .promo-video-container { padding: 0 16px; }
+      .play-button { width: 60px; height: 60px; }
+      .play-button svg { width: 24px; height: 24px; }
+    }
     
     /* Section Styles */
     .section {
@@ -2894,35 +3026,110 @@ function getMarketingPage() {
       color: #8B5CF6;
     }
     
-    /* Pricing Preview */
-    .pricing-preview {
-      display: flex;
-      justify-content: center;
-      gap: 32px;
-      max-width: 900px;
+    /* Pricing Grid - Full Version */
+    .pricing-grid-section {
+      background: #F9FAFB;
+      padding: 80px 32px;
+    }
+    .pricing-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+      max-width: 1000px;
       margin: 0 auto;
     }
-    @media (max-width: 768px) { .pricing-preview { flex-direction: column; align-items: center; } }
+    @media (max-width: 900px) { .pricing-grid { grid-template-columns: 1fr; max-width: 400px; } }
     .pricing-card {
-      background: rgba(255,255,255,0.05);
-      border: 1px solid rgba(255,255,255,0.1);
+      background: white;
+      border: 1px solid #E5E7EB;
       border-radius: 20px;
-      padding: 36px;
-      width: 280px;
-      text-align: center;
+      padding: 32px;
+      position: relative;
       transition: all 0.3s;
     }
-    .pricing-card:hover { background: rgba(255,255,255,0.08); transform: translateY(-4px); }
+    .pricing-card:hover { border-color: #8B5CF6; box-shadow: 0 12px 40px rgba(139, 92, 246, 0.15); transform: translateY(-4px); }
     .pricing-card.featured {
-      background: rgba(139, 92, 246, 0.15);
-      border-color: rgba(139, 92, 246, 0.3);
-      transform: scale(1.05);
+      border: 2px solid #8B5CF6;
+      box-shadow: 0 12px 40px rgba(139, 92, 246, 0.2);
     }
-    .pricing-card h3 { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
-    .pricing-card .price { font-size: 48px; font-weight: 800; margin-bottom: 8px; }
-    .pricing-card .price span { font-size: 18px; font-weight: 500; opacity: 0.7; }
-    .pricing-card .credits { font-size: 14px; opacity: 0.7; margin-bottom: 24px; }
-    .pricing-card .btn-primary { width: 100%; justify-content: center; }
+    .pricing-card.featured::before {
+      content: 'Most Popular';
+      position: absolute;
+      top: -12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: linear-gradient(135deg, #8B5CF6 0%, #3B82F6 100%);
+      color: white;
+      padding: 6px 16px;
+      border-radius: 100px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .pricing-card h3 { font-size: 20px; font-weight: 700; color: #1F2937; margin-bottom: 4px; }
+    .pricing-card .price { font-size: 42px; font-weight: 800; color: #1F2937; margin-bottom: 4px; }
+    .pricing-card .price span { font-size: 16px; font-weight: 500; color: #9CA3AF; }
+    .pricing-card .price-note { font-size: 13px; color: #9CA3AF; margin-bottom: 20px; }
+    .pricing-card .credits-row {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .credit-badge {
+      flex: 1;
+      padding: 10px;
+      background: #F9FAFB;
+      border-radius: 10px;
+      text-align: center;
+    }
+    .credit-badge .count { font-size: 22px; font-weight: 700; }
+    .credit-badge .label { font-size: 10px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.5px; }
+    .credit-badge.standard .count { color: #3B82F6; }
+    .credit-badge.pro .count { color: #8B5CF6; }
+    .pricing-card ul { list-style: none; margin-bottom: 20px; padding: 0; }
+    .pricing-card li {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 14px;
+      color: #4B5563;
+      margin-bottom: 10px;
+    }
+    .pricing-card li::before {
+      content: '';
+      width: 18px;
+      height: 18px;
+      background: #10B981;
+      border-radius: 50%;
+      flex-shrink: 0;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='white'%3E%3Cpath fill-rule='evenodd' d='M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z' clip-rule='evenodd'/%3E%3C/svg%3E");
+      background-size: 11px;
+      background-repeat: no-repeat;
+      background-position: center;
+    }
+    .pricing-btn {
+      width: 100%;
+      padding: 14px;
+      border-radius: 12px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-align: center;
+      text-decoration: none;
+      display: block;
+    }
+    .pricing-btn.primary {
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      border: none;
+      color: white;
+    }
+    .pricing-btn.primary:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(139, 92, 246, 0.35); }
+    .pricing-btn.secondary {
+      background: white;
+      border: 1px solid #E5E7EB;
+      color: #374151;
+    }
+    .pricing-btn.secondary:hover { border-color: #8B5CF6; color: #8B5CF6; }
     
     /* Final CTA */
     .final-cta {
@@ -3002,33 +3209,43 @@ function getMarketingPage() {
       </div>
     </div>
     
-    <!-- Before/After Showcase -->
-    <div class="hero-showcase">
-      <div class="showcase-before">
-        <div class="showcase-before-img">📱</div>
-        <div class="showcase-before-label">Your phone snap</div>
-      </div>
-      <div class="showcase-arrow">→</div>
-      <div class="showcase-after">
-        <div class="showcase-result">
-          <div class="showcase-result-img">🌟</div>
-          <div class="showcase-result-label">Hero Shot</div>
-        </div>
-        <div class="showcase-result">
-          <div class="showcase-result-img">🏠</div>
-          <div class="showcase-result-label">Lifestyle</div>
-        </div>
-        <div class="showcase-result">
-          <div class="showcase-result-img">📐</div>
-          <div class="showcase-result-label">Flat Lay</div>
-        </div>
-        <div class="showcase-result">
-          <div class="showcase-result-img">🔍</div>
-          <div class="showcase-result-label">Detail</div>
-        </div>
+  </section>
+  
+  <!-- Animated Ticker Tape -->
+  <section class="ticker-section">
+    <div class="ticker-hint-wrapper">
+      <div class="ticker-hint">Click any image to see all 10 AI variations</div>
+    </div>
+    <div class="ticker-container">
+      <div class="ticker-wrapper" id="ticker-wrapper">
+        <div class="ticker-item" data-index="0"><img src="/static/examples/example-1-thumb.jpg" alt="Vacuum cleaner"></div>
+        <div class="ticker-item" data-index="1"><img src="/static/examples/example-2-thumb.jpg" alt="Skincare serum"></div>
+        <div class="ticker-item" data-index="2"><img src="/static/examples/example-3-thumb.jpg" alt="White sneakers"></div>
+        <div class="ticker-item" data-index="3"><img src="/static/examples/example-4-thumb.jpg" alt="Candle"></div>
+        <div class="ticker-item" data-index="4"><img src="/static/examples/example-5-thumb.jpg" alt="Coffee bags"></div>
+        <div class="ticker-item" data-index="5"><img src="/static/examples/example-6-thumb.jpg" alt="Smartwatch"></div>
+        <div class="ticker-item" data-index="6"><img src="/static/examples/example-7-thumb.jpg" alt="Silver ring"></div>
+        <!-- Duplicate for seamless loop -->
+        <div class="ticker-item" data-index="0"><img src="/static/examples/example-1-thumb.jpg" alt="Vacuum cleaner"></div>
+        <div class="ticker-item" data-index="1"><img src="/static/examples/example-2-thumb.jpg" alt="Skincare serum"></div>
+        <div class="ticker-item" data-index="2"><img src="/static/examples/example-3-thumb.jpg" alt="White sneakers"></div>
+        <div class="ticker-item" data-index="3"><img src="/static/examples/example-4-thumb.jpg" alt="Candle"></div>
+        <div class="ticker-item" data-index="4"><img src="/static/examples/example-5-thumb.jpg" alt="Coffee bags"></div>
+        <div class="ticker-item" data-index="5"><img src="/static/examples/example-6-thumb.jpg" alt="Smartwatch"></div>
+        <div class="ticker-item" data-index="6"><img src="/static/examples/example-7-thumb.jpg" alt="Silver ring"></div>
       </div>
     </div>
   </section>
+  
+  <!-- Lightbox Modal -->
+  <div class="lightbox-overlay" id="lightbox-overlay">
+    <div class="lightbox-content">
+      <button class="lightbox-close" onclick="closeLightbox()">&times;</button>
+      <button class="lightbox-nav lightbox-prev" onclick="prevLightbox()">&#8249;</button>
+      <img id="lightbox-img" src="" alt="Full generation grid">
+      <button class="lightbox-nav lightbox-next" onclick="nextLightbox()">&#8250;</button>
+    </div>
+  </div>
 
   <!-- Stats Bar -->
   <div class="stats-bar">
@@ -3052,6 +3269,34 @@ function getMarketingPage() {
       <div class="section-badge">Features</div>
       <h2 class="section-title">Everything You Need for Better Product Photos</h2>
       <p class="section-subtitle">Professional results without the professional price tag. Our AI handles the hard work.</p>
+    </div>
+    
+    <!-- Promo Video Placeholder -->
+    <div class="promo-video-container">
+      <div class="promo-video-wrapper">
+        <div class="promo-video-placeholder" id="promo-video-placeholder">
+          <div class="video-play-overlay">
+            <div class="play-button">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="white"><polygon points="5,3 19,12 5,21"/></svg>
+            </div>
+            <span class="play-text">Watch How It Works</span>
+          </div>
+          <img src="/static/examples/example-1-full.jpg" alt="ShopShot Demo Preview" class="video-thumbnail">
+        </div>
+        <!-- YouTube embed will replace placeholder when user clicks -->
+        <div class="promo-video-embed" id="promo-video-embed" style="display: none;">
+          <iframe 
+            id="youtube-iframe"
+            width="100%" 
+            height="100%" 
+            src="" 
+            frameborder="0" 
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+            allowfullscreen>
+          </iframe>
+        </div>
+      </div>
+      <p class="promo-video-caption">See ShopShot transform a simple product photo into 10 professional shots</p>
     </div>
     
     <div class="features-grid">
@@ -3147,32 +3392,84 @@ function getMarketingPage() {
     </div>
   </section>
 
-  <!-- Pricing Preview -->
-  <section class="section section-dark" id="pricing">
-    <div class="section-header">
-      <div class="section-badge">Pricing</div>
-      <h2 class="section-title">Simple, Honest Pricing</h2>
-      <p class="section-subtitle">Start free. Upgrade when you're ready. No hidden fees.</p>
+  <!-- Full Pricing Grid -->
+  <section class="pricing-grid-section" id="pricing">
+    <div class="section-header" style="color: #1F2937;">
+      <div class="section-badge" style="background: white; color: #4338CA;">Pricing</div>
+      <h2 class="section-title" style="color: #1F2937;">Simple, Honest Pricing</h2>
+      <p class="section-subtitle" style="color: #6B7280;">Start free. Upgrade when you're ready. No hidden fees.</p>
     </div>
     
-    <div class="pricing-preview">
+    <div class="pricing-grid">
+      <!-- Free Tier -->
       <div class="pricing-card">
         <h3>Free</h3>
         <div class="price">£0</div>
-        <div class="credits">${CREDITS.SIGNUP_CHEAPER + CREDITS.SIGNUP_BETTER} credits on signup</div>
-        <a href="/register?plan=free" class="btn-primary">Get Started</a>
+        <div class="price-note">One-time signup bonus</div>
+        <div class="credits-row">
+          <div class="credit-badge standard">
+            <div class="count">${CREDITS.SIGNUP_CHEAPER}</div>
+            <div class="label">Standard</div>
+          </div>
+          <div class="credit-badge pro">
+            <div class="count">${CREDITS.SIGNUP_BETTER}</div>
+            <div class="label">Pro</div>
+          </div>
+        </div>
+        <ul>
+          <li>10 professional variations</li>
+          <li>High-res downloads</li>
+          <li>Session history</li>
+        </ul>
+        <a href="/register?plan=free" class="pricing-btn secondary">Get Started Free</a>
       </div>
+      
+      <!-- Standard Tier -->
       <div class="pricing-card featured">
         <h3>Standard</h3>
         <div class="price">£${PRICING.STANDARD}<span>/mo</span></div>
-        <div class="credits">${CREDITS.STANDARD_CHEAPER + CREDITS.STANDARD_BETTER} credits/month</div>
-        <a href="/register?plan=standard" class="btn-primary">Get Standard</a>
+        <div class="price-note">Best for regular sellers</div>
+        <div class="credits-row">
+          <div class="credit-badge standard">
+            <div class="count">${CREDITS.STANDARD_CHEAPER}</div>
+            <div class="label">Standard</div>
+          </div>
+          <div class="credit-badge pro">
+            <div class="count">${CREDITS.STANDARD_BETTER}</div>
+            <div class="label">Pro</div>
+          </div>
+        </div>
+        <ul>
+          <li>Everything in Free</li>
+          <li>Priority generation</li>
+          <li>Bulk downloads (ZIP)</li>
+          <li>Email support</li>
+        </ul>
+        <a href="/register?plan=standard" class="pricing-btn primary">Get Standard</a>
       </div>
+      
+      <!-- Pro Tier -->
       <div class="pricing-card">
         <h3>Pro</h3>
         <div class="price">£${PRICING.PRO}<span>/mo</span></div>
-        <div class="credits">${CREDITS.PRO_CHEAPER + CREDITS.PRO_BETTER} credits/month</div>
-        <a href="/register?plan=pro" class="btn-primary">Get Pro</a>
+        <div class="price-note">For power sellers</div>
+        <div class="credits-row">
+          <div class="credit-badge standard">
+            <div class="count">${CREDITS.PRO_CHEAPER}</div>
+            <div class="label">Standard</div>
+          </div>
+          <div class="credit-badge pro">
+            <div class="count">${CREDITS.PRO_BETTER}</div>
+            <div class="label">Pro</div>
+          </div>
+        </div>
+        <ul>
+          <li>Everything in Standard</li>
+          <li>Best quality AI model</li>
+          <li>Advanced customization</li>
+          <li>Priority support</li>
+        </ul>
+        <a href="/register?plan=pro" class="pricing-btn primary">Get Pro</a>
       </div>
     </div>
   </section>
@@ -3218,6 +3515,81 @@ function getMarketingPage() {
         }
       });
     });
+    
+    // Lightbox for ticker examples
+    const exampleFullImages = [
+      '/static/examples/example-1-full.jpg',
+      '/static/examples/example-2-full.jpg',
+      '/static/examples/example-3-full.jpg',
+      '/static/examples/example-4-full.jpg',
+      '/static/examples/example-5-full.jpg',
+      '/static/examples/example-6-full.jpg',
+      '/static/examples/example-7-thumb.jpg'  // Ring doesn't have full grid, use thumb
+    ];
+    let currentLightboxIndex = 0;
+    
+    document.querySelectorAll('.ticker-item').forEach(item => {
+      item.addEventListener('click', function() {
+        const index = parseInt(this.getAttribute('data-index'));
+        openLightbox(index);
+      });
+    });
+    
+    function openLightbox(index) {
+      currentLightboxIndex = index;
+      document.getElementById('lightbox-img').src = exampleFullImages[index];
+      document.getElementById('lightbox-overlay').classList.add('active');
+      document.body.style.overflow = 'hidden';
+    }
+    
+    function closeLightbox() {
+      document.getElementById('lightbox-overlay').classList.remove('active');
+      document.body.style.overflow = '';
+    }
+    
+    function prevLightbox() {
+      currentLightboxIndex = (currentLightboxIndex - 1 + exampleFullImages.length) % exampleFullImages.length;
+      document.getElementById('lightbox-img').src = exampleFullImages[currentLightboxIndex];
+    }
+    
+    function nextLightbox() {
+      currentLightboxIndex = (currentLightboxIndex + 1) % exampleFullImages.length;
+      document.getElementById('lightbox-img').src = exampleFullImages[currentLightboxIndex];
+    }
+    
+    // Keyboard navigation
+    document.addEventListener('keydown', function(e) {
+      if (!document.getElementById('lightbox-overlay').classList.contains('active')) return;
+      if (e.key === 'Escape') closeLightbox();
+      if (e.key === 'ArrowLeft') prevLightbox();
+      if (e.key === 'ArrowRight') nextLightbox();
+    });
+    
+    // Click overlay to close
+    document.getElementById('lightbox-overlay').addEventListener('click', function(e) {
+      if (e.target === this) closeLightbox();
+    });
+    
+    // Promo video click handler
+    // Replace YOUR_VIDEO_ID with actual YouTube video ID when available
+    const videoPlaceholder = document.getElementById('promo-video-placeholder');
+    const videoEmbed = document.getElementById('promo-video-embed');
+    const youtubeIframe = document.getElementById('youtube-iframe');
+    const YOUTUBE_VIDEO_ID = 'YOUR_VIDEO_ID'; // TODO: Replace with actual video ID
+    
+    if (videoPlaceholder) {
+      videoPlaceholder.addEventListener('click', function() {
+        if (YOUTUBE_VIDEO_ID === 'YOUR_VIDEO_ID') {
+          // No video yet - show alert
+          alert('Demo video coming soon! We are creating an awesome walkthrough.');
+          return;
+        }
+        // Hide placeholder, show embed
+        videoPlaceholder.style.display = 'none';
+        videoEmbed.style.display = 'block';
+        youtubeIframe.src = 'https://www.youtube.com/embed/' + YOUTUBE_VIDEO_ID + '?autoplay=1&rel=0';
+      });
+    }
   </script>
 </body>
 </html>`
