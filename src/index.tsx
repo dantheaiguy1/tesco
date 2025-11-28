@@ -2587,6 +2587,7 @@ app.get('/api/health', async (c) => {
     keyLength: c.env.GEMINI_API_KEY?.length || 0,
     hasDB: !!c.env.TESCO_DB,
     hasStripe: !!c.env.STRIPE_SECRET_KEY,
+    hasStripeWebhook: !!c.env.STRIPE_WEBHOOK_SECRET,
     stripeKeyLength: c.env.STRIPE_SECRET_KEY?.length || 0,
     hasResend: !!c.env.RESEND_API_KEY,
     hasGoogleOAuth: !!c.env.GOOGLE_CLIENT_ID && !!c.env.GOOGLE_CLIENT_SECRET,
