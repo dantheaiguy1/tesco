@@ -125,8 +125,9 @@ export function getFaqPage(): string {
             <span class="faq-icon transition-transform">▼</span>
           </div>
           <div class="faq-answer px-4 pb-4 text-gray-600">
-            <p><strong>Standard Credits</strong> use our fast, reliable AI model. Generation takes about 25 seconds for all 10 images.</p>
-            <p class="mt-2"><strong>Pro Credits</strong> use our premium AI model for the highest quality output. Generation takes 2-5 minutes but produces superior results.</p>
+            <p><strong>1 credit = 1 generated image.</strong> A full product shoot creates 10 images and uses 10 credits.</p>
+            <p class="mt-2"><strong>Standard Credits</strong> use our fast, reliable AI model. Generation takes about 25 seconds for all 10 images (10 Standard credits).</p>
+            <p class="mt-2"><strong>Pro Credits</strong> use our premium AI model for the highest quality output. Generation takes 2-5 minutes but produces superior results (10 Pro credits).</p>
           </div>
         </div>
         <div class="faq-item">
@@ -318,7 +319,7 @@ export function getAboutPage(): string {
         <div class="bg-white rounded-xl p-6 border border-gray-200">
           <div class="text-3xl mb-4">🤖</div>
           <h3 class="font-bold text-gray-900 mb-2">2. AI Magic</h3>
-          <p class="text-gray-600">Our AI analyzes your product and generates 10 professional variations in seconds.</p>
+          <p class="text-gray-600">Our AI analyzes your product and generates 10 professional variations (uses 10 credits).</p>
         </div>
         <div class="bg-white rounded-xl p-6 border border-gray-200">
           <div class="text-3xl mb-4">🚀</div>

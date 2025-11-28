@@ -4875,7 +4875,7 @@ function getMarketingPage() {
       <div class="step">
         <div class="step-number">2</div>
         <h3>AI Does the Magic</h3>
-        <p>Our AI extracts your product and generates 10 professional variations automatically.</p>
+        <p>Our AI extracts your product and generates 10 professional variations (uses 10 credits).</p>
       </div>
       <div class="step">
         <div class="step-number">3</div>
@@ -9884,7 +9884,7 @@ function getGetStartedPage() {
             </div>
           </div>
           <ul>
-            <li>10 variations per generation</li>
+            <li>10 images per product (10 credits)</li>
             <li>High-resolution downloads</li>
             <li>All variation types</li>
           </ul>

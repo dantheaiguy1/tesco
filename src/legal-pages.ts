@@ -371,7 +371,7 @@ export function getTermsPage(): string {
         </div>
         
         <h2>1. Service Description</h2>
-        <p>ShopShot is an AI-powered platform that transforms product photographs into professional e-commerce images. You upload a photo, and our technology generates 10 variations optimized for online selling.</p>
+        <p>ShopShot is an AI-powered platform that transforms product photographs into professional e-commerce images. You upload a photo, and our technology generates 10 professional variations optimized for online selling (using 10 credits - 1 credit per image).</p>
         
         <h2>2. Account Registration</h2>
         
@@ -393,9 +393,11 @@ export function getTermsPage(): string {
         
         <h3>How Credits Work:</h3>
         <ul>
-          <li><strong>Standard Credits</strong> - Generate 10 images using our fast AI model</li>
-          <li><strong>Pro Credits</strong> - Generate 10 images using our premium AI model</li>
-          <li>1 credit = 10 image variations per product</li>
+          <li><strong>1 credit = 1 generated image</strong></li>
+          <li><strong>Standard Credits</strong> - Use our fast AI model (best for quick results)</li>
+          <li><strong>Pro Credits</strong> - Use our premium AI model (best quality)</li>
+          <li>A full product shoot generates 10 images and uses 10 credits</li>
+          <li>Single image regeneration uses 1 credit</li>
         </ul>
         
         <h3>Credit Rules:</h3>
