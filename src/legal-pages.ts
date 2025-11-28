@@ -26,7 +26,7 @@ const LEGAL_FOOTER_HTML = `
         <ul class="space-y-2 text-gray-300 text-sm">
           <li><a href="/contact" class="hover:text-white">Contact Us</a></li>
           <li><a href="/faq" class="hover:text-white">Help Center</a></li>
-          <li><a href="mailto:dan@danielnicholls.com" class="hover:text-white">Email Support</a></li>
+          <li><a href="mailto:support@shopshot.co.uk" class="hover:text-white">Email Support</a></li>
         </ul>
       </div>
       <div>
@@ -109,7 +109,7 @@ export function getPrivacyPage(): string {
           <p class="font-semibold text-gray-900 mb-2">Data Controller:</p>
           <p class="mb-1">ShopShot Ltd</p>
           <p class="mb-1">Burwash, East Sussex, England</p>
-          <p>Contact: <a href="mailto:dan@danielnicholls.com">dan@danielnicholls.com</a></p>
+          <p>Contact: <a href="mailto:support@shopshot.co.uk">support@shopshot.co.uk</a></p>
         </div>
         
         <h2>1. Information We Collect</h2>
@@ -269,7 +269,7 @@ export function getPrivacyPage(): string {
           <li>✅ <strong>Withdraw Consent</strong> - Unsubscribe from marketing emails anytime</li>
         </ul>
         
-        <p>To exercise these rights, contact: <a href="mailto:dan@danielnicholls.com">dan@danielnicholls.com</a></p>
+        <p>To exercise these rights, contact: <a href="mailto:support@shopshot.co.uk">support@shopshot.co.uk</a></p>
         
         <div class="info-box">
           <p class="font-semibold text-gray-900 mb-2">Right to Complain:</p>
@@ -308,7 +308,7 @@ export function getPrivacyPage(): string {
         <ul>
           <li>Clicking "Unsubscribe" in any email</li>
           <li>Adjusting preferences in your account settings</li>
-          <li>Emailing <a href="mailto:dan@danielnicholls.com">dan@danielnicholls.com</a></li>
+          <li>Emailing <a href="mailto:support@shopshot.co.uk">support@shopshot.co.uk</a></li>
         </ul>
         
         <h2>8. Children's Privacy</h2>
@@ -330,7 +330,7 @@ export function getPrivacyPage(): string {
         <h2>11. Contact Us</h2>
         <div class="info-box">
           <p>For privacy questions or data requests:</p>
-          <p class="mt-2"><strong>Email:</strong> <a href="mailto:dan@danielnicholls.com">dan@danielnicholls.com</a></p>
+          <p class="mt-2"><strong>Email:</strong> <a href="mailto:support@shopshot.co.uk">support@shopshot.co.uk</a></p>
           <p><strong>Address:</strong> ShopShot Ltd, Burwash, East Sussex, England</p>
         </div>
       </div>
@@ -582,7 +582,7 @@ export function getTermsPage(): string {
         <p>Any disputes shall be resolved in the courts of England and Wales</p>
         
         <h3>Informal Resolution:</h3>
-        <p>Before filing a claim, contact us at <a href="mailto:dan@danielnicholls.com">dan@danielnicholls.com</a> to seek informal resolution</p>
+        <p>Before filing a claim, contact us at <a href="mailto:support@shopshot.co.uk">support@shopshot.co.uk</a> to seek informal resolution</p>
         
         <h2>15. Severability</h2>
         <p>If any provision of these Terms is found unenforceable, the remaining provisions remain in full effect.</p>
@@ -598,7 +598,7 @@ export function getTermsPage(): string {
         <h2>17. Contact</h2>
         <div class="info-box">
           <p>For questions about these Terms:</p>
-          <p class="mt-2"><strong>Email:</strong> <a href="mailto:dan@danielnicholls.com">dan@danielnicholls.com</a></p>
+          <p class="mt-2"><strong>Email:</strong> <a href="mailto:support@shopshot.co.uk">support@shopshot.co.uk</a></p>
           <p><strong>Address:</strong> ShopShot Ltd, Burwash, East Sussex, England</p>
         </div>
       </div>
@@ -721,7 +721,7 @@ export function getRefundsPage(): string {
         
         <h3>Proper Dispute Process:</h3>
         <ol>
-          <li>Email <a href="mailto:dan@danielnicholls.com">dan@danielnicholls.com</a> with your concern</li>
+          <li>Email <a href="mailto:support@shopshot.co.uk">support@shopshot.co.uk</a> with your concern</li>
           <li>We will investigate within 48 hours</li>
           <li>If a refund is warranted (per this policy), we will process it within 7-10 business days</li>
         </ol>
@@ -763,7 +763,7 @@ export function getRefundsPage(): string {
         <h2>9. Questions</h2>
         <p>If you have concerns about a purchase:</p>
         <ul>
-          <li><strong>Email:</strong> <a href="mailto:dan@danielnicholls.com">dan@danielnicholls.com</a></li>
+          <li><strong>Email:</strong> <a href="mailto:support@shopshot.co.uk">support@shopshot.co.uk</a></li>
           <li><strong>Response Time:</strong> Within 48 hours</li>
         </ul>
         
@@ -780,7 +780,7 @@ export function getRefundsPage(): string {
         <div class="info-box">
           <p><strong>ShopShot Ltd</strong></p>
           <p>Burwash, East Sussex, England</p>
-          <p><a href="mailto:dan@danielnicholls.com">dan@danielnicholls.com</a></p>
+          <p><a href="mailto:support@shopshot.co.uk">support@shopshot.co.uk</a></p>
         </div>
       </div>
     </div>
@@ -935,7 +935,7 @@ export function getCookiesPage(): string {
         <h2>8. Contact</h2>
         <div class="info-box">
           <p>For cookie questions:</p>
-          <p class="mt-2"><strong>Email:</strong> <a href="mailto:dan@danielnicholls.com">dan@danielnicholls.com</a></p>
+          <p class="mt-2"><strong>Email:</strong> <a href="mailto:support@shopshot.co.uk">support@shopshot.co.uk</a></p>
           <p><strong>Address:</strong> ShopShot Ltd, Burwash, East Sussex, England</p>
         </div>
         

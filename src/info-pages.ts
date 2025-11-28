@@ -25,7 +25,7 @@ const FOOTER_HTML = `
         <ul class="space-y-2 text-gray-300 text-sm">
           <li><a href="/contact" class="hover:text-white">Contact Us</a></li>
           <li><a href="/faq" class="hover:text-white">Help Center</a></li>
-          <li><a href="mailto:dan@danielnicholls.com" class="hover:text-white">Email Support</a></li>
+          <li><a href="mailto:support@shopshot.co.uk" class="hover:text-white">Email Support</a></li>
         </ul>
       </div>
       <div>
@@ -153,7 +153,7 @@ export function getFaqPage(): string {
             <span class="faq-icon transition-transform">▼</span>
           </div>
           <div class="faq-answer px-4 pb-4 text-gray-600">
-            <p>Refunds are available within 48 hours of your first payment if you haven't used any credits. See our <a href="/refunds" class="text-blue-600 hover:underline">Refund Policy</a> for details.</p>
+            <p><strong>No.</strong> All sales are final and no refunds are issued under any circumstances. We offer 15 free credits so you can test the service before purchasing. See our <a href="/refunds" class="text-blue-600 hover:underline">Refund Policy</a> for full details.</p>
           </div>
         </div>
       </div>
@@ -205,7 +205,7 @@ export function getFaqPage(): string {
             <span class="faq-icon transition-transform">▼</span>
           </div>
           <div class="faq-answer px-4 pb-4 text-gray-600">
-            <p>Email <a href="mailto:support@shopshot.ai" class="text-blue-600 hover:underline">support@shopshot.ai</a> with your account email to request deletion. We'll process your request within 30 days.</p>
+            <p>Email <a href="mailto:support@shopshot.co.uk" class="text-blue-600 hover:underline">support@shopshot.co.uk</a> with your account email to request deletion. We'll process your request within 30 days.</p>
           </div>
         </div>
       </div>
@@ -472,7 +472,7 @@ export function getContactPage(): string {
             <div>
               <h3 class="font-bold text-gray-900 mb-1">Email Support</h3>
               <p class="text-gray-600 mb-2">For general inquiries and support</p>
-              <a href="mailto:support@shopshot.ai" class="text-blue-600 hover:underline">support@shopshot.ai</a>
+              <a href="mailto:support@shopshot.co.uk" class="text-blue-600 hover:underline">support@shopshot.co.uk</a>
             </div>
           </div>
         </div>

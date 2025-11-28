@@ -1351,7 +1351,7 @@ app.post('/api/contact', async (c) => {
       },
       body: JSON.stringify({
         from: 'ShopShot Contact <noreply@shopshot.ai>',
-        to: ['dan@danielnicholls.com'],
+        to: ['support@shopshot.co.uk'],
         subject: '[ShopShot Contact] ' + (subject || 'General Inquiry') + ' - from ' + name,
         html: '<h2>New Contact Form Submission</h2>' +
           '<p><strong>From:</strong> ' + name + ' (' + email + ')</p>' +
@@ -5034,7 +5034,7 @@ function getMarketingPage() {
         <ul class="space-y-2 text-gray-300 text-sm">
           <li><a href="/contact" class="hover:text-white">Contact Us</a></li>
           <li><a href="/faq" class="hover:text-white">Help Center</a></li>
-          <li><a href="mailto:dan@danielnicholls.com" class="hover:text-white">Email Support</a></li>
+          <li><a href="mailto:support@shopshot.co.uk" class="hover:text-white">Email Support</a></li>
         </ul>
       </div>
       <div>
@@ -10007,7 +10007,7 @@ function getGetStartedPage() {
       </div>
       
       <div class="auth-help">
-        <p>Questions? <a href="mailto:support@shopshot.ai">Contact support</a></p>
+        <p>Questions? <a href="mailto:support@shopshot.co.uk">Contact support</a></p>
       </div>
     </section>
   </div>
@@ -10679,7 +10679,7 @@ function getPricingPage(user?: User) {
           <ul style="list-style: none; padding: 0; margin: 0; color: #9CA3AF; font-size: 14px;">
             <li style="margin-bottom: 8px;"><a href="/contact" style="color: #9CA3AF; text-decoration: none;">Contact Us</a></li>
             <li style="margin-bottom: 8px;"><a href="/faq" style="color: #9CA3AF; text-decoration: none;">Help Center</a></li>
-            <li style="margin-bottom: 8px;"><a href="mailto:dan@danielnicholls.com" style="color: #9CA3AF; text-decoration: none;">Email Support</a></li>
+            <li style="margin-bottom: 8px;"><a href="mailto:support@shopshot.co.uk" style="color: #9CA3AF; text-decoration: none;">Email Support</a></li>
           </ul>
         </div>
         <div>
@@ -12899,7 +12899,7 @@ function getAccountPage(user: User) {
       <div class="btn-group" style="margin-top:0;">
         <button class="btn btn-secondary" onclick="logout()">Log Out</button>
       </div>
-      <p style="font-size:12px;color:#9CA3AF;margin-top:16px;">Need help? Contact <a href="mailto:support@shopshot.ai" style="color:#3B82F6;">support@shopshot.ai</a></p>
+      <p style="font-size:12px;color:#9CA3AF;margin-top:16px;">Need help? Contact <a href="mailto:support@shopshot.co.uk" style="color:#3B82F6;">support@shopshot.co.uk</a></p>
     </div>
   </div>
 
