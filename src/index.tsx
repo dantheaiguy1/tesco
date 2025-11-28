@@ -10541,18 +10541,19 @@ function getPricingPage(user?: User) {
     <div style="background:white;border-radius:16px;max-width:480px;margin:20px;padding:24px;box-shadow:0 25px 50px rgba(0,0,0,0.25);">
       <h3 style="font-size:20px;font-weight:700;color:#1F2937;margin-bottom:16px;">Confirm Your Purchase</h3>
       
-      <div style="background:#FEF3C7;border:1px solid #FCD34D;border-radius:8px;padding:16px;margin-bottom:16px;">
-        <p style="font-weight:600;color:#92400E;margin-bottom:8px;">⚠️ Important:</p>
-        <ul style="font-size:14px;color:#92400E;list-style:disc;padding-left:20px;line-height:1.6;">
-          <li>Your subscription will automatically renew monthly</li>
-          <li>Credits are delivered instantly upon payment</li>
-          <li>All sales are final - no refunds (<a href="/refunds" style="color:#92400E;text-decoration:underline;">Refund Policy</a>)</li>
+      <div style="background:#FEF3C7;border:2px solid #F59E0B;border-radius:8px;padding:16px;margin-bottom:16px;">
+        <p style="font-weight:700;color:#92400E;margin-bottom:8px;">⚠️ Important - Read Before Purchase</p>
+        <ul style="font-size:14px;color:#92400E;list-style:none;padding-left:0;line-height:1.8;">
+          <li>✓ Subscription auto-renews monthly (cancel anytime)</li>
+          <li>✓ Credits delivered instantly</li>
+          <li>✓ <strong>All sales final - no refunds</strong> (except 48h+ outage)</li>
+          <li>✓ Test with 15 free credits before buying</li>
         </ul>
       </div>
       
       <label style="display:flex;align-items:flex-start;gap:10px;font-size:13px;color:#4B5563;cursor:pointer;line-height:1.5;margin-bottom:20px;">
         <input type="checkbox" id="waiver_consent" style="margin-top:3px;width:18px;height:18px;accent-color:#7C3AED;">
-        <span>I agree to immediate access to credits and waive my 14-day cancellation right (Consumer Contracts Regulations 2013). I understand all purchases are final.</span>
+        <span>I have tested ShopShot with free credits. I agree to immediate access and waive my 14-day cancellation right (Consumer Contracts Regulations 2013). I understand all purchases are final per the <a href="/refunds" style="color:#7C3AED;text-decoration:underline;">Refund Policy</a>.</span>
       </label>
       
       <div style="display:flex;gap:12px;">
