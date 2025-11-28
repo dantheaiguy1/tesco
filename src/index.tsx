@@ -594,7 +594,9 @@ async function getUserFromSession(db: D1Database, sessionId: string): Promise<Us
     better_credits: session.better_credits || 0,
     subscription_status: session.subscription_status,
     subscription_plan: session.subscription_plan,
-    stripe_customer_id: session.stripe_customer_id
+    stripe_customer_id: session.stripe_customer_id,
+    role: session.role || 'user',
+    is_banned: session.is_banned || 0
   };
 }
 
