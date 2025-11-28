@@ -256,8 +256,9 @@ async function generateImageWithVertex(
       console.log(`[Vertex AI] Model: ${modelKey} -> ${vertexModel}, Attempt: ${attempt + 1}/${maxRetries}`);
       
       // Add timeout controller - model-specific timeout
-      // Pro model (nano) needs longer timeout as it's slower
-      const timeoutMs = modelKey === 'nano' ? 90000 : 60000;
+      // Pro model (nano) needs MUCH longer timeout as it's slower and more variable
+      // Standard: 60s, Pro: 150s (2.5 minutes)
+      const timeoutMs = modelKey === 'nano' ? 150000 : 60000;
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
       
@@ -314,8 +315,13 @@ async function generateImageWithVertex(
       
       // Check if it was a timeout/abort
       if (err instanceof Error && err.name === 'AbortError') {
-        lastError = 'Request timed out (60s). The model may be overloaded.';
-        // Don't retry on timeout - just fail fast
+        lastError = 'Request timed out. The model may be overloaded.';
+        // For Pro model, allow 1 retry on timeout since it's naturally slower
+        if (modelKey === 'nano' && attempt < maxRetries - 1) {
+          console.log(`[Vertex AI] Pro model timeout, will retry (attempt ${attempt + 1})...`);
+          continue; // Retry for Pro model
+        }
+        // Standard model or final attempt - fail
         return { success: false, error: 'Request timed out. Try the "Standard" option which uses a faster model.' };
       }
       // Continue to retry for other errors
