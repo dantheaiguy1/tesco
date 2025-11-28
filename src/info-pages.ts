@@ -1,45 +1,43 @@
 // Info Page Templates (FAQ, About, Contact)
 
 const FOOTER_HTML = `
-  <footer class="bg-white border-t border-gray-200 mt-12">
-    <div class="max-w-4xl mx-auto px-4 py-8">
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-8 mb-8">
-        <div>
-          <h4 class="font-semibold text-gray-900 mb-3">Product</h4>
-          <ul class="space-y-2 text-sm text-gray-600">
-            <li><a href="/" class="hover:text-gray-900">Home</a></li>
-            <li><a href="/pricing" class="hover:text-gray-900">Pricing</a></li>
-            <li><a href="/faq" class="hover:text-gray-900">FAQ</a></li>
-          </ul>
-        </div>
-        <div>
-          <h4 class="font-semibold text-gray-900 mb-3">Company</h4>
-          <ul class="space-y-2 text-sm text-gray-600">
-            <li><a href="/about" class="hover:text-gray-900">About</a></li>
-            <li><a href="/contact" class="hover:text-gray-900">Contact</a></li>
-          </ul>
-        </div>
-        <div>
-          <h4 class="font-semibold text-gray-900 mb-3">Legal</h4>
-          <ul class="space-y-2 text-sm text-gray-600">
-            <li><a href="/privacy" class="hover:text-gray-900">Privacy Policy</a></li>
-            <li><a href="/terms" class="hover:text-gray-900">Terms of Service</a></li>
-            <li><a href="/refunds" class="hover:text-gray-900">Refund Policy</a></li>
-            <li><a href="/cookies" class="hover:text-gray-900">Cookie Policy</a></li>
-          </ul>
-        </div>
-        <div>
-          <h4 class="font-semibold text-gray-900 mb-3">Support</h4>
-          <ul class="space-y-2 text-sm text-gray-600">
-            <li><a href="mailto:support@shopshot.ai" class="hover:text-gray-900">support@shopshot.ai</a></li>
-            <li><a href="/contact" class="hover:text-gray-900">Contact Form</a></li>
-          </ul>
-        </div>
+  <footer class="bg-gray-900 text-white py-12 mt-20">
+    <div class="max-w-7xl mx-auto px-4 grid md:grid-cols-4 gap-8">
+      <div>
+        <h4 class="font-bold mb-4">Product</h4>
+        <ul class="space-y-2 text-gray-300 text-sm">
+          <li><a href="/pricing" class="hover:text-white">Pricing</a></li>
+          <li><a href="/faq" class="hover:text-white">FAQ</a></li>
+          <li><a href="/about" class="hover:text-white">About</a></li>
+        </ul>
       </div>
-      <div class="border-t border-gray-200 pt-6 flex flex-col md:flex-row justify-between items-center gap-4">
-        <p class="text-sm text-gray-500">&copy; ${new Date().getFullYear()} ShopShot. All rights reserved.</p>
-        <p class="text-sm text-gray-500">Built by Daniel David Peter Nichols | AI Academy</p>
+      <div>
+        <h4 class="font-bold mb-4">Legal</h4>
+        <ul class="space-y-2 text-gray-300 text-sm">
+          <li><a href="/privacy" class="hover:text-white">Privacy Policy</a></li>
+          <li><a href="/terms" class="hover:text-white">Terms of Service</a></li>
+          <li><a href="/refunds" class="hover:text-white">Refund Policy</a></li>
+          <li><a href="/cookies" class="hover:text-white">Cookie Policy</a></li>
+        </ul>
       </div>
+      <div>
+        <h4 class="font-bold mb-4">Support</h4>
+        <ul class="space-y-2 text-gray-300 text-sm">
+          <li><a href="/contact" class="hover:text-white">Contact Us</a></li>
+          <li><a href="/faq" class="hover:text-white">Help Center</a></li>
+          <li><a href="mailto:dan@danielnicholls.com" class="hover:text-white">Email Support</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4 class="font-bold mb-4">ShopShot</h4>
+        <p class="text-gray-400 text-sm leading-relaxed">
+          Professional AI product photography for online sellers.
+        </p>
+      </div>
+    </div>
+    <div class="border-t border-gray-800 mt-8 pt-8 text-center text-sm text-gray-400">
+      <p>&copy; 2025 ShopShot Ltd. All rights reserved.</p>
+      <p class="mt-1">Registered in England | Burwash, East Sussex</p>
     </div>
   </footer>
 `

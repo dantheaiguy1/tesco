@@ -5010,53 +5010,43 @@ function getMarketingPage() {
   </section>
 
   <!-- Footer -->
-  <footer class="footer">
-    <div class="footer-container">
-      <div class="footer-grid">
-        <div class="footer-section">
-          <h4>Product</h4>
-          <ul>
-            <li><a href="/">Home</a></li>
-            <li><a href="/pricing">Pricing</a></li>
-            <li><a href="/faq">FAQ</a></li>
-          </ul>
-        </div>
-        <div class="footer-section">
-          <h4>Company</h4>
-          <ul>
-            <li><a href="/about">About</a></li>
-            <li><a href="/contact">Contact</a></li>
-          </ul>
-        </div>
-        <div class="footer-section">
-          <h4>Legal</h4>
-          <ul>
-            <li><a href="/privacy">Privacy Policy</a></li>
-            <li><a href="/terms">Terms of Service</a></li>
-            <li><a href="/refunds">Refund Policy</a></li>
-            <li><a href="/cookies">Cookie Policy</a></li>
-          </ul>
-        </div>
-        <div class="footer-section">
-          <h4>Support</h4>
-          <ul>
-            <li><a href="mailto:support@shopshot.ai">support@shopshot.ai</a></li>
-            <li><a href="/contact">Contact Form</a></li>
-          </ul>
-        </div>
+  <footer class="bg-gray-900 text-white py-12 mt-20">
+    <div class="max-w-7xl mx-auto px-4 grid md:grid-cols-4 gap-8">
+      <div>
+        <h4 class="font-bold mb-4">Product</h4>
+        <ul class="space-y-2 text-gray-300 text-sm">
+          <li><a href="/pricing" class="hover:text-white">Pricing</a></li>
+          <li><a href="/faq" class="hover:text-white">FAQ</a></li>
+          <li><a href="/about" class="hover:text-white">About</a></li>
+        </ul>
       </div>
-      <div class="footer-bottom">
-        <div class="footer-logo">
-          <div class="footer-logo-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" width="18" height="18">
-              <circle cx="12" cy="12" r="10"/>
-              <circle cx="12" cy="12" r="3"/>
-            </svg>
-          </div>
-          <span class="footer-logo-text">ShopShot</span>
-        </div>
-        <p class="footer-copy">© 2024 ShopShot. All rights reserved. Built by Daniel David Peter Nichols | AI Academy</p>
+      <div>
+        <h4 class="font-bold mb-4">Legal</h4>
+        <ul class="space-y-2 text-gray-300 text-sm">
+          <li><a href="/privacy" class="hover:text-white">Privacy Policy</a></li>
+          <li><a href="/terms" class="hover:text-white">Terms of Service</a></li>
+          <li><a href="/refunds" class="hover:text-white">Refund Policy</a></li>
+          <li><a href="/cookies" class="hover:text-white">Cookie Policy</a></li>
+        </ul>
       </div>
+      <div>
+        <h4 class="font-bold mb-4">Support</h4>
+        <ul class="space-y-2 text-gray-300 text-sm">
+          <li><a href="/contact" class="hover:text-white">Contact Us</a></li>
+          <li><a href="/faq" class="hover:text-white">Help Center</a></li>
+          <li><a href="mailto:dan@danielnicholls.com" class="hover:text-white">Email Support</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4 class="font-bold mb-4">ShopShot</h4>
+        <p class="text-gray-400 text-sm leading-relaxed">
+          Professional AI product photography for online sellers.
+        </p>
+      </div>
+    </div>
+    <div class="border-t border-gray-800 mt-8 pt-8 text-center text-sm text-gray-400 px-4">
+      <p>&copy; 2025 ShopShot Ltd. All rights reserved.</p>
+      <p class="mt-1">Registered in England | Burwash, East Sussex</p>
     </div>
   </footer>
 
@@ -9050,6 +9040,22 @@ function getRegisterPage() {
             <input type="password" id="confirm-password" class="form-input" placeholder="Re-enter your password" required autocomplete="new-password" oninput="checkPasswordMatch()">
             <p id="password-match-msg" style="font-size: 12px; margin-top: 6px; display: none;"></p>
           </div>
+          
+          <!-- Consent Checkboxes -->
+          <div class="form-group" style="margin-top: 16px;">
+            <label style="display: flex; align-items: flex-start; gap: 10px; font-size: 13px; color: #4B5563; cursor: pointer; line-height: 1.5;">
+              <input type="checkbox" id="marketing_consent" name="marketing_consent" style="margin-top: 3px; width: 16px; height: 16px; accent-color: #7C3AED;">
+              <span>I agree to receive occasional marketing emails from ShopShot (approximately every 2 weeks). You can unsubscribe anytime. <a href="/privacy" style="color: #7C3AED; text-decoration: underline;">Privacy Policy</a></span>
+            </label>
+          </div>
+          
+          <div class="form-group" style="margin-top: 12px;">
+            <label style="display: flex; align-items: flex-start; gap: 10px; font-size: 13px; color: #4B5563; cursor: pointer; line-height: 1.5;">
+              <input type="checkbox" id="terms_consent" name="terms_consent" required style="margin-top: 3px; width: 16px; height: 16px; accent-color: #7C3AED;">
+              <span>I agree to the <a href="/terms" style="color: #7C3AED; text-decoration: underline;">Terms of Service</a> and <a href="/privacy" style="color: #7C3AED; text-decoration: underline;">Privacy Policy</a>. I confirm I am at least 16 years old. <span style="color: #DC2626;">*</span></span>
+            </label>
+          </div>
+          
           <button type="submit" id="submit-btn" class="auth-btn">Create Account</button>
         </form>
         
@@ -9203,7 +9209,8 @@ function getRegisterPage() {
             name: document.getElementById('name').value || null,
             email: document.getElementById('email').value,
             password: password,
-            confirmPassword: confirmPassword
+            confirmPassword: confirmPassword,
+            marketing_consent: document.getElementById('marketing_consent').checked
           })
         });
         
@@ -10524,12 +10531,71 @@ function getPricingPage(user?: User) {
     
     <!-- FAQ -->
     <div style="text-align:center;padding:32px 0;">
-      <p style="color:#6B7280;font-size:14px;margin-bottom:8px;">Questions? <a href="mailto:support@shopshot.ai" style="color:#3B82F6;">Contact Support</a></p>
-      <p style="color:#9CA3AF;font-size:13px;">All plans include a 7-day money-back guarantee. No questions asked.</p>
+      <p style="color:#6B7280;font-size:14px;margin-bottom:8px;">Questions? <a href="/faq" style="color:#3B82F6;">View FAQ</a> or <a href="/contact" style="color:#3B82F6;">Contact Support</a></p>
+      <p style="color:#9CA3AF;font-size:13px;">By subscribing, you agree to our <a href="/terms" style="color:#6B7280;text-decoration:underline;">Terms of Service</a> and <a href="/refunds" style="color:#6B7280;text-decoration:underline;">Refund Policy</a>.</p>
+    </div>
+  </div>
+
+  <!-- Checkout Confirmation Modal -->
+  <div id="checkout-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center;">
+    <div style="background:white;border-radius:16px;max-width:480px;margin:20px;padding:24px;box-shadow:0 25px 50px rgba(0,0,0,0.25);">
+      <h3 style="font-size:20px;font-weight:700;color:#1F2937;margin-bottom:16px;">Confirm Your Purchase</h3>
+      
+      <div style="background:#FEF3C7;border:1px solid #FCD34D;border-radius:8px;padding:16px;margin-bottom:16px;">
+        <p style="font-weight:600;color:#92400E;margin-bottom:8px;">⚠️ Important:</p>
+        <ul style="font-size:14px;color:#92400E;list-style:disc;padding-left:20px;line-height:1.6;">
+          <li>Your subscription will automatically renew monthly</li>
+          <li>Credits are delivered instantly upon payment</li>
+          <li>All sales are final - no refunds (<a href="/refunds" style="color:#92400E;text-decoration:underline;">Refund Policy</a>)</li>
+        </ul>
+      </div>
+      
+      <label style="display:flex;align-items:flex-start;gap:10px;font-size:13px;color:#4B5563;cursor:pointer;line-height:1.5;margin-bottom:20px;">
+        <input type="checkbox" id="waiver_consent" style="margin-top:3px;width:18px;height:18px;accent-color:#7C3AED;">
+        <span>I agree to immediate access to credits and waive my 14-day cancellation right (Consumer Contracts Regulations 2013). I understand all purchases are final.</span>
+      </label>
+      
+      <div style="display:flex;gap:12px;">
+        <button onclick="closeCheckoutModal()" style="flex:1;padding:14px;border-radius:10px;border:1px solid #E5E7EB;background:white;font-size:15px;font-weight:600;color:#374151;cursor:pointer;">Cancel</button>
+        <button id="confirm-checkout-btn" onclick="confirmCheckout()" disabled style="flex:1;padding:14px;border-radius:10px;border:none;background:linear-gradient(135deg,#3B82F6 0%,#8B5CF6 100%);font-size:15px;font-weight:600;color:white;cursor:pointer;opacity:0.5;">Proceed to Payment</button>
+      </div>
     </div>
   </div>
 
   <script>
+    let pendingCheckout = null;
+    
+    // Enable/disable confirm button based on checkbox
+    document.getElementById('waiver_consent').addEventListener('change', function() {
+      const btn = document.getElementById('confirm-checkout-btn');
+      btn.disabled = !this.checked;
+      btn.style.opacity = this.checked ? '1' : '0.5';
+    });
+    
+    function showCheckoutModal(type, plan, creditType, amount) {
+      pendingCheckout = { type, plan, creditType, amount };
+      document.getElementById('waiver_consent').checked = false;
+      document.getElementById('confirm-checkout-btn').disabled = true;
+      document.getElementById('confirm-checkout-btn').style.opacity = '0.5';
+      document.getElementById('checkout-modal').style.display = 'flex';
+    }
+    
+    function closeCheckoutModal() {
+      pendingCheckout = null;
+      document.getElementById('checkout-modal').style.display = 'none';
+    }
+    
+    async function confirmCheckout() {
+      if (!pendingCheckout) return;
+      closeCheckoutModal();
+      
+      if (pendingCheckout.type === 'subscription') {
+        await doStartCheckout(pendingCheckout.plan);
+      } else {
+        await doStartPackCheckout(pendingCheckout.creditType, pendingCheckout.amount);
+      }
+    }
+    
     function switchPackTab(type) {
       document.querySelectorAll('.pack-tab').forEach(t => t.classList.remove('active'));
       document.querySelector('.pack-tab.' + type).classList.add('active');
@@ -10537,13 +10603,13 @@ function getPricingPage(user?: User) {
       document.getElementById('packs-better').classList.toggle('hidden', type !== 'better');
     }
     
-    async function startCheckout(plan) {
+    function startCheckout(plan) {
       ${!user ? 'window.location.href = "/register"; return;' : ''}
+      showCheckoutModal('subscription', plan, null, null);
+    }
+    
+    async function doStartCheckout(plan) {
       try {
-        const btn = event.target;
-        btn.disabled = true;
-        btn.textContent = 'Loading...';
-        
         const res = await fetch('/api/billing/create-checkout', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -10555,8 +10621,6 @@ function getPricingPage(user?: User) {
           window.location.href = data.url;
         } else {
           alert(data.error || 'Failed to start checkout');
-          btn.disabled = false;
-          btn.textContent = plan === 'pro' ? 'Get Pro' : 'Get Standard';
         }
       } catch (err) {
         alert('Something went wrong');
@@ -10564,8 +10628,12 @@ function getPricingPage(user?: User) {
       }
     }
     
-    async function startPackCheckout(creditType, amount) {
+    function startPackCheckout(creditType, amount) {
       ${!user ? 'window.location.href = "/register"; return;' : ''}
+      showCheckoutModal('pack', null, creditType, amount);
+    }
+    
+    async function doStartPackCheckout(creditType, amount) {
       try {
         const res = await fetch('/api/billing/create-checkout', {
           method: 'POST',
@@ -10586,52 +10654,42 @@ function getPricingPage(user?: User) {
   </script>
 
   <!-- Footer -->
-  <footer style="background: #111827; color: #9CA3AF; padding: 48px 24px; margin-top: 64px;">
+  <footer style="background: #111827; color: white; padding: 48px 24px; margin-top: 64px;">
     <div style="max-width: 1200px; margin: 0 auto;">
       <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 32px; margin-bottom: 32px;">
         <div>
-          <h4 style="color: white; font-size: 14px; font-weight: 600; margin-bottom: 16px;">Product</h4>
-          <ul style="list-style: none; padding: 0; margin: 0;">
-            <li style="margin-bottom: 8px;"><a href="/" style="color: #9CA3AF; text-decoration: none; font-size: 14px;">Home</a></li>
-            <li style="margin-bottom: 8px;"><a href="/pricing" style="color: #9CA3AF; text-decoration: none; font-size: 14px;">Pricing</a></li>
-            <li style="margin-bottom: 8px;"><a href="/faq" style="color: #9CA3AF; text-decoration: none; font-size: 14px;">FAQ</a></li>
+          <h4 style="font-weight: 700; margin-bottom: 16px;">Product</h4>
+          <ul style="list-style: none; padding: 0; margin: 0; color: #9CA3AF; font-size: 14px;">
+            <li style="margin-bottom: 8px;"><a href="/pricing" style="color: #9CA3AF; text-decoration: none;">Pricing</a></li>
+            <li style="margin-bottom: 8px;"><a href="/faq" style="color: #9CA3AF; text-decoration: none;">FAQ</a></li>
+            <li style="margin-bottom: 8px;"><a href="/about" style="color: #9CA3AF; text-decoration: none;">About</a></li>
           </ul>
         </div>
         <div>
-          <h4 style="color: white; font-size: 14px; font-weight: 600; margin-bottom: 16px;">Company</h4>
-          <ul style="list-style: none; padding: 0; margin: 0;">
-            <li style="margin-bottom: 8px;"><a href="/about" style="color: #9CA3AF; text-decoration: none; font-size: 14px;">About</a></li>
-            <li style="margin-bottom: 8px;"><a href="/contact" style="color: #9CA3AF; text-decoration: none; font-size: 14px;">Contact</a></li>
+          <h4 style="font-weight: 700; margin-bottom: 16px;">Legal</h4>
+          <ul style="list-style: none; padding: 0; margin: 0; color: #9CA3AF; font-size: 14px;">
+            <li style="margin-bottom: 8px;"><a href="/privacy" style="color: #9CA3AF; text-decoration: none;">Privacy Policy</a></li>
+            <li style="margin-bottom: 8px;"><a href="/terms" style="color: #9CA3AF; text-decoration: none;">Terms of Service</a></li>
+            <li style="margin-bottom: 8px;"><a href="/refunds" style="color: #9CA3AF; text-decoration: none;">Refund Policy</a></li>
+            <li style="margin-bottom: 8px;"><a href="/cookies" style="color: #9CA3AF; text-decoration: none;">Cookie Policy</a></li>
           </ul>
         </div>
         <div>
-          <h4 style="color: white; font-size: 14px; font-weight: 600; margin-bottom: 16px;">Legal</h4>
-          <ul style="list-style: none; padding: 0; margin: 0;">
-            <li style="margin-bottom: 8px;"><a href="/privacy" style="color: #9CA3AF; text-decoration: none; font-size: 14px;">Privacy Policy</a></li>
-            <li style="margin-bottom: 8px;"><a href="/terms" style="color: #9CA3AF; text-decoration: none; font-size: 14px;">Terms of Service</a></li>
-            <li style="margin-bottom: 8px;"><a href="/refunds" style="color: #9CA3AF; text-decoration: none; font-size: 14px;">Refund Policy</a></li>
-            <li style="margin-bottom: 8px;"><a href="/cookies" style="color: #9CA3AF; text-decoration: none; font-size: 14px;">Cookie Policy</a></li>
+          <h4 style="font-weight: 700; margin-bottom: 16px;">Support</h4>
+          <ul style="list-style: none; padding: 0; margin: 0; color: #9CA3AF; font-size: 14px;">
+            <li style="margin-bottom: 8px;"><a href="/contact" style="color: #9CA3AF; text-decoration: none;">Contact Us</a></li>
+            <li style="margin-bottom: 8px;"><a href="/faq" style="color: #9CA3AF; text-decoration: none;">Help Center</a></li>
+            <li style="margin-bottom: 8px;"><a href="mailto:dan@danielnicholls.com" style="color: #9CA3AF; text-decoration: none;">Email Support</a></li>
           </ul>
         </div>
         <div>
-          <h4 style="color: white; font-size: 14px; font-weight: 600; margin-bottom: 16px;">Support</h4>
-          <ul style="list-style: none; padding: 0; margin: 0;">
-            <li style="margin-bottom: 8px;"><a href="mailto:support@shopshot.ai" style="color: #9CA3AF; text-decoration: none; font-size: 14px;">support@shopshot.ai</a></li>
-            <li style="margin-bottom: 8px;"><a href="/contact" style="color: #9CA3AF; text-decoration: none; font-size: 14px;">Contact Form</a></li>
-          </ul>
+          <h4 style="font-weight: 700; margin-bottom: 16px;">ShopShot</h4>
+          <p style="color: #9CA3AF; font-size: 14px; line-height: 1.6;">Professional AI product photography for online sellers.</p>
         </div>
       </div>
-      <div style="border-top: 1px solid #374151; padding-top: 24px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
-        <div style="display: flex; align-items: center; gap: 10px;">
-          <div style="width: 32px; height: 32px; background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%); border-radius: 8px; display: flex; align-items: center; justify-content: center;">
-            <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" width="18" height="18">
-              <circle cx="12" cy="12" r="10"/>
-              <circle cx="12" cy="12" r="3"/>
-            </svg>
-          </div>
-          <span style="font-size: 18px; font-weight: 700; color: white;">ShopShot</span>
-        </div>
-        <p style="font-size: 13px; color: #6B7280;">© 2024 ShopShot. All rights reserved. Built by Daniel David Peter Nichols | AI Academy</p>
+      <div style="border-top: 1px solid #374151; padding-top: 24px; text-align: center; color: #6B7280; font-size: 14px;">
+        <p>&copy; 2025 ShopShot Ltd. All rights reserved.</p>
+        <p style="margin-top: 4px;">Registered in England | Burwash, East Sussex</p>
       </div>
     </div>
   </footer>
