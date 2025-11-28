@@ -492,6 +492,76 @@ async function sendVerificationEmail(apiKey: string, to: string, code: string, n
 }
 
 // ============================================================================
+// ADMIN NOTIFICATION - NEW USER SIGNUP
+// ============================================================================
+async function sendNewUserNotification(apiKey: string, userEmail: string, userName?: string): Promise<boolean> {
+  try {
+    const timestamp = new Date().toLocaleString('en-GB', { 
+      dateStyle: 'full', 
+      timeStyle: 'short',
+      timeZone: 'Europe/London'
+    });
+    
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        from: 'ShopShot <noreply@shopshot.co.uk>',
+        to: ['dan@danielnicholls.com'],
+        subject: `New ShopShot User: ${userName || userEmail}`,
+        html: `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          </head>
+          <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #F3F4F6; padding: 40px 20px; margin: 0;">
+            <div style="max-width: 480px; margin: 0 auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
+              <div style="background: linear-gradient(135deg, #10B981 0%, #059669 100%); padding: 24px; text-align: center;">
+                <h1 style="color: white; margin: 0; font-size: 20px; font-weight: 600;">New User Signup!</h1>
+              </div>
+              <div style="padding: 32px;">
+                <table style="width: 100%; border-collapse: collapse;">
+                  <tr>
+                    <td style="padding: 12px 0; border-bottom: 1px solid #E5E7EB; color: #6B7280; font-size: 14px;">Name</td>
+                    <td style="padding: 12px 0; border-bottom: 1px solid #E5E7EB; color: #1F2937; font-size: 14px; font-weight: 600; text-align: right;">${userName || 'Not provided'}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 12px 0; border-bottom: 1px solid #E5E7EB; color: #6B7280; font-size: 14px;">Email</td>
+                    <td style="padding: 12px 0; border-bottom: 1px solid #E5E7EB; color: #1F2937; font-size: 14px; font-weight: 600; text-align: right;">${userEmail}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 12px 0; color: #6B7280; font-size: 14px;">Time</td>
+                    <td style="padding: 12px 0; color: #1F2937; font-size: 14px; text-align: right;">${timestamp}</td>
+                  </tr>
+                </table>
+              </div>
+              <div style="background: #F9FAFB; padding: 16px; text-align: center; border-top: 1px solid #E5E7EB;">
+                <a href="https://www.shopshot.co.uk/admin" style="color: #3B82F6; text-decoration: none; font-size: 13px;">View Admin Dashboard</a>
+              </div>
+            </div>
+          </body>
+          </html>
+        `
+      })
+    });
+    
+    if (!response.ok) {
+      console.error('Admin notification error:', await response.text());
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.error('Admin notification send error:', error);
+    return false;
+  }
+}
+
+// ============================================================================
 // PASSWORD RESET EMAIL
 // ============================================================================
 async function sendPasswordResetEmail(apiKey: string, to: string, resetLink: string, name?: string): Promise<boolean> {
@@ -2304,6 +2374,13 @@ app.post('/api/auth/verify-email', async (c) => {
       VALUES (?, ?, ?, ?, 'better', 'signup_bonus', 'Welcome bonus - Premium credits')
     `).bind(generateId(), user.id, CREDITS.SIGNUP_BETTER, CREDITS.SIGNUP_BETTER).run();
     
+    // Send admin notification for new signup
+    if (c.env.RESEND_API_KEY) {
+      sendNewUserNotification(c.env.RESEND_API_KEY, email, user.name).catch(err => {
+        console.error('Failed to send admin notification:', err);
+      });
+    }
+    
     // Create session
     const sessionId = await createUserSession(db, user.id);
     
@@ -2670,6 +2747,13 @@ app.get('/api/auth/google/callback', async (c) => {
       INSERT INTO credit_transactions (id, user_id, amount, balance_after, credit_type, type, description)
       VALUES (?, ?, ?, ?, 'better', 'signup_bonus', 'Welcome bonus - Premium credits')
     `).bind(generateId(), userId, CREDITS.SIGNUP_BETTER, CREDITS.SIGNUP_BETTER).run();
+    
+    // Send admin notification for new Google signup
+    if (c.env.RESEND_API_KEY) {
+      sendNewUserNotification(c.env.RESEND_API_KEY, googleUser.email, googleUser.name).catch(err => {
+        console.error('Failed to send admin notification:', err);
+      });
+    }
     
     user = { id: userId };
   }
