@@ -1,6 +1,20 @@
 // Legal Page Templates - Privacy, Terms, Refunds, Cookies
 // Last Updated: November 28, 2025
 
+// Google Tag Manager snippets
+const GTM_HEAD = `<!-- Google Tag Manager -->
+<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+})(window,document,'script','dataLayer','GTM-PNKMSPJN');</script>
+<!-- End Google Tag Manager -->`;
+
+const GTM_BODY = `<!-- Google Tag Manager (noscript) -->
+<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-PNKMSPJN"
+height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+<!-- End Google Tag Manager (noscript) -->`;
+
 const LEGAL_FOOTER_HTML = `
   <footer class="bg-gray-900 text-white py-12 mt-20">
     <div class="max-w-7xl mx-auto px-4 grid md:grid-cols-4 gap-8">
@@ -94,9 +108,11 @@ export function getPrivacyPage(): string {
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  ${GTM_HEAD}
   ${LEGAL_STYLES}
 </head>
 <body class="bg-gray-50 min-h-screen">
+  ${GTM_BODY}
   ${LEGAL_HEADER_HTML}
   
   <main class="max-w-4xl mx-auto px-4 py-12">
@@ -356,9 +372,11 @@ export function getTermsPage(): string {
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  ${GTM_HEAD}
   ${LEGAL_STYLES}
 </head>
 <body class="bg-gray-50 min-h-screen">
+  ${GTM_BODY}
   ${LEGAL_HEADER_HTML}
   
   <main class="max-w-4xl mx-auto px-4 py-12">
@@ -627,9 +645,11 @@ export function getRefundsPage(): string {
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  ${GTM_HEAD}
   ${LEGAL_STYLES}
 </head>
 <body class="bg-gray-50 min-h-screen">
+  ${GTM_BODY}
   ${LEGAL_HEADER_HTML}
   
   <main class="max-w-4xl mx-auto px-4 py-12">
@@ -809,9 +829,11 @@ export function getCookiesPage(): string {
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  ${GTM_HEAD}
   ${LEGAL_STYLES}
 </head>
 <body class="bg-gray-50 min-h-screen">
+  ${GTM_BODY}
   ${LEGAL_HEADER_HTML}
   
   <main class="max-w-4xl mx-auto px-4 py-12">

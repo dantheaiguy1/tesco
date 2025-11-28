@@ -1,5 +1,40 @@
 // Blog Page Templates for ShopShot
 
+// Google Tag Manager snippets
+const GTM_HEAD = `<!-- Google Tag Manager -->
+<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+})(window,document,'script','dataLayer','GTM-PNKMSPJN');</script>
+<!-- End Google Tag Manager -->`;
+
+const GTM_BODY = `<!-- Google Tag Manager (noscript) -->
+<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-PNKMSPJN"
+height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+<!-- End Google Tag Manager (noscript) -->`;
+
+// Promo banner for blog pages - links to homepage with SEO-optimized anchor
+const BLOG_PROMO_BANNER = `
+  <a href="/" title="AI Product Photography - Transform Your Product Photos" class="block bg-gradient-to-r from-blue-600 to-blue-700 text-white py-4 px-4 relative group" aria-label="Try ShopShot AI Product Photography Free">
+    <div class="max-w-4xl mx-auto flex items-center justify-center gap-4 md:gap-8">
+      <svg class="w-8 h-8 md:w-10 md:h-10 flex-shrink-0" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" fill="currentColor" opacity="0.3"/>
+        <path d="M12 5L13.545 8.13L17 8.635L14.5 11.07L15.09 14.5L12 12.885L8.91 14.5L9.5 11.07L7 8.635L10.455 8.13L12 5Z" fill="currentColor"/>
+        <path d="M19 2L20.09 4.26L22.5 4.64L20.75 6.35L21.18 8.77L19 7.64L16.82 8.77L17.25 6.35L15.5 4.64L17.91 4.26L19 2Z" fill="currentColor" opacity="0.6"/>
+      </svg>
+      <div class="text-center md:text-left">
+        <p class="text-lg md:text-xl font-bold">Turn 1 photo into 10 pro variations in 25 seconds</p>
+        <p class="text-sm text-blue-100">15 free credits waiting. No credit card. Test it now.</p>
+      </div>
+      <span class="bg-white text-blue-600 px-6 py-2 rounded-lg font-semibold hover:bg-gray-100 transition-colors flex-shrink-0 hidden md:inline-block">Start Free</span>
+      <button class="absolute top-2 right-2 text-white/60 hover:text-white p-1" onclick="event.preventDefault(); this.closest('a').style.display='none';" aria-label="Close banner">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+      </button>
+    </div>
+  </a>
+`;
+
 // Blog post data structure
 interface BlogPost {
   slug: string;
@@ -1216,6 +1251,7 @@ export function getBlogIndexPage(): string {
   <meta name="twitter:card" content="summary_large_image">
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  ${GTM_HEAD}
   ${BLOG_STYLES}
   <style>
     body { font-family: 'Inter', sans-serif; }
@@ -1223,6 +1259,8 @@ export function getBlogIndexPage(): string {
   </style>
 </head>
 <body class="bg-gray-50">
+  ${GTM_BODY}
+  ${BLOG_PROMO_BANNER}
   <!-- Header -->
   <header class="bg-white shadow-sm sticky top-0 z-50">
     <nav class="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
@@ -1374,6 +1412,7 @@ export function getBlogPostPage(slug: string): string | null {
   <meta name="twitter:description" content="${post.metaDescription}">
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  ${GTM_HEAD}
   ${BLOG_STYLES}
   <style>
     body { font-family: 'Inter', sans-serif; }
@@ -1408,6 +1447,8 @@ export function getBlogPostPage(slug: string): string | null {
   </script>
 </head>
 <body class="bg-gray-50">
+  ${GTM_BODY}
+  ${BLOG_PROMO_BANNER}
   <!-- Header -->
   <header class="bg-white shadow-sm sticky top-0 z-50">
     <nav class="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">

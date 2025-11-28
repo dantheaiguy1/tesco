@@ -5,6 +5,20 @@ import { getPrivacyPage, getTermsPage, getRefundsPage, getCookiesPage } from './
 import { getFaqPage, getAboutPage, getContactPage } from './info-pages'
 import { getBlogIndexPage, getBlogPostPage, getAllBlogPosts } from './blog-pages'
 
+// Google Tag Manager snippets
+const GTM_HEAD = `<!-- Google Tag Manager -->
+<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+})(window,document,'script','dataLayer','GTM-PNKMSPJN');</script>
+<!-- End Google Tag Manager -->`;
+
+const GTM_BODY = `<!-- Google Tag Manager (noscript) -->
+<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-PNKMSPJN"
+height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+<!-- End Google Tag Manager (noscript) -->`;
+
 type Bindings = {
   TESCO_DB: D1Database;
   GEMINI_API_KEY: string;
@@ -3996,6 +4010,7 @@ function getMarketingPage() {
   </script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
+  ${GTM_HEAD}
   <style>
     * { font-family: 'Inter', system-ui, sans-serif; box-sizing: border-box; margin: 0; padding: 0; }
     
@@ -4875,6 +4890,7 @@ function getMarketingPage() {
   </style>
 </head>
 <body>
+  ${GTM_BODY}
   <!-- Navigation -->
   <nav class="nav">
     <a href="/" class="nav-logo">
@@ -5391,6 +5407,7 @@ function getHomePage(user?: User) {
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  ${GTM_HEAD}
   <style>
     * { font-family: 'Inter', system-ui, sans-serif; }
     
@@ -6697,6 +6714,7 @@ function getHomePage(user?: User) {
   </style>
 </head>
 <body class="${isLoggedIn ? '' : 'guest-mode'}">
+  ${GTM_BODY}
   <!-- Guest Header (logged out users only) -->
   <header class="guest-header">
     <div class="guest-logo">
@@ -8847,6 +8865,7 @@ function getLoginPage() {
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'><stop offset='0%25' style='stop-color:%233B82F6'/><stop offset='100%25' style='stop-color:%238B5CF6'/></linearGradient></defs><rect width='100' height='100' rx='22' fill='url(%23g)'/><circle cx='50' cy='50' r='28' fill='none' stroke='white' stroke-width='6'/><circle cx='50' cy='50' r='12' fill='white'/></svg>">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
+  ${GTM_HEAD}
   <style>
     * { font-family: 'Inter', system-ui, sans-serif; }
     ${getAuthPageStyles()}
@@ -8895,6 +8914,7 @@ function getLoginPage() {
   </style>
 </head>
 <body>
+  ${GTM_BODY}
   <div class="auth-container">
     <div class="auth-card">
       <div class="auth-logo">
@@ -9044,6 +9064,7 @@ function getRegisterPage() {
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'><stop offset='0%25' style='stop-color:%233B82F6'/><stop offset='100%25' style='stop-color:%238B5CF6'/></linearGradient></defs><rect width='100' height='100' rx='22' fill='url(%23g)'/><circle cx='50' cy='50' r='28' fill='none' stroke='white' stroke-width='6'/><circle cx='50' cy='50' r='12' fill='white'/></svg>">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
+  ${GTM_HEAD}
   <style>
     * { font-family: 'Inter', system-ui, sans-serif; }
     ${getAuthPageStyles()}
@@ -9175,6 +9196,7 @@ function getRegisterPage() {
   </style>
 </head>
 <body>
+  ${GTM_BODY}
   <div class="auth-container">
     <div class="auth-card">
       <div class="auth-logo">
@@ -10264,6 +10286,7 @@ function getPricingPage(user?: User) {
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'><stop offset='0%25' style='stop-color:%233B82F6'/><stop offset='100%25' style='stop-color:%238B5CF6'/></linearGradient></defs><rect width='100' height='100' rx='22' fill='url(%23g)'/><circle cx='50' cy='50' r='28' fill='none' stroke='white' stroke-width='6'/><circle cx='50' cy='50' r='12' fill='white'/></svg>">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
+  ${GTM_HEAD}
   <style>
     * { font-family: 'Inter', system-ui, sans-serif; box-sizing: border-box; }
     body { background: linear-gradient(135deg, #F0F9FF 0%, #E0E7FF 100%); min-height: 100vh; }
@@ -10429,6 +10452,7 @@ function getPricingPage(user?: User) {
   </style>
 </head>
 <body>
+  ${GTM_BODY}
   <div class="pricing-container">
     <a href="/" class="back-link">← Back to ShopShot</a>
     

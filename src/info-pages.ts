@@ -1,5 +1,19 @@
 // Info Page Templates (FAQ, About, Contact)
 
+// Google Tag Manager snippets
+const GTM_HEAD = `<!-- Google Tag Manager -->
+<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+})(window,document,'script','dataLayer','GTM-PNKMSPJN');</script>
+<!-- End Google Tag Manager -->`;
+
+const GTM_BODY = `<!-- Google Tag Manager (noscript) -->
+<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-PNKMSPJN"
+height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+<!-- End Google Tag Manager (noscript) -->`;
+
 const FOOTER_HTML = `
   <footer class="bg-gray-900 text-white py-12 mt-20">
     <div class="max-w-7xl mx-auto px-4 grid md:grid-cols-4 gap-8">
@@ -103,6 +117,7 @@ export function getFaqPage(): string {
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  ${GTM_HEAD}
   <style>
     * { font-family: 'Inter', sans-serif; }
     .faq-item { border-bottom: 1px solid #E5E7EB; }
@@ -113,6 +128,7 @@ export function getFaqPage(): string {
   </style>
 </head>
 <body class="bg-gray-50 min-h-screen">
+  ${GTM_BODY}
   <header class="bg-white border-b border-gray-200">
     <div class="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
       <a href="/" class="flex items-center gap-2 text-xl font-bold text-gray-900">
@@ -328,9 +344,11 @@ export function getAboutPage(): string {
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  ${GTM_HEAD}
   <style>* { font-family: 'Inter', sans-serif; }</style>
 </head>
 <body class="bg-gray-50 min-h-screen">
+  ${GTM_BODY}
   <header class="bg-white border-b border-gray-200">
     <div class="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
       <a href="/" class="flex items-center gap-2 text-xl font-bold text-gray-900">
@@ -455,9 +473,11 @@ export function getContactPage(): string {
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  ${GTM_HEAD}
   <style>* { font-family: 'Inter', sans-serif; }</style>
 </head>
 <body class="bg-gray-50 min-h-screen">
+  ${GTM_BODY}
   <header class="bg-white border-b border-gray-200">
     <div class="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
       <a href="/" class="flex items-center gap-2 text-xl font-bold text-gray-900">
