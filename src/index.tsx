@@ -462,6 +462,74 @@ async function sendVerificationEmail(apiKey: string, to: string, code: string, n
 }
 
 // ============================================================================
+// PASSWORD RESET EMAIL
+// ============================================================================
+async function sendPasswordResetEmail(apiKey: string, to: string, resetLink: string, name?: string): Promise<boolean> {
+  try {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        from: 'ShopShot <onboarding@resend.dev>',
+        to: [to],
+        subject: 'Reset your ShopShot password',
+        html: `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          </head>
+          <body style="font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #F3F4F6; padding: 40px 20px; margin: 0;">
+            <div style="max-width: 480px; margin: 0 auto; background: white; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.08);">
+              <div style="background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%); padding: 32px; text-align: center;">
+                <h1 style="color: white; margin: 0; font-size: 28px; font-weight: 700;">ShopShot</h1>
+                <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0; font-size: 14px;">AI Product Photography</p>
+              </div>
+              <div style="padding: 40px 32px; text-align: center;">
+                <h2 style="color: #1F2937; margin: 0 0 12px; font-size: 24px;">Reset your password</h2>
+                <p style="color: #6B7280; margin: 0 0 32px; font-size: 15px; line-height: 1.5;">
+                  ${name ? `Hi ${name}! ` : ''}Click the button below to reset your password:
+                </p>
+                <a href="${resetLink}" style="display: inline-block; background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%); color: white; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-weight: 600; font-size: 15px; margin-bottom: 32px;">
+                  Reset Password
+                </a>
+                <p style="color: #9CA3AF; font-size: 13px; margin: 24px 0 0;">
+                  This link expires in 1 hour.<br>
+                  If you didn't request a password reset, you can ignore this email.
+                </p>
+                <p style="color: #D1D5DB; font-size: 11px; margin: 16px 0 0; word-break: break-all;">
+                  Or copy this link: ${resetLink}
+                </p>
+              </div>
+              <div style="background: #F9FAFB; padding: 20px 32px; text-align: center; border-top: 1px solid #E5E7EB;">
+                <p style="color: #9CA3AF; font-size: 12px; margin: 0;">
+                  &copy; 2024 ShopShot. All rights reserved.
+                </p>
+              </div>
+            </div>
+          </body>
+          </html>
+        `
+      })
+    });
+    
+    if (!response.ok) {
+      const error = await response.text();
+      console.error('Resend error:', error);
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.error('Password reset email error:', error);
+    return false;
+  }
+}
+
+// ============================================================================
 // ERROR LOGGING HELPER
 // ============================================================================
 async function logError(
@@ -889,6 +957,14 @@ async function ensureDatabase(db: D1Database) {
       await db.prepare('ALTER TABLE users ADD COLUMN is_banned INTEGER NOT NULL DEFAULT 0').run();
     } catch (e) { /* Column exists */ }
     
+    // Add password reset columns
+    try {
+      await db.prepare('ALTER TABLE users ADD COLUMN password_reset_token TEXT').run();
+    } catch (e) { /* Column exists */ }
+    try {
+      await db.prepare('ALTER TABLE users ADD COLUMN password_reset_expires DATETIME').run();
+    } catch (e) { /* Column exists */ }
+    
     // Credit transactions table (dual credit system)
     await db.prepare(`
       CREATE TABLE IF NOT EXISTS credit_transactions (
@@ -1153,6 +1229,22 @@ app.get('/login', (c) => {
   const user = c.get('user')
   if (user) return c.redirect('/')
   return c.html(getLoginPage())
+})
+
+// Forgot password page
+app.get('/forgot-password', (c) => {
+  const user = c.get('user')
+  if (user) return c.redirect('/')
+  return c.html(getForgotPasswordPage())
+})
+
+// Reset password page
+app.get('/reset-password', (c) => {
+  const user = c.get('user')
+  if (user) return c.redirect('/')
+  const token = c.req.query('token')
+  if (!token) return c.redirect('/forgot-password')
+  return c.html(getResetPasswordPage(token))
 })
 
 // Register page
@@ -1881,6 +1973,101 @@ app.post('/api/auth/resend-verification', async (c) => {
   }
 });
 
+// Request password reset
+app.post('/api/auth/forgot-password', async (c) => {
+  try {
+    const db = c.env.TESCO_DB;
+    await ensureDatabase(db);
+    
+    const { email } = await c.req.json();
+    
+    if (!email) {
+      return c.json({ success: false, error: 'Email required' }, 400);
+    }
+    
+    const user = await db.prepare(`
+      SELECT id, email, name, google_id, password_hash FROM users WHERE email = ?
+    `).bind(email.toLowerCase()).first() as any;
+    
+    // Always return success to prevent email enumeration
+    if (!user) {
+      return c.json({ success: true, message: 'If that email exists, a reset link has been sent' });
+    }
+    
+    // Check if this is a Google-only account
+    if (user.google_id && !user.password_hash) {
+      return c.json({ success: true, message: 'If that email exists, a reset link has been sent' });
+    }
+    
+    // Generate reset token (32 random chars)
+    const resetToken = Array.from(crypto.getRandomValues(new Uint8Array(24)))
+      .map(b => b.toString(16).padStart(2, '0')).join('');
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+    
+    await db.prepare(`
+      UPDATE users SET password_reset_token = ?, password_reset_expires = ? WHERE id = ?
+    `).bind(resetToken, expiresAt.toISOString(), user.id).run();
+    
+    // Send reset email
+    if (c.env.RESEND_API_KEY) {
+      const origin = new URL(c.req.url).origin;
+      const resetLink = `${origin}/reset-password?token=${resetToken}`;
+      await sendPasswordResetEmail(c.env.RESEND_API_KEY, email, resetLink, user.name);
+    }
+    
+    return c.json({ success: true, message: 'If that email exists, a reset link has been sent' });
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    return c.json({ success: false, error: 'Failed to process request' }, 500);
+  }
+});
+
+// Reset password with token
+app.post('/api/auth/reset-password', async (c) => {
+  try {
+    const db = c.env.TESCO_DB;
+    await ensureDatabase(db);
+    
+    const { token, password } = await c.req.json();
+    
+    if (!token || !password) {
+      return c.json({ success: false, error: 'Token and password required' }, 400);
+    }
+    
+    if (password.length < 8) {
+      return c.json({ success: false, error: 'Password must be at least 8 characters' }, 400);
+    }
+    
+    // Find user with this token
+    const user = await db.prepare(`
+      SELECT id, email, password_reset_expires FROM users WHERE password_reset_token = ?
+    `).bind(token).first() as any;
+    
+    if (!user) {
+      return c.json({ success: false, error: 'Invalid or expired reset link' }, 400);
+    }
+    
+    // Check if token has expired
+    if (new Date(user.password_reset_expires) < new Date()) {
+      return c.json({ success: false, error: 'Reset link has expired. Please request a new one.' }, 400);
+    }
+    
+    // Hash new password and update
+    const passwordHash = await hashPassword(password);
+    await db.prepare(`
+      UPDATE users SET password_hash = ?, password_reset_token = NULL, password_reset_expires = NULL WHERE id = ?
+    `).bind(passwordHash, user.id).run();
+    
+    // Invalidate all existing sessions for security
+    await db.prepare('DELETE FROM user_sessions WHERE user_id = ?').bind(user.id).run();
+    
+    return c.json({ success: true, message: 'Password has been reset. Please log in.' });
+  } catch (error) {
+    console.error('Reset password error:', error);
+    return c.json({ success: false, error: 'Failed to reset password' }, 500);
+  }
+});
+
 // Login
 app.post('/api/auth/login', async (c) => {
   try {
@@ -2213,6 +2400,10 @@ app.post('/api/billing/webhook', async (c) => {
     event = await verifyStripeWebhook(payload, signature, c.env.STRIPE_WEBHOOK_SECRET);
   } catch (err) {
     console.error('Webhook verification failed:', err);
+    await logError(c.env.TESCO_DB, 'stripe_webhook', 'Webhook signature verification failed', {
+      endpoint: '/api/billing/webhook',
+      severity: 'critical'
+    });
     return c.json({ error: 'Invalid signature' }, 400);
   }
   
@@ -2354,6 +2545,10 @@ app.post('/api/billing/webhook', async (c) => {
     await db.prepare('UPDATE stripe_events SET processed = 1 WHERE id = ?').bind(event.id).run();
   } catch (err) {
     console.error('Webhook processing error:', err);
+    await logError(db, 'stripe_webhook', `Webhook processing error: ${err}`, {
+      endpoint: '/api/billing/webhook',
+      severity: 'critical'
+    });
     // Don't fail the webhook, just log the error
   }
   
@@ -7873,6 +8068,279 @@ function getHistoryPage() {
 }
 
 // ============================================================================
+// FORGOT PASSWORD PAGE
+// ============================================================================
+function getForgotPasswordPage() {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Forgot Password - ShopShot</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'><stop offset='0%25' style='stop-color:%233B82F6'/><stop offset='100%25' style='stop-color:%238B5CF6'/></linearGradient></defs><rect width='100' height='100' rx='22' fill='url(%23g)'/><circle cx='50' cy='50' r='28' fill='none' stroke='white' stroke-width='6'/><circle cx='50' cy='50' r='12' fill='white'/></svg>">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { font-family: 'Inter', system-ui, sans-serif; }
+    ${getAuthPageStyles()}
+    .success-message {
+      background: #ECFDF5;
+      border: 1px solid #A7F3D0;
+      color: #065F46;
+      padding: 16px;
+      border-radius: 12px;
+      margin-bottom: 16px;
+      font-size: 14px;
+      display: none;
+    }
+    .success-message.show { display: block; }
+  </style>
+</head>
+<body>
+  <div class="auth-container">
+    <div class="auth-card">
+      <div class="auth-header">
+        <a href="/" class="auth-logo">ShopShot</a>
+        <h1 class="auth-title">Forgot your password?</h1>
+        <p class="auth-subtitle">Enter your email and we'll send you a reset link</p>
+      </div>
+      
+      <div class="success-message" id="success-msg"></div>
+      <div class="auth-error" id="error-msg"></div>
+      
+      <form onsubmit="handleForgotPassword(event)" id="forgot-form">
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input type="email" id="email" class="form-input" placeholder="you@example.com" required autocomplete="email">
+        </div>
+        
+        <button type="submit" class="auth-btn" id="submit-btn">Send Reset Link</button>
+      </form>
+      
+      <p class="auth-footer">
+        Remember your password? <a href="/login">Log in</a>
+      </p>
+    </div>
+  </div>
+  
+  <script>
+    async function handleForgotPassword(e) {
+      e.preventDefault();
+      const btn = document.getElementById('submit-btn');
+      const errEl = document.getElementById('error-msg');
+      const successEl = document.getElementById('success-msg');
+      
+      btn.disabled = true;
+      btn.textContent = 'Sending...';
+      errEl.classList.remove('show');
+      successEl.classList.remove('show');
+      
+      try {
+        const res = await fetch('/api/auth/forgot-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: document.getElementById('email').value
+          })
+        });
+        
+        const data = await res.json();
+        
+        if (data.success) {
+          successEl.textContent = 'If that email exists in our system, we\\'ve sent a password reset link. Check your inbox (and spam folder).';
+          successEl.classList.add('show');
+          document.getElementById('forgot-form').style.display = 'none';
+        } else {
+          errEl.textContent = data.error || 'Failed to send reset link';
+          errEl.classList.add('show');
+        }
+      } catch (error) {
+        errEl.textContent = 'An error occurred. Please try again.';
+        errEl.classList.add('show');
+      }
+      
+      btn.disabled = false;
+      btn.textContent = 'Send Reset Link';
+    }
+  </script>
+</body>
+</html>`;
+}
+
+// ============================================================================
+// RESET PASSWORD PAGE
+// ============================================================================
+function getResetPasswordPage(token: string) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reset Password - ShopShot</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'><stop offset='0%25' style='stop-color:%233B82F6'/><stop offset='100%25' style='stop-color:%238B5CF6'/></linearGradient></defs><rect width='100' height='100' rx='22' fill='url(%23g)'/><circle cx='50' cy='50' r='28' fill='none' stroke='white' stroke-width='6'/><circle cx='50' cy='50' r='12' fill='white'/></svg>">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { font-family: 'Inter', system-ui, sans-serif; }
+    ${getAuthPageStyles()}
+    .success-message {
+      background: #ECFDF5;
+      border: 1px solid #A7F3D0;
+      color: #065F46;
+      padding: 16px;
+      border-radius: 12px;
+      margin-bottom: 16px;
+      font-size: 14px;
+      display: none;
+      text-align: center;
+    }
+    .success-message.show { display: block; }
+    .password-requirements {
+      background: #F9FAFB;
+      border-radius: 8px;
+      padding: 12px;
+      margin-top: 8px;
+      font-size: 12px;
+    }
+    .password-requirements div {
+      color: #6B7280;
+      margin: 4px 0;
+    }
+    .password-requirements .valid { color: #059669; }
+    .password-requirements .invalid { color: #DC2626; }
+  </style>
+</head>
+<body>
+  <div class="auth-container">
+    <div class="auth-card">
+      <div class="auth-header">
+        <a href="/" class="auth-logo">ShopShot</a>
+        <h1 class="auth-title">Reset your password</h1>
+        <p class="auth-subtitle">Enter your new password below</p>
+      </div>
+      
+      <div class="success-message" id="success-msg">
+        Password reset successfully! <a href="/login" style="color: #059669; font-weight: 600;">Log in now</a>
+      </div>
+      <div class="auth-error" id="error-msg"></div>
+      
+      <form onsubmit="handleResetPassword(event)" id="reset-form">
+        <div class="form-group">
+          <label class="form-label">New Password</label>
+          <input type="password" id="password" class="form-input" placeholder="••••••••" required autocomplete="new-password" oninput="checkPassword()">
+          <div class="password-requirements">
+            <div id="req-length" class="invalid">✗ At least 8 characters</div>
+            <div id="req-upper" class="invalid">✗ One uppercase letter</div>
+            <div id="req-lower" class="invalid">✗ One lowercase letter</div>
+            <div id="req-number" class="invalid">✗ One number</div>
+          </div>
+        </div>
+        
+        <div class="form-group">
+          <label class="form-label">Confirm Password</label>
+          <input type="password" id="confirm-password" class="form-input" placeholder="••••••••" required autocomplete="new-password" oninput="checkPassword()">
+          <div id="match-msg" style="font-size: 12px; margin-top: 6px; display: none;"></div>
+        </div>
+        
+        <button type="submit" class="auth-btn" id="submit-btn">Reset Password</button>
+      </form>
+      
+      <p class="auth-footer">
+        <a href="/login">Back to login</a>
+      </p>
+    </div>
+  </div>
+  
+  <script>
+    const token = '${token}';
+    
+    function checkPassword() {
+      const password = document.getElementById('password').value;
+      const confirm = document.getElementById('confirm-password').value;
+      
+      const reqs = {
+        length: password.length >= 8,
+        upper: /[A-Z]/.test(password),
+        lower: /[a-z]/.test(password),
+        number: /[0-9]/.test(password)
+      };
+      
+      Object.keys(reqs).forEach(key => {
+        const el = document.getElementById('req-' + key);
+        el.className = reqs[key] ? 'valid' : 'invalid';
+        el.textContent = (reqs[key] ? '✓ ' : '✗ ') + el.textContent.substring(2);
+      });
+      
+      const matchMsg = document.getElementById('match-msg');
+      if (confirm) {
+        matchMsg.style.display = 'block';
+        if (password === confirm) {
+          matchMsg.textContent = '✓ Passwords match';
+          matchMsg.style.color = '#059669';
+        } else {
+          matchMsg.textContent = '✗ Passwords do not match';
+          matchMsg.style.color = '#DC2626';
+        }
+      } else {
+        matchMsg.style.display = 'none';
+      }
+    }
+    
+    async function handleResetPassword(e) {
+      e.preventDefault();
+      const btn = document.getElementById('submit-btn');
+      const errEl = document.getElementById('error-msg');
+      const successEl = document.getElementById('success-msg');
+      
+      const password = document.getElementById('password').value;
+      const confirm = document.getElementById('confirm-password').value;
+      
+      if (password !== confirm) {
+        errEl.textContent = 'Passwords do not match';
+        errEl.classList.add('show');
+        return;
+      }
+      
+      if (password.length < 8 || !/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/[0-9]/.test(password)) {
+        errEl.textContent = 'Password does not meet requirements';
+        errEl.classList.add('show');
+        return;
+      }
+      
+      btn.disabled = true;
+      btn.textContent = 'Resetting...';
+      errEl.classList.remove('show');
+      
+      try {
+        const res = await fetch('/api/auth/reset-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, password })
+        });
+        
+        const data = await res.json();
+        
+        if (data.success) {
+          successEl.classList.add('show');
+          document.getElementById('reset-form').style.display = 'none';
+        } else {
+          errEl.textContent = data.error || 'Failed to reset password';
+          errEl.classList.add('show');
+        }
+      } catch (error) {
+        errEl.textContent = 'An error occurred. Please try again.';
+        errEl.classList.add('show');
+      }
+      
+      btn.disabled = false;
+      btn.textContent = 'Reset Password';
+    }
+  </script>
+</body>
+</html>`;
+}
+
+// ============================================================================
 // LOGIN PAGE
 // ============================================================================
 function getLoginPage() {
@@ -7967,6 +8435,7 @@ function getLoginPage() {
         <div class="form-group">
           <label class="form-label">Password</label>
           <input type="password" id="password" class="form-input" placeholder="Enter your password" required autocomplete="current-password">
+          <a href="/forgot-password" style="display: block; text-align: right; margin-top: 8px; font-size: 13px; color: #6B7280; text-decoration: none;">Forgot password?</a>
         </div>
         <button type="submit" id="submit-btn" class="auth-btn">Log In</button>
       </form>
