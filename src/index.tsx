@@ -2762,6 +2762,8 @@ function getMarketingPage() {
       text-decoration: none;
       border-radius: 14px;
       font-size: 16px;
+      border: 1px solid #E5E7EB;
+      cursor: pointer;
       font-weight: 600;
       border: 1px solid #E5E7EB;
       transition: all 0.2s;
@@ -2942,6 +2944,8 @@ function getMarketingPage() {
       width: 100%;
       height: 100%;
       cursor: pointer;
+      transition: transform 0.3s, box-shadow 0.3s;
+      border-radius: 20px;
     }
     .promo-video-placeholder .video-thumbnail {
       width: 100%;
@@ -3366,10 +3370,10 @@ function getMarketingPage() {
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
           Start Free - 15 Credits
         </a>
-        <a href="#how-it-works" class="btn-secondary">
+        <button onclick="scrollToVideo()" class="btn-secondary">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8" fill="currentColor"/></svg>
           See How It Works
-        </a>
+        </button>
       </div>
     </div>
     
@@ -3669,6 +3673,26 @@ function getMarketingPage() {
   </footer>
 
   <script>
+    // Scroll to video and play it
+    function scrollToVideo() {
+      const videoContainer = document.querySelector('.promo-video-container');
+      const videoPlaceholder = document.getElementById('promo-video-placeholder');
+      if (videoContainer) {
+        videoContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // After scrolling, highlight the video briefly
+        setTimeout(() => {
+          videoPlaceholder.style.transform = 'scale(1.02)';
+          videoPlaceholder.style.boxShadow = '0 0 0 4px rgba(139, 92, 246, 0.5)';
+          setTimeout(() => {
+            videoPlaceholder.style.transform = '';
+            videoPlaceholder.style.boxShadow = '';
+            // Trigger the video click
+            videoPlaceholder.click();
+          }, 400);
+        }, 600);
+      }
+    }
+    
     // Mobile menu toggle
     function toggleMobileMenu() {
       const navLinks = document.querySelector('.nav-links');
