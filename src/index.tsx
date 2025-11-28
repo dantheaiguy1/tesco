@@ -2709,7 +2709,7 @@ function getMarketingPage() {
       display: flex;
       justify-content: center;
       gap: 64px;
-      padding: 48px 32px;
+      padding: 32px 32px;
       background: white;
       border-top: 1px solid #E5E7EB;
       border-bottom: 1px solid #E5E7EB;
@@ -2725,7 +2725,7 @@ function getMarketingPage() {
     
     /* Section Styles */
     .section {
-      padding: 100px 32px;
+      padding: 60px 32px;
     }
     .section-dark {
       background: linear-gradient(135deg, #1F2937 0%, #111827 100%);
@@ -2734,7 +2734,7 @@ function getMarketingPage() {
     .section-header {
       text-align: center;
       max-width: 700px;
-      margin: 0 auto 64px;
+      margin: 0 auto 40px;
     }
     .section-badge {
       display: inline-block;
@@ -7977,7 +7977,7 @@ function getDashboardPage(user: User) {
     .credit-sub { font-size: 12px; color: #9CA3AF; margin-top: 4px; }
     
     /* Stats Grid */
-    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 32px; }
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 20px; }
     .stat-card { background: white; border-radius: 12px; padding: 20px; border: 1px solid #E5E7EB; }
     .stat-label { font-size: 13px; color: #6B7280; margin-bottom: 4px; }
     .stat-value { font-size: 24px; font-weight: 700; color: #1F2937; }
