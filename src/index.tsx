@@ -4658,9 +4658,16 @@ function getMarketingPage() {
       padding: 48px 32px;
       background: #111827;
       color: #9CA3AF;
-      text-align: center;
     }
-    .footer-logo { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 16px; }
+    .footer-container { max-width: 1200px; margin: 0 auto; }
+    .footer-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 32px; margin-bottom: 32px; }
+    .footer-section h4 { color: white; font-size: 14px; font-weight: 600; margin-bottom: 16px; }
+    .footer-section ul { list-style: none; padding: 0; margin: 0; }
+    .footer-section li { margin-bottom: 8px; }
+    .footer-section a { color: #9CA3AF; text-decoration: none; font-size: 14px; transition: color 0.2s; }
+    .footer-section a:hover { color: white; }
+    .footer-bottom { border-top: 1px solid #374151; padding-top: 24px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; }
+    .footer-logo { display: flex; align-items: center; gap: 10px; }
     .footer-logo-icon {
       width: 32px;
       height: 32px;
@@ -4670,11 +4677,12 @@ function getMarketingPage() {
       align-items: center;
       justify-content: center;
     }
-    .footer-logo-text { font-size: 20px; font-weight: 700; color: white; }
-    .footer p { font-size: 14px; }
-    .footer-links { margin-top: 16px; display: flex; justify-content: center; gap: 24px; }
-    .footer-links a { color: #9CA3AF; text-decoration: none; font-size: 14px; }
-    .footer-links a:hover { color: white; }
+    .footer-logo-text { font-size: 18px; font-weight: 700; color: white; }
+    .footer-copy { font-size: 13px; color: #6B7280; }
+    @media (max-width: 768px) {
+      .footer-grid { grid-template-columns: repeat(2, 1fr); }
+      .footer-bottom { flex-direction: column; text-align: center; }
+    }
   </style>
 </head>
 <body>
@@ -5003,22 +5011,53 @@ function getMarketingPage() {
 
   <!-- Footer -->
   <footer class="footer">
-    <div class="footer-logo">
-      <div class="footer-logo-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" width="18" height="18">
-          <circle cx="12" cy="12" r="10"/>
-          <circle cx="12" cy="12" r="3"/>
-        </svg>
+    <div class="footer-container">
+      <div class="footer-grid">
+        <div class="footer-section">
+          <h4>Product</h4>
+          <ul>
+            <li><a href="/">Home</a></li>
+            <li><a href="/pricing">Pricing</a></li>
+            <li><a href="/faq">FAQ</a></li>
+          </ul>
+        </div>
+        <div class="footer-section">
+          <h4>Company</h4>
+          <ul>
+            <li><a href="/about">About</a></li>
+            <li><a href="/contact">Contact</a></li>
+          </ul>
+        </div>
+        <div class="footer-section">
+          <h4>Legal</h4>
+          <ul>
+            <li><a href="/privacy">Privacy Policy</a></li>
+            <li><a href="/terms">Terms of Service</a></li>
+            <li><a href="/refunds">Refund Policy</a></li>
+            <li><a href="/cookies">Cookie Policy</a></li>
+          </ul>
+        </div>
+        <div class="footer-section">
+          <h4>Support</h4>
+          <ul>
+            <li><a href="mailto:support@shopshot.ai">support@shopshot.ai</a></li>
+            <li><a href="/contact">Contact Form</a></li>
+          </ul>
+        </div>
       </div>
-      <span class="footer-logo-text">ShopShot</span>
+      <div class="footer-bottom">
+        <div class="footer-logo">
+          <div class="footer-logo-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" width="18" height="18">
+              <circle cx="12" cy="12" r="10"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+          </div>
+          <span class="footer-logo-text">ShopShot</span>
+        </div>
+        <p class="footer-copy">© 2024 ShopShot. All rights reserved. Built by Daniel David Peter Nichols | AI Academy</p>
+      </div>
     </div>
-    <p>AI-powered product photography for online sellers.</p>
-    <div class="footer-links">
-      <a href="/get-started">Pricing</a>
-      <a href="/login">Log In</a>
-      <a href="mailto:support@shopshot.ai">Support</a>
-    </div>
-    <p style="margin-top: 24px; opacity: 0.6;">© 2024 ShopShot. All rights reserved.</p>
   </footer>
 
   <script>
@@ -10545,6 +10584,57 @@ function getPricingPage(user?: User) {
       }
     }
   </script>
+
+  <!-- Footer -->
+  <footer style="background: #111827; color: #9CA3AF; padding: 48px 24px; margin-top: 64px;">
+    <div style="max-width: 1200px; margin: 0 auto;">
+      <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 32px; margin-bottom: 32px;">
+        <div>
+          <h4 style="color: white; font-size: 14px; font-weight: 600; margin-bottom: 16px;">Product</h4>
+          <ul style="list-style: none; padding: 0; margin: 0;">
+            <li style="margin-bottom: 8px;"><a href="/" style="color: #9CA3AF; text-decoration: none; font-size: 14px;">Home</a></li>
+            <li style="margin-bottom: 8px;"><a href="/pricing" style="color: #9CA3AF; text-decoration: none; font-size: 14px;">Pricing</a></li>
+            <li style="margin-bottom: 8px;"><a href="/faq" style="color: #9CA3AF; text-decoration: none; font-size: 14px;">FAQ</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4 style="color: white; font-size: 14px; font-weight: 600; margin-bottom: 16px;">Company</h4>
+          <ul style="list-style: none; padding: 0; margin: 0;">
+            <li style="margin-bottom: 8px;"><a href="/about" style="color: #9CA3AF; text-decoration: none; font-size: 14px;">About</a></li>
+            <li style="margin-bottom: 8px;"><a href="/contact" style="color: #9CA3AF; text-decoration: none; font-size: 14px;">Contact</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4 style="color: white; font-size: 14px; font-weight: 600; margin-bottom: 16px;">Legal</h4>
+          <ul style="list-style: none; padding: 0; margin: 0;">
+            <li style="margin-bottom: 8px;"><a href="/privacy" style="color: #9CA3AF; text-decoration: none; font-size: 14px;">Privacy Policy</a></li>
+            <li style="margin-bottom: 8px;"><a href="/terms" style="color: #9CA3AF; text-decoration: none; font-size: 14px;">Terms of Service</a></li>
+            <li style="margin-bottom: 8px;"><a href="/refunds" style="color: #9CA3AF; text-decoration: none; font-size: 14px;">Refund Policy</a></li>
+            <li style="margin-bottom: 8px;"><a href="/cookies" style="color: #9CA3AF; text-decoration: none; font-size: 14px;">Cookie Policy</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4 style="color: white; font-size: 14px; font-weight: 600; margin-bottom: 16px;">Support</h4>
+          <ul style="list-style: none; padding: 0; margin: 0;">
+            <li style="margin-bottom: 8px;"><a href="mailto:support@shopshot.ai" style="color: #9CA3AF; text-decoration: none; font-size: 14px;">support@shopshot.ai</a></li>
+            <li style="margin-bottom: 8px;"><a href="/contact" style="color: #9CA3AF; text-decoration: none; font-size: 14px;">Contact Form</a></li>
+          </ul>
+        </div>
+      </div>
+      <div style="border-top: 1px solid #374151; padding-top: 24px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="width: 32px; height: 32px; background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%); border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" width="18" height="18">
+              <circle cx="12" cy="12" r="10"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+          </div>
+          <span style="font-size: 18px; font-weight: 700; color: white;">ShopShot</span>
+        </div>
+        <p style="font-size: 13px; color: #6B7280;">© 2024 ShopShot. All rights reserved. Built by Daniel David Peter Nichols | AI Academy</p>
+      </div>
+    </div>
+  </footer>
 </body>
 </html>`
 }
