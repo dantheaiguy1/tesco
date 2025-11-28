@@ -470,14 +470,35 @@ POST /api/billing/webhook
 1. **KPI Cards**: Total users, active subscribers, MRR, credits consumed
 2. **Signups Chart**: Daily signups for last 30 days
 3. **Cancellations Chart**: Daily cancellations for last 30 days
-4. **Activity Feed**: Recent signups/cancellations with user details
-5. **Revenue Breakdown**: By plan (Free/Standard/Pro)
-6. **Error Log**: Last 24 hours with severity indicators
-7. **Quick Actions**: Search users, add credits, export CSV
-8. **User Modal**: Full user profile, transactions, ban/unban
+4. **Live Activity Feed**: Real-time feed polling every 10s showing signups, payments, generations
+5. **Activity Feed**: Recent signups/cancellations (7 days) with user details
+6. **Revenue Breakdown**: By plan (Free/Standard/Pro) with MRR calculation
+7. **System Health Widget**: Uptime (24h), AI usage (Flash/Pro), estimated costs, storage
+8. **Error Log**: Last 24 hours with severity indicators (critical/warning/info)
+9. **Quick Actions**: Search users, add credits, export CSV
+10. **User Modal with Tabs**:
+    - Overview: User info, credits, plan, status, quick actions
+    - Transactions: Full credit transaction history
+    - Images: Gallery of user's generated sessions
+    - Errors: User-specific error history
+
+### API Endpoints
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/admin/dashboard` | KPIs, charts, activity data |
+| GET | `/api/admin/system-health` | Uptime, AI usage, costs, storage |
+| GET | `/api/admin/recent-activity` | Live feed polling (supports ?since=timestamp) |
+| GET | `/api/admin/users` | Search/list users |
+| GET | `/api/admin/users/:id` | User details + transactions + sessions |
+| POST | `/api/admin/users/:id/credits` | Add credits |
+| POST | `/api/admin/users/:id/ban` | Ban/unban user |
+| POST | `/api/admin/users/:id/role` | Change user role |
+| GET | `/api/admin/export/users` | CSV export |
 
 ### Auto-Refresh
-Dashboard refreshes every 30 seconds automatically.
+- Dashboard data: every 30 seconds
+- Live feed: every 10 seconds  
+- System health: every 60 seconds
 
 ---
 
