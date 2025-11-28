@@ -364,23 +364,17 @@ export function getAboutPage(): string {
     </section>
     
     <section class="mb-16">
-      <h2 class="text-2xl font-bold text-gray-900 mb-6">👋 Meet the Founder</h2>
+      <h2 class="text-2xl font-bold text-gray-900 mb-6">🎯 Our Story</h2>
       <div class="bg-white rounded-xl p-8 border border-gray-200">
-        <div class="flex flex-col md:flex-row gap-6 items-start">
-          <div class="w-24 h-24 bg-gradient-to-br from-blue-500 to-purple-500 rounded-full flex items-center justify-center text-4xl text-white flex-shrink-0">
-            DN
-          </div>
-          <div>
-            <h3 class="text-xl font-bold text-gray-900 mb-1">Daniel David Peter Nichols</h3>
-            <p class="text-gray-500 mb-4">Founder & AI Engineer</p>
-            <p class="text-gray-600 mb-4">
-              Serial entrepreneur with a passion for making cutting-edge technology accessible to everyone. After seeing small sellers struggle with product photography costs, I built ShopShot to give them the same tools the big brands use.
-            </p>
-            <p class="text-gray-600">
-              ShopShot is part of the <strong>AI Academy</strong> ecosystem, focused on teaching people to build profitable AI-powered businesses.
-            </p>
-          </div>
-        </div>
+        <p class="text-gray-600 mb-4">
+          ShopShot was built by entrepreneurs who understand the struggle. We saw small sellers spending hundreds on professional photography while competing against brands with unlimited budgets.
+        </p>
+        <p class="text-gray-600 mb-4">
+          So we built something better: AI-powered product photography that levels the playing field. Now anyone can create stunning e-commerce images in seconds, not hours.
+        </p>
+        <p class="text-gray-600">
+          Based in East Sussex, UK, we're committed to helping online sellers succeed with affordable, professional-quality imagery.
+        </p>
       </div>
     </section>
     
@@ -505,9 +499,9 @@ export function getContactPage(): string {
             <div>
               <h3 class="font-bold text-gray-900 mb-1">Business Address</h3>
               <p class="text-gray-600">
-                Daniel David Peter Nichols<br>
-                AI Academy<br>
-                East Sussex, United Kingdom
+                ShopShot Ltd<br>
+                Burwash, East Sussex<br>
+                United Kingdom
               </p>
             </div>
           </div>
