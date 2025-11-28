@@ -1554,8 +1554,8 @@ app.get('/api/auth/google', async (c) => {
     return c.json({ success: false, error: 'Google OAuth not configured' }, 500);
   }
   
-  // Get redirect URL from query params
-  const redirectTo = c.req.query('redirect') || '/';
+  // Get redirect URL from query params - default to /app not /
+  const redirectTo = c.req.query('redirect') || '/app';
   const plan = c.req.query('plan') || '';
   
   // Create state with redirect info
@@ -1668,7 +1668,9 @@ app.get('/api/auth/google/callback', async (c) => {
     return c.redirect(`/pricing?plan=${plan}&checkout=1`);
   }
   
-  return c.redirect(redirectTo + '?welcome=1');
+  // Default redirect to app (not homepage)
+  const finalRedirect = redirectTo && redirectTo !== '/' ? redirectTo : '/app';
+  return c.redirect(finalRedirect + '?welcome=1');
 });
 
 // ============================================================================
@@ -7577,7 +7579,9 @@ function getLoginPage() {
     // Google Sign In
     function signInWithGoogle() {
       let url = '/api/auth/google';
-      if (redirectTo) url += '?redirect=' + encodeURIComponent(redirectTo);
+      // Always pass redirect - default to /app if not set
+      const targetRedirect = redirectTo || '/app';
+      url += '?redirect=' + encodeURIComponent(targetRedirect);
       window.location.href = url;
     }
     
@@ -7605,8 +7609,8 @@ function getLoginPage() {
         const data = await res.json();
         
         if (data.success) {
-          // Redirect to original page or home
-          window.location.href = redirectTo || '/';
+          // Redirect to original page or app
+          window.location.href = redirectTo || '/app';
         } else if (data.needsVerification) {
           // User needs to verify email first
           infoEl.textContent = 'Please verify your email first. Check your inbox for the verification code.';
@@ -7901,9 +7905,11 @@ function getRegisterPage() {
     function signInWithGoogle() {
       let url = '/api/auth/google';
       const params = [];
-      if (redirectTo) params.push('redirect=' + encodeURIComponent(redirectTo));
+      // Always pass redirect - default to /app if not set
+      const targetRedirect = redirectTo || '/app';
+      params.push('redirect=' + encodeURIComponent(targetRedirect));
       if (selectedPlan) params.push('plan=' + selectedPlan);
-      if (params.length) url += '?' + params.join('&');
+      url += '?' + params.join('&');
       window.location.href = url;
     }
     
