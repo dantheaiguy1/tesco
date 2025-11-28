@@ -2514,6 +2514,57 @@ function getMarketingPage() {
     }
     .nav-cta:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(139, 92, 246, 0.3); }
     
+    /* Mobile Menu */
+    .mobile-menu-btn {
+      display: none;
+      background: none;
+      border: none;
+      padding: 8px;
+      cursor: pointer;
+      color: #374151;
+      border-radius: 8px;
+      transition: background 0.2s;
+    }
+    .mobile-menu-btn:hover { background: rgba(0,0,0,0.05); }
+    @media (max-width: 768px) {
+      .mobile-menu-btn { display: flex; }
+      .nav-links {
+        position: fixed;
+        top: 56px;
+        left: 0;
+        right: 0;
+        background: white;
+        flex-direction: column;
+        padding: 16px;
+        gap: 0;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+        transform: translateY(-100%);
+        opacity: 0;
+        pointer-events: none;
+        transition: all 0.3s ease;
+        border-bottom: 1px solid #E5E7EB;
+      }
+      .nav-links.active {
+        transform: translateY(0);
+        opacity: 1;
+        pointer-events: auto;
+      }
+      .nav-link {
+        display: block !important;
+        padding: 14px 16px;
+        font-size: 16px;
+        border-radius: 10px;
+        transition: background 0.2s;
+      }
+      .nav-link:hover { background: #F3F4F6; }
+      .nav-cta {
+        margin-top: 8px;
+        text-align: center;
+        padding: 14px 20px;
+        font-size: 16px;
+      }
+    }
+    
     /* Hero Section */
     .hero {
       position: relative;
@@ -2556,9 +2607,109 @@ function getMarketingPage() {
       margin: 0 auto;
       box-shadow: 0 25px 80px rgba(0,0,0,0.15);
     }
+    /* Mobile Navigation & Hero */
     @media (max-width: 768px) {
-      .hero-content { padding: 32px 24px; margin: 0 16px; }
+      .nav { padding: 12px 16px; }
+      .nav-logo-icon { width: 32px; height: 32px; border-radius: 8px; }
+      .nav-logo-icon svg { width: 18px; height: 18px; }
+      .nav-logo-text { font-size: 18px; }
+      .nav-links { gap: 8px; }
+      .nav-link { font-size: 12px; display: none; } /* Hide text links on mobile */
+      .nav-cta { padding: 8px 14px; font-size: 12px; border-radius: 8px; }
+      
+      .hero { 
+        padding: 100px 16px 60px; 
+        min-height: auto;
+      }
+      .hero-content { 
+        padding: 28px 20px; 
+        margin: 0 8px; 
+        border-radius: 20px;
+      }
+      .hero h1 { font-size: 28px; margin-bottom: 16px; }
+      .hero p { font-size: 15px; margin-bottom: 24px; line-height: 1.5; }
+      .hero-ctas { 
+        flex-direction: column; 
+        gap: 12px;
+        margin-bottom: 0;
+      }
+      .btn-primary, .btn-secondary { 
+        width: 100%; 
+        justify-content: center; 
+        padding: 14px 24px;
+        font-size: 15px;
+        border-radius: 12px;
+      }
+      
+      .ticker-section { padding: 24px 0 16px; }
+      .ticker-hint { font-size: 12px; padding: 6px 12px; }
+      .ticker-item { width: 100px; height: 100px; border-radius: 12px; }
+      
+      .stats-bar { 
+        flex-direction: column; 
+        gap: 20px; 
+        padding: 24px 16px;
+      }
+      .stat-value { font-size: 32px; }
+      .stat-label { font-size: 12px; }
+      
+      .section { padding: 40px 16px; }
+      .section-title { font-size: 28px; }
+      .section-subtitle { font-size: 15px; }
+      
+      .promo-video-container { margin-bottom: 32px; padding: 0 8px; }
+      .play-button { width: 60px; height: 60px; }
+      .play-button svg { width: 24px; height: 24px; }
+      .play-text { font-size: 14px; }
+      
+      .features-grid { gap: 16px; }
+      .feature-card { padding: 24px; border-radius: 16px; }
+      .feature-icon { width: 48px; height: 48px; font-size: 24px; }
+      .feature-card h3 { font-size: 18px; }
+      .feature-card p { font-size: 14px; }
+      
+      .steps { gap: 32px; }
+      .step-number { width: 52px; height: 52px; font-size: 24px; }
+      .step h3 { font-size: 18px; }
+      .step p { font-size: 14px; }
+      
+      .use-cases { gap: 12px; }
+      .use-case { padding: 20px 16px; border-radius: 12px; }
+      .use-case-icon { width: 40px; height: 40px; font-size: 20px; }
+      .use-case h4 { font-size: 13px; }
+      
+      .pricing-grid-section { padding: 40px 16px; }
+      .pricing-grid { gap: 16px; }
+      .pricing-card { padding: 24px 20px; border-radius: 20px; }
+      .pricing-card h3 { font-size: 20px; }
+      .pricing-card .price { font-size: 36px; }
+      .pricing-card .price span { font-size: 14px; }
+      .credits-row { gap: 8px; }
+      .credit-badge { padding: 8px 12px; min-width: 70px; }
+      .credit-badge .count { font-size: 18px; }
+      .credit-badge .label { font-size: 10px; }
+      .pricing-card ul { margin: 16px 0; }
+      .pricing-card ul li { font-size: 13px; padding: 6px 0; }
+      .pricing-btn { padding: 12px 20px; font-size: 14px; }
+      
+      .final-cta { padding: 60px 20px; }
+      .final-cta h2 { font-size: 28px; }
+      .final-cta p { font-size: 16px; margin-bottom: 28px; }
+      
+      .footer { padding: 32px 16px; }
+      .footer-logo-text { font-size: 18px; }
+      .footer-links { flex-wrap: wrap; gap: 16px; }
     }
+    
+    /* Extra small screens */
+    @media (max-width: 380px) {
+      .hero h1 { font-size: 24px; }
+      .hero p { font-size: 14px; }
+      .btn-primary, .btn-secondary { padding: 12px 20px; font-size: 14px; }
+      .ticker-item { width: 80px; height: 80px; }
+      .pricing-card .price { font-size: 32px; }
+    }
+    
     .hero h1 {
       font-size: clamp(36px, 5vw, 56px);
       font-weight: 900;
@@ -3183,6 +3334,17 @@ function getMarketingPage() {
       </div>
       <span class="nav-logo-text">ShopShot</span>
     </a>
+    
+    <!-- Mobile Menu Button -->
+    <button class="mobile-menu-btn" onclick="toggleMobileMenu()" aria-label="Toggle menu">
+      <svg class="menu-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+      </svg>
+      <svg class="close-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none;">
+        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+      </svg>
+    </button>
+    
     <div class="nav-links">
       <a href="#features" class="nav-link">Features</a>
       <a href="#how-it-works" class="nav-link">How It Works</a>
@@ -3505,6 +3667,35 @@ function getMarketingPage() {
   </footer>
 
   <script>
+    // Mobile menu toggle
+    function toggleMobileMenu() {
+      const navLinks = document.querySelector('.nav-links');
+      const menuIcon = document.querySelector('.menu-icon');
+      const closeIcon = document.querySelector('.close-icon');
+      navLinks.classList.toggle('active');
+      if (navLinks.classList.contains('active')) {
+        menuIcon.style.display = 'none';
+        closeIcon.style.display = 'block';
+      } else {
+        menuIcon.style.display = 'block';
+        closeIcon.style.display = 'none';
+      }
+    }
+    
+    // Close mobile menu when clicking a link
+    document.querySelectorAll('.nav-link, .nav-cta').forEach(link => {
+      link.addEventListener('click', () => {
+        const navLinks = document.querySelector('.nav-links');
+        const menuIcon = document.querySelector('.menu-icon');
+        const closeIcon = document.querySelector('.close-icon');
+        if (navLinks.classList.contains('active')) {
+          navLinks.classList.remove('active');
+          menuIcon.style.display = 'block';
+          closeIcon.style.display = 'none';
+        }
+      });
+    });
+    
     // Smooth scroll for anchor links
     document.querySelectorAll('a[href^="#"]').forEach(anchor => {
       anchor.addEventListener('click', function (e) {
