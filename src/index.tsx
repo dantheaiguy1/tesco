@@ -4008,7 +4008,7 @@ function getMarketingPage() {
       display: flex;
       flex-direction: column;
       justify-content: center;
-      background-image: url('https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=1920&q=80');
+      background-image: url('https://images.unsplash.com/photo-1542744094-24638ead58c8?w=1920&q=80');
       background-size: cover;
       background-position: center;
     }
