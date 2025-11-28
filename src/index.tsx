@@ -1641,6 +1641,183 @@ app.get('/api/admin/export/users', async (c) => {
   }
 })
 
+// Admin API: System Health
+app.get('/api/admin/system-health', async (c) => {
+  const user = c.get('user') as any
+  if (!user) return c.json({ success: false, error: 'Not authenticated' }, 401)
+  if (user.role !== 'admin') return c.json({ success: false, error: 'Not authorized' }, 403)
+  
+  const db = c.env.TESCO_DB
+  
+  try {
+    // Get uptime status from error rate (if <1% errors in 24h = operational)
+    const errorsLast24h = await db.prepare(`
+      SELECT COUNT(*) as count FROM error_logs 
+      WHERE timestamp > datetime('now', '-24 hours')
+    `).first() as any
+    
+    const requestsLast24h = await db.prepare(`
+      SELECT COUNT(*) as count FROM sessions 
+      WHERE created_at > datetime('now', '-24 hours')
+    `).first() as any
+    
+    const errorCount = errorsLast24h?.count || 0
+    const requestCount = requestsLast24h?.count || 1 // Avoid division by zero
+    const errorRate = (errorCount / Math.max(requestCount, 1)) * 100
+    const uptimePercent = Math.max(0, 100 - errorRate).toFixed(1)
+    const status = errorRate < 5 ? 'operational' : errorRate < 20 ? 'degraded' : 'down'
+    
+    // Activity metrics today
+    const sessionsToday = await db.prepare(`
+      SELECT COUNT(*) as count FROM sessions 
+      WHERE created_at > datetime('now', 'start of day')
+    `).first() as any
+    
+    const generationsToday = await db.prepare(`
+      SELECT COUNT(*) as count FROM generated_images 
+      WHERE created_at > datetime('now', 'start of day')
+    `).first() as any
+    
+    const signupsToday = await db.prepare(`
+      SELECT COUNT(*) as count FROM users 
+      WHERE created_at > datetime('now', 'start of day')
+    `).first() as any
+    
+    // AI usage today (from credit_transactions)
+    const flashUsageToday = await db.prepare(`
+      SELECT COUNT(*) as count FROM credit_transactions 
+      WHERE type = 'generation' AND credit_type = 'cheaper' 
+      AND created_at > datetime('now', 'start of day')
+    `).first() as any
+    
+    const proUsageToday = await db.prepare(`
+      SELECT COUNT(*) as count FROM credit_transactions 
+      WHERE type = 'generation' AND credit_type = 'better' 
+      AND created_at > datetime('now', 'start of day')
+    `).first() as any
+    
+    // Estimate costs (based on API pricing)
+    const flashCreditsUsed = flashUsageToday?.count || 0
+    const proCreditsUsed = proUsageToday?.count || 0
+    const estimatedCost = (flashCreditsUsed * 0.031) + (proCreditsUsed * 0.107)
+    
+    // Database size estimate (count images * avg size)
+    const imageCount = await db.prepare(`
+      SELECT COUNT(*) as count FROM generated_images WHERE image_data IS NOT NULL
+    `).first() as any
+    const estimatedStorageMB = ((imageCount?.count || 0) * 0.15).toFixed(1) // ~150KB per image avg
+    
+    return c.json({
+      success: true,
+      uptime: {
+        status,
+        last24hPercent: parseFloat(uptimePercent),
+        errors24h: errorCount,
+        requests24h: requestCount
+      },
+      activity: {
+        sessionsToday: sessionsToday?.count || 0,
+        generationsToday: generationsToday?.count || 0,
+        signupsToday: signupsToday?.count || 0
+      },
+      vertexAI: {
+        flashUsedToday: flashCreditsUsed,
+        proUsedToday: proCreditsUsed,
+        totalUsedToday: flashCreditsUsed + proCreditsUsed,
+        estimatedCostGBP: estimatedCost.toFixed(2)
+      },
+      storage: {
+        imagesStored: imageCount?.count || 0,
+        estimatedSizeMB: parseFloat(estimatedStorageMB)
+      }
+    })
+  } catch (error) {
+    console.error('System health error:', error)
+    return c.json({ success: false, error: 'Failed to get system health' }, 500)
+  }
+})
+
+// Admin API: Recent Activity (for real-time polling)
+app.get('/api/admin/recent-activity', async (c) => {
+  const user = c.get('user') as any
+  if (!user) return c.json({ success: false, error: 'Not authenticated' }, 401)
+  if (user.role !== 'admin') return c.json({ success: false, error: 'Not authorized' }, 403)
+  
+  const db = c.env.TESCO_DB
+  const since = c.req.query('since') // ISO timestamp
+  
+  try {
+    let sinceClause = "datetime('now', '-1 hour')" // Default: last hour
+    if (since) {
+      sinceClause = `'${since}'`
+    }
+    
+    // Recent signups
+    const recentSignups = await db.prepare(`
+      SELECT id, email, name, created_at, 'signup' as event_type FROM users 
+      WHERE created_at > ${sinceClause}
+      ORDER BY created_at DESC
+      LIMIT 20
+    `).all() as any
+    
+    // Recent generations (completed)
+    const recentGenerations = await db.prepare(`
+      SELECT gi.id, gi.created_at, s.user_id, u.email, 'generation' as event_type
+      FROM generated_images gi
+      JOIN sessions s ON gi.session_id = s.id
+      LEFT JOIN users u ON s.user_id = u.id
+      WHERE gi.status = 'completed' AND gi.created_at > ${sinceClause}
+      ORDER BY gi.created_at DESC
+      LIMIT 20
+    `).all() as any
+    
+    // Recent payments (from credit_transactions)
+    const recentPayments = await db.prepare(`
+      SELECT ct.id, ct.created_at, ct.amount, ct.user_id, u.email, ct.type as payment_type, 'payment' as event_type
+      FROM credit_transactions ct
+      LEFT JOIN users u ON ct.user_id = u.id
+      WHERE ct.type IN ('subscription', 'topup') AND ct.created_at > ${sinceClause}
+      ORDER BY ct.created_at DESC
+      LIMIT 20
+    `).all() as any
+    
+    // Combine and sort all events
+    const allEvents = [
+      ...(recentSignups?.results || []).map((e: any) => ({
+        ...e,
+        event_type: 'signup',
+        icon: 'user-plus',
+        color: '#22C55E',
+        message: `New signup: ${e.email}`
+      })),
+      ...(recentGenerations?.results || []).map((e: any) => ({
+        ...e,
+        event_type: 'generation',
+        icon: 'image',
+        color: '#3B82F6',
+        message: `Generation: ${e.email || 'Guest'}`
+      })),
+      ...(recentPayments?.results || []).map((e: any) => ({
+        ...e,
+        event_type: 'payment',
+        icon: 'credit-card',
+        color: '#8B5CF6',
+        message: `Payment: ${e.email} (+${e.amount} credits)`
+      }))
+    ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    .slice(0, 30)
+    
+    return c.json({
+      success: true,
+      events: allEvents,
+      serverTime: new Date().toISOString()
+    })
+  } catch (error) {
+    console.error('Recent activity error:', error)
+    return c.json({ success: false, error: 'Failed to get recent activity' }, 500)
+  }
+})
+
 // API: Get all sessions (filtered by authenticated user)
 app.get('/api/sessions', async (c) => {
   try {
@@ -11003,6 +11180,22 @@ function getAdminDashboardPage(user: any) {
     .modal-close:hover { color: white; }
     .modal-body { padding: 24px; }
     
+    /* Modal Tabs */
+    .modal-tab {
+      padding: 8px 16px;
+      background: transparent;
+      border: none;
+      color: #71717A;
+      font-size: 12px;
+      cursor: pointer;
+      border-radius: 6px;
+      transition: all 0.2s;
+    }
+    .modal-tab:hover { background: #27272A; color: #A1A1AA; }
+    .modal-tab.active { background: #3B82F620; color: #60A5FA; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    
     .user-info-grid {
       display: grid;
       grid-template-columns: repeat(2, 1fr);
@@ -11243,16 +11436,29 @@ function getAdminDashboardPage(user: any) {
     
     <!-- Main Grid -->
     <div class="main-grid">
-      <!-- User Activity -->
+      <!-- Live Activity Feed -->
       <div class="panel">
         <div class="panel-header">
           <div class="panel-title">
-            <span class="icon" style="background: #22C55E20; color: #22C55E;">👥</span>
-            Recent Activity (7 days)
+            <span class="icon" style="background: #22C55E20; color: #22C55E;">🔴</span>
+            Live Activity
+          </div>
+          <span class="panel-badge" id="live-status" style="background: #22C55E20; color: #22C55E;">● Live</span>
+        </div>
+        <div class="panel-content" id="live-feed" style="max-height: 300px;">
+          <div class="empty-state">
+            <div class="icon">📡</div>
+            Waiting for activity...
+          </div>
+        </div>
+        <div style="padding: 12px 20px; border-top: 1px solid #27272A;">
+          <div class="panel-title" style="margin-bottom: 8px; font-size: 12px;">
+            <span class="icon" style="background: #3B82F620; color: #3B82F6; width: 20px; height: 20px; font-size: 10px;">📋</span>
+            Recent (7 days)
           </div>
           <span class="panel-badge" id="activity-count">0</span>
         </div>
-        <div class="panel-content" id="activity-feed">
+        <div class="panel-content" id="activity-feed" style="max-height: 250px;">
           <div class="empty-state">
             <div class="icon">📭</div>
             No recent activity
@@ -11291,8 +11497,58 @@ function getAdminDashboardPage(user: any) {
         </div>
       </div>
       
-      <!-- Error Log + Quick Actions -->
+      <!-- Error Log + System Health + Quick Actions -->
       <div style="display: flex; flex-direction: column; gap: 24px;">
+        <!-- System Health Widget -->
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">
+              <span class="icon" style="background: #10B98120; color: #10B981;">💚</span>
+              System Health
+            </div>
+            <span class="panel-badge" id="system-status">Loading...</span>
+          </div>
+          <div class="panel-content" style="max-height: none; padding: 16px;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+              <!-- Uptime -->
+              <div style="background: #27272A; padding: 12px; border-radius: 8px;">
+                <div style="font-size: 10px; color: #71717A; text-transform: uppercase; margin-bottom: 4px;">Uptime (24h)</div>
+                <div style="font-size: 20px; font-weight: 700; color: #22C55E;" id="health-uptime">--%</div>
+                <div style="font-size: 10px; color: #52525B;" id="health-errors">0 errors</div>
+              </div>
+              <!-- AI Usage -->
+              <div style="background: #27272A; padding: 12px; border-radius: 8px;">
+                <div style="font-size: 10px; color: #71717A; text-transform: uppercase; margin-bottom: 4px;">AI Today</div>
+                <div style="font-size: 20px; font-weight: 700; color: #3B82F6;" id="health-ai">0</div>
+                <div style="font-size: 10px; color: #52525B;" id="health-ai-cost">Est. £0.00</div>
+              </div>
+              <!-- Sessions -->
+              <div style="background: #27272A; padding: 12px; border-radius: 8px;">
+                <div style="font-size: 10px; color: #71717A; text-transform: uppercase; margin-bottom: 4px;">Sessions Today</div>
+                <div style="font-size: 20px; font-weight: 700; color: #8B5CF6;" id="health-sessions">0</div>
+                <div style="font-size: 10px; color: #52525B;" id="health-signups">0 signups</div>
+              </div>
+              <!-- Storage -->
+              <div style="background: #27272A; padding: 12px; border-radius: 8px;">
+                <div style="font-size: 10px; color: #71717A; text-transform: uppercase; margin-bottom: 4px;">Storage</div>
+                <div style="font-size: 20px; font-weight: 700; color: #F59E0B;" id="health-storage">0 MB</div>
+                <div style="font-size: 10px; color: #52525B;" id="health-images">0 images</div>
+              </div>
+            </div>
+            <!-- AI Usage Breakdown -->
+            <div style="margin-top: 12px; padding: 10px; background: #1F1F23; border-radius: 8px;">
+              <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 6px;">
+                <span style="color: #71717A;">Flash (Cheaper)</span>
+                <span style="color: #22C55E;" id="health-flash">0</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; font-size: 11px;">
+                <span style="color: #71717A;">Pro (Better)</span>
+                <span style="color: #8B5CF6;" id="health-pro">0</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        
         <div class="panel" style="flex: 1;">
           <div class="panel-header">
             <div class="panel-title">
@@ -11407,12 +11663,133 @@ function getAdminDashboardPage(user: any) {
     let dashboardData = null;
     let autoRefreshInterval = null;
     
+    let liveFeedInterval = null;
+    let lastActivityTime = null;
+    
     // Initialize
     document.addEventListener('DOMContentLoaded', () => {
       refreshDashboard();
-      // Auto-refresh every 30 seconds
+      loadSystemHealth();
+      // Auto-refresh dashboard every 30 seconds
       autoRefreshInterval = setInterval(refreshDashboard, 30000);
+      // Poll live feed every 10 seconds
+      liveFeedInterval = setInterval(pollLiveFeed, 10000);
+      // Refresh system health every 60 seconds
+      setInterval(loadSystemHealth, 60000);
     });
+    
+    // System Health
+    async function loadSystemHealth() {
+      try {
+        const res = await fetch('/api/admin/system-health');
+        const data = await res.json();
+        
+        if (data.success) {
+          // Update status badge
+          const statusEl = document.getElementById('system-status');
+          const statusColors = { operational: '#22C55E', degraded: '#F59E0B', down: '#EF4444' };
+          statusEl.textContent = data.uptime.status.charAt(0).toUpperCase() + data.uptime.status.slice(1);
+          statusEl.style.background = statusColors[data.uptime.status] + '20';
+          statusEl.style.color = statusColors[data.uptime.status];
+          
+          // Uptime
+          const uptimeEl = document.getElementById('health-uptime');
+          uptimeEl.textContent = data.uptime.last24hPercent + '%';
+          uptimeEl.style.color = data.uptime.last24hPercent >= 99 ? '#22C55E' : data.uptime.last24hPercent >= 95 ? '#F59E0B' : '#EF4444';
+          document.getElementById('health-errors').textContent = data.uptime.errors24h + ' errors / ' + data.uptime.requests24h + ' requests';
+          
+          // AI Usage
+          document.getElementById('health-ai').textContent = data.vertexAI.totalUsedToday;
+          document.getElementById('health-ai-cost').textContent = 'Est. £' + data.vertexAI.estimatedCostGBP;
+          document.getElementById('health-flash').textContent = data.vertexAI.flashUsedToday + ' images';
+          document.getElementById('health-pro').textContent = data.vertexAI.proUsedToday + ' images';
+          
+          // Activity
+          document.getElementById('health-sessions').textContent = data.activity.sessionsToday;
+          document.getElementById('health-signups').textContent = data.activity.signupsToday + ' signups';
+          
+          // Storage
+          document.getElementById('health-storage').textContent = data.storage.estimatedSizeMB + ' MB';
+          document.getElementById('health-images').textContent = data.storage.imagesStored.toLocaleString() + ' images';
+        }
+      } catch (error) {
+        console.error('Failed to load system health:', error);
+      }
+    }
+    
+    // Live Feed Polling
+    async function pollLiveFeed() {
+      try {
+        const url = lastActivityTime 
+          ? '/api/admin/recent-activity?since=' + encodeURIComponent(lastActivityTime)
+          : '/api/admin/recent-activity';
+        
+        const res = await fetch(url);
+        const data = await res.json();
+        
+        if (data.success && data.events && data.events.length > 0) {
+          updateLiveFeed(data.events);
+          lastActivityTime = data.serverTime;
+        }
+      } catch (error) {
+        console.error('Live feed error:', error);
+        // Update status to show connection issue
+        const statusEl = document.getElementById('live-status');
+        statusEl.textContent = '○ Reconnecting...';
+        statusEl.style.color = '#F59E0B';
+      }
+    }
+    
+    function updateLiveFeed(events) {
+      const feed = document.getElementById('live-feed');
+      
+      // Blink the live indicator
+      const statusEl = document.getElementById('live-status');
+      statusEl.style.color = '#22C55E';
+      statusEl.textContent = '● Live';
+      
+      if (!events || events.length === 0) return;
+      
+      let html = '';
+      events.slice(0, 15).forEach(event => {
+        const time = new Date(event.created_at);
+        const ago = getTimeAgo(time);
+        const iconMap = {
+          signup: { emoji: '🆕', color: '#22C55E' },
+          generation: { emoji: '🎨', color: '#3B82F6' },
+          payment: { emoji: '💳', color: '#8B5CF6' }
+        };
+        const icon = iconMap[event.event_type] || { emoji: '📌', color: '#71717A' };
+        
+        html += \`
+          <div class="activity-item" style="padding: 8px 0; border-bottom: 1px solid #27272A;">
+            <div style="width: 28px; height: 28px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 14px; background: \${icon.color}20;">
+              \${icon.emoji}
+            </div>
+            <div style="flex: 1; min-width: 0;">
+              <div style="font-size: 12px; color: white; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                \${event.message}
+              </div>
+            </div>
+            <div style="font-size: 10px; color: #52525B; white-space: nowrap;">
+              \${ago}
+            </div>
+          </div>
+        \`;
+      });
+      
+      feed.innerHTML = html || '<div class="empty-state"><div class="icon">📡</div>Waiting for activity...</div>';
+    }
+    
+    function getTimeAgo(date) {
+      const seconds = Math.floor((new Date() - date) / 1000);
+      if (seconds < 60) return seconds + 's ago';
+      const minutes = Math.floor(seconds / 60);
+      if (minutes < 60) return minutes + 'm ago';
+      const hours = Math.floor(minutes / 60);
+      if (hours < 24) return hours + 'h ago';
+      return Math.floor(hours / 24) + 'd ago';
+    }
     
     async function refreshDashboard() {
       const btn = document.getElementById('refresh-btn');
@@ -11767,6 +12144,8 @@ function getAdminDashboardPage(user: any) {
     }
     
     // Modal Functions
+    let currentUserData = null;
+    
     async function openUserModal(userId) {
       const modal = document.getElementById('user-modal');
       const body = document.getElementById('modal-body');
@@ -11780,59 +12159,84 @@ function getAdminDashboardPage(user: any) {
         const data = await res.json();
         
         if (data.success) {
+          currentUserData = data;
           const u = data.user;
           title.textContent = u.name || u.email;
           
           body.innerHTML = \`
-            <div class="user-info-grid">
-              <div class="info-item">
-                <div class="info-label">Email</div>
-                <div class="info-value">\${u.email}</div>
+            <!-- Tab Navigation -->
+            <div style="display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid #27272A; padding-bottom: 12px;">
+              <button class="modal-tab active" data-tab="overview" onclick="switchModalTab('overview')">👤 Overview</button>
+              <button class="modal-tab" data-tab="transactions" onclick="switchModalTab('transactions')">💳 Transactions</button>
+              <button class="modal-tab" data-tab="images" onclick="switchModalTab('images')">🖼️ Images</button>
+              <button class="modal-tab" data-tab="errors" onclick="switchModalTab('errors')">⚠️ Errors</button>
+            </div>
+            
+            <!-- Tab Content: Overview -->
+            <div id="tab-overview" class="tab-content active">
+              <div class="user-info-grid">
+                <div class="info-item">
+                  <div class="info-label">Email</div>
+                  <div class="info-value">\${u.email}</div>
+                </div>
+                <div class="info-item">
+                  <div class="info-label">Name</div>
+                  <div class="info-value">\${u.name || 'Not set'}</div>
+                </div>
+                <div class="info-item">
+                  <div class="info-label">Plan</div>
+                  <div class="info-value"><span class="plan-badge \${u.subscription_plan}">\${u.subscription_plan}</span></div>
+                </div>
+                <div class="info-item">
+                  <div class="info-label">Status</div>
+                  <div class="info-value">\${u.is_banned ? '🚫 Banned' : '✅ Active'}</div>
+                </div>
+                <div class="info-item">
+                  <div class="info-label">Standard Credits</div>
+                  <div class="info-value" style="color: #22C55E; font-size: 18px; font-weight: 700;">\${u.cheaper_credits}</div>
+                </div>
+                <div class="info-item">
+                  <div class="info-label">Premium Credits</div>
+                  <div class="info-value" style="color: #8B5CF6; font-size: 18px; font-weight: 700;">\${u.better_credits}</div>
+                </div>
+                <div class="info-item">
+                  <div class="info-label">Joined</div>
+                  <div class="info-value">\${new Date(u.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
+                </div>
+                <div class="info-item">
+                  <div class="info-label">Auth Method</div>
+                  <div class="info-value">\${u.google_id ? '🔵 Google' : '📧 Email'}</div>
+                </div>
               </div>
-              <div class="info-item">
-                <div class="info-label">Name</div>
-                <div class="info-value">\${u.name || 'Not set'}</div>
-              </div>
-              <div class="info-item">
-                <div class="info-label">Plan</div>
-                <div class="info-value"><span class="plan-badge \${u.subscription_plan}">\${u.subscription_plan}</span></div>
-              </div>
-              <div class="info-item">
-                <div class="info-label">Status</div>
-                <div class="info-value">\${u.is_banned ? '🚫 Banned' : '✅ Active'}</div>
-              </div>
-              <div class="info-item">
-                <div class="info-label">Standard Credits</div>
-                <div class="info-value">\${u.cheaper_credits}</div>
-              </div>
-              <div class="info-item">
-                <div class="info-label">Premium Credits</div>
-                <div class="info-value">\${u.better_credits}</div>
-              </div>
-              <div class="info-item">
-                <div class="info-label">Joined</div>
-                <div class="info-value">\${new Date(u.created_at).toLocaleDateString()}</div>
-              </div>
-              <div class="info-item">
-                <div class="info-label">Auth Method</div>
-                <div class="info-value">\${u.google_id ? '🔵 Google' : '📧 Email'}</div>
+              
+              <div class="modal-actions" style="margin-top: 20px;">
+                <button class="modal-btn primary" onclick="addCreditsForUser('\${u.id}', '\${u.email}')">
+                  💰 Add Credits
+                </button>
+                <button class="modal-btn \${u.is_banned ? 'secondary' : 'danger'}" onclick="toggleBan('\${u.id}', \${u.is_banned ? 'false' : 'true'})">
+                  \${u.is_banned ? '✅ Unban User' : '🚫 Ban User'}
+                </button>
               </div>
             </div>
             
-            <div class="modal-section">
-              <div class="modal-section-title">📋 Recent Transactions</div>
-              \${renderTransactions(data.transactions)}
+            <!-- Tab Content: Transactions -->
+            <div id="tab-transactions" class="tab-content" style="display: none;">
+              \${renderTransactionsFull(data.transactions)}
             </div>
             
-            <div class="modal-actions">
-              <button class="modal-btn primary" onclick="addCreditsForUser('\${u.id}', '\${u.email}')">
-                💰 Add Credits
-              </button>
-              <button class="modal-btn \${u.is_banned ? 'secondary' : 'danger'}" onclick="toggleBan('\${u.id}', \${u.is_banned ? 'false' : 'true'})">
-                \${u.is_banned ? '✅ Unban User' : '🚫 Ban User'}
-              </button>
+            <!-- Tab Content: Images -->
+            <div id="tab-images" class="tab-content" style="display: none;">
+              \${renderSessionsGallery(data.sessions)}
+            </div>
+            
+            <!-- Tab Content: Errors -->
+            <div id="tab-errors" class="tab-content" style="display: none;">
+              <div id="user-errors-content">Loading errors...</div>
             </div>
           \`;
+          
+          // Load user errors
+          loadUserErrors(userId);
         } else {
           body.innerHTML = '<div class="empty-state">Failed to load user details</div>';
         }
@@ -11841,17 +12245,113 @@ function getAdminDashboardPage(user: any) {
       }
     }
     
-    function renderTransactions(transactions) {
+    function switchModalTab(tabName) {
+      // Update tab buttons
+      document.querySelectorAll('.modal-tab').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tab === tabName);
+      });
+      
+      // Update tab content
+      document.querySelectorAll('.tab-content').forEach(content => {
+        content.style.display = content.id === 'tab-' + tabName ? 'block' : 'none';
+      });
+    }
+    
+    function renderTransactionsFull(transactions) {
       if (!transactions || transactions.length === 0) {
-        return '<div class="empty-state" style="padding: 20px 0;">No transactions</div>';
+        return '<div class="empty-state" style="padding: 40px 0;"><div class="icon">📭</div>No transactions yet</div>';
       }
       
-      return '<div style="max-height: 200px; overflow-y: auto;">' + transactions.slice(0, 10).map(t => \`
-        <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #27272A; font-size: 12px;">
-          <span style="color: #A1A1AA;">\${t.type} (\${t.credit_type})</span>
-          <span style="color: \${t.amount > 0 ? '#22C55E' : '#EF4444'};">\${t.amount > 0 ? '+' : ''}\${t.amount}</span>
+      const typeLabels = {
+        'signup_bonus': '🎁 Signup Bonus',
+        'subscription': '💳 Subscription',
+        'topup': '💰 Top-up',
+        'generation': '🎨 Generation',
+        'refund': '↩️ Refund'
+      };
+      
+      return '<div style="max-height: 400px; overflow-y: auto;">' + transactions.map(t => {
+        const date = new Date(t.created_at);
+        const dateStr = date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+        const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        
+        return \`
+          <div style="display: flex; align-items: center; gap: 12px; padding: 12px; border-bottom: 1px solid #27272A;">
+            <div style="width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 14px; background: \${t.amount > 0 ? '#22C55E20' : '#EF444420'};">
+              \${t.amount > 0 ? '📥' : '📤'}
+            </div>
+            <div style="flex: 1;">
+              <div style="font-size: 13px; color: white; font-weight: 500;">\${typeLabels[t.type] || t.type}</div>
+              <div style="font-size: 11px; color: #71717A;">\${t.credit_type === 'better' ? 'Premium' : 'Standard'} \${t.description ? '- ' + t.description : ''}</div>
+            </div>
+            <div style="text-align: right;">
+              <div style="font-size: 14px; font-weight: 600; color: \${t.amount > 0 ? '#22C55E' : '#EF4444'};">\${t.amount > 0 ? '+' : ''}\${t.amount}</div>
+              <div style="font-size: 10px; color: #52525B;">\${dateStr} \${timeStr}</div>
+            </div>
+          </div>
+        \`;
+      }).join('') + '</div>';
+    }
+    
+    function renderSessionsGallery(sessions) {
+      if (!sessions || sessions.length === 0) {
+        return '<div class="empty-state" style="padding: 40px 0;"><div class="icon">🖼️</div>No images generated yet</div>';
+      }
+      
+      return \`
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; max-height: 400px; overflow-y: auto;">
+          \${sessions.map(s => {
+            const thumb = s.thumbnail || s.original_image;
+            const date = new Date(s.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+            return \`
+              <div style="background: #27272A; border-radius: 8px; overflow: hidden;">
+                <div style="width: 100%; aspect-ratio: 1; background: #1F1F23; display: flex; align-items: center; justify-content: center;">
+                  \${thumb ? \`<img src="\${thumb.startsWith('data:') ? thumb : 'data:image/jpeg;base64,' + thumb}" style="width: 100%; height: 100%; object-fit: cover;">\` : \`<span style="color: #52525B;">🖼️</span>\`}
+                </div>
+                <div style="padding: 8px;">
+                  <div style="font-size: 11px; color: white; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">\${s.product_name || 'Untitled'}</div>
+                  <div style="font-size: 10px; color: #52525B;">\${date} - \${s.model || 'flash'}</div>
+                </div>
+              </div>
+            \`;
+          }).join('')}
         </div>
-      \`).join('') + '</div>';
+      \`;
+    }
+    
+    async function loadUserErrors(userId) {
+      try {
+        // For now, we'll fetch errors from the dashboard data if available
+        const errorsEl = document.getElementById('user-errors-content');
+        const allErrors = dashboardData?.recentErrors || [];
+        const userErrors = allErrors.filter(e => e.user_id === userId);
+        
+        if (userErrors.length === 0) {
+          errorsEl.innerHTML = '<div class="empty-state" style="padding: 40px 0;"><div class="icon">✨</div>No errors for this user</div>';
+          return;
+        }
+        
+        errorsEl.innerHTML = '<div style="max-height: 400px; overflow-y: auto;">' + userErrors.map(e => {
+          const date = new Date(e.timestamp);
+          const dateStr = date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+          const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          const severityColors = { critical: '#EF4444', warning: '#F59E0B', info: '#22C55E' };
+          
+          return \`
+            <div style="padding: 12px; border-bottom: 1px solid #27272A;">
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                <span style="width: 8px; height: 8px; border-radius: 50%; background: \${severityColors[e.severity] || '#71717A'};"></span>
+                <span style="font-size: 12px; color: white; font-weight: 500;">\${e.error_type}</span>
+                <span style="font-size: 10px; color: #52525B; margin-left: auto;">\${dateStr} \${timeStr}</span>
+              </div>
+              <div style="font-size: 11px; color: #A1A1AA; padding-left: 16px;">\${e.error_message || 'No message'}</div>
+              <div style="font-size: 10px; color: #52525B; padding-left: 16px; margin-top: 2px;">\${e.endpoint || ''}</div>
+            </div>
+          \`;
+        }).join('') + '</div>';
+      } catch (error) {
+        document.getElementById('user-errors-content').innerHTML = '<div class="empty-state">Failed to load errors</div>';
+      }
     }
     
     function closeModal() {
