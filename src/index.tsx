@@ -415,8 +415,7 @@ async function sendVerificationEmail(apiKey: string, to: string, code: string, n
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        // Use Resend sandbox until shopshot.ai domain is verified in Resend
-        from: 'ShopShot <onboarding@resend.dev>',
+        from: 'ShopShot <noreply@shopshot.co.uk>',
         to: [to],
         subject: 'Verify your ShopShot account',
         html: `
@@ -481,7 +480,7 @@ async function sendPasswordResetEmail(apiKey: string, to: string, resetLink: str
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        from: 'ShopShot <onboarding@resend.dev>',
+        from: 'ShopShot <noreply@shopshot.co.uk>',
         to: [to],
         subject: 'Reset your ShopShot password',
         html: `
@@ -1429,7 +1428,7 @@ app.post('/api/contact', async (c) => {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        from: 'ShopShot Contact <noreply@shopshot.ai>',
+        from: 'ShopShot Contact <noreply@shopshot.co.uk>',
         to: ['support@shopshot.co.uk'],
         subject: '[ShopShot Contact] ' + (subject || 'General Inquiry') + ' - from ' + name,
         html: '<h2>New Contact Form Submission</h2>' +
