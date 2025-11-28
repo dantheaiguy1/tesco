@@ -407,7 +407,8 @@ async function sendVerificationEmail(apiKey: string, to: string, code: string, n
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        from: 'ShopShot <noreply@shopshot.ai>',
+        // Use Resend sandbox until shopshot.ai domain is verified in Resend
+        from: 'ShopShot <onboarding@resend.dev>',
         to: [to],
         subject: 'Verify your ShopShot account',
         html: `
