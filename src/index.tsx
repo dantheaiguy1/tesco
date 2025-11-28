@@ -3881,7 +3881,7 @@ function getMarketingPage() {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ShopShot - Turn Any Product Photo Into Professional Shots in Seconds</title>
-  <meta name="description" content="AI-powered product photography. Upload any photo, get 10 professional variations in 36 seconds. Perfect for eBay, Etsy, Amazon sellers.">
+  <meta name="description" content="AI-powered product photography. Upload any photo, get 10 professional variations in seconds. Perfect for eBay, Etsy, Amazon sellers.">
   <link rel="canonical" href="https://www.shopshot.co.uk/">
   <meta property="og:title" content="ShopShot - AI Product Photography">
   <meta property="og:description" content="Turn any product photo into 10 professional shots in seconds. Perfect for eBay, Etsy, Amazon sellers.">
@@ -4807,7 +4807,7 @@ function getMarketingPage() {
       <h1>Turn Any Product Photo Into <span class="hero-highlight">10 Professional Shots</span> in Seconds</h1>
       <p>Upload a single photo. Get hero shots, lifestyle images, flat-lays, and more. No photography skills needed. Perfect for online sellers.</p>
       <div class="hero-ctas">
-        <a href="/app" class="btn-primary">
+        <a href="/register" class="btn-primary">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
           Start Free - 15 Credits
         </a>
@@ -4917,7 +4917,7 @@ function getMarketingPage() {
       <div class="feature-card">
         <div class="feature-icon">⚡</div>
         <h3>Lightning Fast</h3>
-        <p>Get all 10 professional variations in about 36 seconds. Faster than making a cup of coffee.</p>
+        <p>Get all 10 professional variations in about 25 seconds. Faster than making a cup of coffee.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">🎯</div>
@@ -5087,7 +5087,7 @@ function getMarketingPage() {
   <section class="final-cta">
     <h2>Ready to Transform Your Product Photos?</h2>
     <p>Join thousands of sellers using ShopShot to create scroll-stopping product images.</p>
-    <a href="/app" class="btn-primary">
+    <a href="/register" class="btn-primary">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
       Start Free - No Credit Card
     </a>
@@ -6755,7 +6755,7 @@ function getHomePage(user?: User) {
       
       <div class="upload-header">
         <h1>Upload Your Product Photo</h1>
-        <p>Even crumpled product photos work - 10 variations in 36 seconds</p>
+        <p>Even crumpled product photos work - 10 variations in ~25 seconds</p>
       </div>
 
       <!-- Upload Zone -->
@@ -6771,7 +6771,7 @@ function getHomePage(user?: User) {
             </svg>
           </div>
           <div class="upload-primary">Drag & Drop or Click to Upload</div>
-          <div class="upload-secondary">Even crumpled product photos work - 10 variations in 36 seconds</div>
+          <div class="upload-secondary">Even crumpled product photos work - 10 variations in ~25 seconds</div>
           <div class="upload-formats">JPG, PNG, WebP up to 10MB</div>
         </div>
         <div id="upload-preview" class="image-preview" style="display:none">
@@ -7003,8 +7003,8 @@ function getHomePage(user?: User) {
     ];
 
     const MODEL_INFO = {
-      nano: { name: 'Pro', time: '~36s' },
-      flash: { name: 'Standard', time: '~15s' }
+      nano: { name: 'Pro', time: '~10-15 min' },
+      flash: { name: 'Standard', time: '~25s' }
     };
 
     // Sidebar

@@ -104,7 +104,7 @@ export function getPrivacyPage(): string {
       <p class="text-gray-500 mb-8">Last Updated: November 28, 2025</p>
       
       <div class="legal-content text-gray-600">
-        <p>ShopShot Ltd ("we," "us," or "our") operates shopshot.pages.dev (the "Service"). This Privacy Policy explains how we collect, use, and protect your personal information.</p>
+        <p>ShopShot Ltd ("we," "us," or "our") operates www.shopshot.co.uk (the "Service"). This Privacy Policy explains how we collect, use, and protect your personal information.</p>
         
         <div class="info-box">
           <p class="font-semibold text-gray-900 mb-2">Data Controller:</p>
@@ -819,7 +819,7 @@ export function getCookiesPage(): string {
       <p class="text-gray-500 mb-8">Last Updated: November 28, 2025</p>
       
       <div class="legal-content text-gray-600">
-        <p>This Cookie Policy explains how ShopShot ("we," "us," or "our") uses cookies and similar technologies on shopshot.pages.dev (the "Service").</p>
+        <p>This Cookie Policy explains how ShopShot ("we," "us," or "our") uses cookies and similar technologies on www.shopshot.co.uk (the "Service").</p>
         
         <h2>1. What Are Cookies?</h2>
         <p>Cookies are small text files stored on your device when you visit websites. They help websites remember your preferences and improve user experience.</p>
