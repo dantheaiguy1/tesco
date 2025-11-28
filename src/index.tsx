@@ -462,6 +462,37 @@ async function sendVerificationEmail(apiKey: string, to: string, code: string, n
 }
 
 // ============================================================================
+// ERROR LOGGING HELPER
+// ============================================================================
+async function logError(
+  db: D1Database,
+  errorType: string,
+  errorMessage: string,
+  options: {
+    userId?: string;
+    endpoint?: string;
+    stackTrace?: string;
+    severity?: 'info' | 'warning' | 'critical';
+  } = {}
+): Promise<void> {
+  try {
+    await db.prepare(`
+      INSERT INTO error_logs (error_type, error_message, user_id, endpoint, stack_trace, severity)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).bind(
+      errorType,
+      errorMessage,
+      options.userId || null,
+      options.endpoint || null,
+      options.stackTrace || null,
+      options.severity || 'warning'
+    ).run();
+  } catch (e) {
+    console.error('Failed to log error:', e);
+  }
+}
+
+// ============================================================================
 // GOOGLE OAUTH HELPERS
 // ============================================================================
 function getGoogleAuthUrl(clientId: string, redirectUri: string, state: string): string {
@@ -846,6 +877,16 @@ async function ensureDatabase(db: D1Database) {
       // For Google OAuth users who don't have a password
     } catch (e) { /* Column exists */ }
     
+    // Add role column for admin access
+    try {
+      await db.prepare("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'").run();
+    } catch (e) { /* Column exists */ }
+    
+    // Add is_banned column for user management
+    try {
+      await db.prepare('ALTER TABLE users ADD COLUMN is_banned INTEGER NOT NULL DEFAULT 0').run();
+    } catch (e) { /* Column exists */ }
+    
     // Credit transactions table (dual credit system)
     await db.prepare(`
       CREATE TABLE IF NOT EXISTS credit_transactions (
@@ -895,6 +936,33 @@ async function ensureDatabase(db: D1Database) {
       )
     `).run()
     
+    // Error logs table (for admin dashboard)
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS error_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+        error_type TEXT NOT NULL,
+        error_message TEXT,
+        user_id TEXT,
+        endpoint TEXT,
+        stack_trace TEXT,
+        severity TEXT DEFAULT 'warning' CHECK (severity IN ('info', 'warning', 'critical'))
+      )
+    `).run()
+    
+    // Admin actions audit log
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS admin_actions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        admin_id TEXT NOT NULL,
+        action_type TEXT NOT NULL,
+        target_user_id TEXT,
+        details TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (admin_id) REFERENCES users(id)
+      )
+    `).run()
+    
     // Create indexes
     await db.prepare('CREATE INDEX IF NOT EXISTS idx_sessions_created_at ON sessions(created_at DESC)').run()
     await db.prepare('CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status)').run()
@@ -904,6 +972,10 @@ async function ensureDatabase(db: D1Database) {
     await db.prepare('CREATE INDEX IF NOT EXISTS idx_users_stripe_customer ON users(stripe_customer_id)').run()
     await db.prepare('CREATE INDEX IF NOT EXISTS idx_credit_transactions_user ON credit_transactions(user_id)').run()
     await db.prepare('CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id)').run()
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_error_logs_timestamp ON error_logs(timestamp DESC)').run()
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_error_logs_user ON error_logs(user_id)').run()
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_admin_actions_admin ON admin_actions(admin_id)').run()
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_users_role ON users(role)').run()
     
     // Migration: Add new columns to sessions if they don't exist
     try { await db.prepare('ALTER TABLE sessions ADD COLUMN model TEXT DEFAULT \'nano\'').run() } catch (e) {}
@@ -1119,6 +1191,339 @@ app.get('/account', (c) => {
   const user = c.get('user')
   if (!user) return c.redirect('/login')
   return c.html(getAccountPage(user))
+})
+
+// ============================================================================
+// ADMIN DASHBOARD ROUTES
+// ============================================================================
+
+// Admin dashboard page
+app.get('/admin', (c) => {
+  const user = c.get('user') as any
+  if (!user) return c.redirect('/login?redirect=/admin')
+  if (user.role !== 'admin') return c.redirect('/?error=unauthorized')
+  return c.html(getAdminDashboardPage(user))
+})
+
+// Admin API: Get dashboard data
+app.get('/api/admin/dashboard', async (c) => {
+  const user = c.get('user') as any
+  if (!user) return c.json({ success: false, error: 'Not authenticated' }, 401)
+  if (user.role !== 'admin') return c.json({ success: false, error: 'Not authorized' }, 403)
+  
+  const db = c.env.TESCO_DB
+  
+  try {
+    // KPIs
+    const totalUsers = await db.prepare('SELECT COUNT(*) as count FROM users').first() as any
+    const activeMembers = await db.prepare("SELECT COUNT(*) as count FROM users WHERE subscription_status = 'active'").first() as any
+    const mrr = await db.prepare(`
+      SELECT SUM(
+        CASE 
+          WHEN subscription_plan = 'standard' THEN 39.99
+          WHEN subscription_plan = 'pro' THEN 59.99
+          ELSE 0
+        END
+      ) as mrr FROM users WHERE subscription_status = 'active'
+    `).first() as any
+    
+    const creditsConsumed = await db.prepare(`
+      SELECT SUM(ABS(amount)) as consumed FROM credit_transactions 
+      WHERE amount < 0 AND created_at > datetime('now', '-30 days')
+    `).first() as any
+    
+    // Today's activity
+    const todayJoins = await db.prepare(`
+      SELECT id, name, email, created_at, subscription_plan FROM users 
+      WHERE date(created_at) = date('now')
+      ORDER BY created_at DESC
+      LIMIT 50
+    `).all() as any
+    
+    const todayCancellations = await db.prepare(`
+      SELECT id, name, email, updated_at, subscription_plan FROM users 
+      WHERE subscription_status = 'canceled' AND date(updated_at) = date('now')
+      ORDER BY updated_at DESC
+      LIMIT 50
+    `).all() as any
+    
+    // Revenue by plan
+    const planBreakdown = await db.prepare(`
+      SELECT 
+        subscription_plan as plan,
+        COUNT(*) as count,
+        SUM(CASE 
+          WHEN subscription_plan = 'standard' THEN 39.99
+          WHEN subscription_plan = 'pro' THEN 59.99
+          ELSE 0
+        END) as revenue
+      FROM users 
+      WHERE subscription_status = 'active' OR subscription_plan = 'free'
+      GROUP BY subscription_plan
+    `).all() as any
+    
+    // Recent errors
+    const recentErrors = await db.prepare(`
+      SELECT e.*, u.email as user_email FROM error_logs e
+      LEFT JOIN users u ON e.user_id = u.id
+      WHERE e.timestamp > datetime('now', '-24 hours')
+      ORDER BY e.timestamp DESC
+      LIMIT 50
+    `).all() as any
+    
+    // Recent transactions
+    const recentTransactions = await db.prepare(`
+      SELECT ct.*, u.email as user_email FROM credit_transactions ct
+      LEFT JOIN users u ON ct.user_id = u.id
+      ORDER BY ct.created_at DESC
+      LIMIT 20
+    `).all() as any
+    
+    // Daily revenue for chart (last 30 days)
+    const dailyRevenue = await db.prepare(`
+      SELECT date(created_at) as date, 
+        SUM(CASE WHEN amount > 0 AND type IN ('topup', 'subscription') THEN amount * 0.04 ELSE 0 END) as revenue,
+        COUNT(*) as transactions
+      FROM credit_transactions 
+      WHERE created_at > datetime('now', '-30 days')
+      GROUP BY date(created_at)
+      ORDER BY date ASC
+    `).all() as any
+    
+    return c.json({
+      success: true,
+      kpis: {
+        totalUsers: totalUsers?.count || 0,
+        activeMembers: activeMembers?.count || 0,
+        mrr: mrr?.mrr || 0,
+        creditsConsumed: creditsConsumed?.consumed || 0
+      },
+      todayJoins: todayJoins?.results || [],
+      todayCancellations: todayCancellations?.results || [],
+      planBreakdown: planBreakdown?.results || [],
+      recentErrors: recentErrors?.results || [],
+      recentTransactions: recentTransactions?.results || [],
+      dailyRevenue: dailyRevenue?.results || []
+    })
+  } catch (error) {
+    console.error('Admin dashboard error:', error)
+    return c.json({ success: false, error: 'Failed to load dashboard data' }, 500)
+  }
+})
+
+// Admin API: Get user details
+app.get('/api/admin/users/:id', async (c) => {
+  const user = c.get('user') as any
+  if (!user) return c.json({ success: false, error: 'Not authenticated' }, 401)
+  if (user.role !== 'admin') return c.json({ success: false, error: 'Not authorized' }, 403)
+  
+  const db = c.env.TESCO_DB
+  const userId = c.req.param('id')
+  
+  try {
+    const targetUser = await db.prepare(`
+      SELECT id, email, name, cheaper_credits, better_credits, subscription_status, 
+             subscription_plan, created_at, updated_at, role, is_banned, google_id
+      FROM users WHERE id = ?
+    `).bind(userId).first()
+    
+    if (!targetUser) {
+      return c.json({ success: false, error: 'User not found' }, 404)
+    }
+    
+    const transactions = await db.prepare(`
+      SELECT * FROM credit_transactions WHERE user_id = ? ORDER BY created_at DESC LIMIT 50
+    `).bind(userId).all() as any
+    
+    const sessions = await db.prepare(`
+      SELECT * FROM sessions WHERE user_id = ? ORDER BY created_at DESC LIMIT 20
+    `).bind(userId).all() as any
+    
+    return c.json({
+      success: true,
+      user: targetUser,
+      transactions: transactions?.results || [],
+      sessions: sessions?.results || []
+    })
+  } catch (error) {
+    console.error('Admin user details error:', error)
+    return c.json({ success: false, error: 'Failed to load user details' }, 500)
+  }
+})
+
+// Admin API: Search users
+app.get('/api/admin/users', async (c) => {
+  const user = c.get('user') as any
+  if (!user) return c.json({ success: false, error: 'Not authenticated' }, 401)
+  if (user.role !== 'admin') return c.json({ success: false, error: 'Not authorized' }, 403)
+  
+  const db = c.env.TESCO_DB
+  const search = c.req.query('search') || ''
+  const limit = parseInt(c.req.query('limit') || '50')
+  
+  try {
+    let users
+    if (search) {
+      users = await db.prepare(`
+        SELECT id, email, name, cheaper_credits, better_credits, subscription_status, 
+               subscription_plan, created_at, role, is_banned
+        FROM users 
+        WHERE email LIKE ? OR name LIKE ?
+        ORDER BY created_at DESC
+        LIMIT ?
+      `).bind(`%${search}%`, `%${search}%`, limit).all() as any
+    } else {
+      users = await db.prepare(`
+        SELECT id, email, name, cheaper_credits, better_credits, subscription_status, 
+               subscription_plan, created_at, role, is_banned
+        FROM users 
+        ORDER BY created_at DESC
+        LIMIT ?
+      `).bind(limit).all() as any
+    }
+    
+    return c.json({ success: true, users: users?.results || [] })
+  } catch (error) {
+    console.error('Admin user search error:', error)
+    return c.json({ success: false, error: 'Failed to search users' }, 500)
+  }
+})
+
+// Admin API: Add credits to user
+app.post('/api/admin/users/:id/credits', async (c) => {
+  const user = c.get('user') as any
+  if (!user) return c.json({ success: false, error: 'Not authenticated' }, 401)
+  if (user.role !== 'admin') return c.json({ success: false, error: 'Not authorized' }, 403)
+  
+  const db = c.env.TESCO_DB
+  const userId = c.req.param('id')
+  const { amount, creditType, reason } = await c.req.json()
+  
+  if (!amount || !creditType) {
+    return c.json({ success: false, error: 'Amount and credit type required' }, 400)
+  }
+  
+  try {
+    const targetUser = await db.prepare('SELECT * FROM users WHERE id = ?').bind(userId).first() as any
+    if (!targetUser) {
+      return c.json({ success: false, error: 'User not found' }, 404)
+    }
+    
+    const column = creditType === 'better' ? 'better_credits' : 'cheaper_credits'
+    const newBalance = (targetUser[column] || 0) + parseInt(amount)
+    
+    await db.prepare(`UPDATE users SET ${column} = ? WHERE id = ?`).bind(newBalance, userId).run()
+    
+    await db.prepare(`
+      INSERT INTO credit_transactions (id, user_id, amount, balance_after, credit_type, type, description)
+      VALUES (?, ?, ?, ?, ?, 'refund', ?)
+    `).bind(generateId(), userId, parseInt(amount), newBalance, creditType, reason || 'Admin adjustment').run()
+    
+    // Log admin action
+    await db.prepare(`
+      INSERT INTO admin_actions (admin_id, action_type, target_user_id, details)
+      VALUES (?, 'add_credits', ?, ?)
+    `).bind(user.id, userId, JSON.stringify({ amount, creditType, reason })).run()
+    
+    return c.json({ success: true, newBalance })
+  } catch (error) {
+    console.error('Admin add credits error:', error)
+    return c.json({ success: false, error: 'Failed to add credits' }, 500)
+  }
+})
+
+// Admin API: Ban/unban user
+app.post('/api/admin/users/:id/ban', async (c) => {
+  const user = c.get('user') as any
+  if (!user) return c.json({ success: false, error: 'Not authenticated' }, 401)
+  if (user.role !== 'admin') return c.json({ success: false, error: 'Not authorized' }, 403)
+  
+  const db = c.env.TESCO_DB
+  const userId = c.req.param('id')
+  const { banned, reason } = await c.req.json()
+  
+  try {
+    await db.prepare('UPDATE users SET is_banned = ? WHERE id = ?').bind(banned ? 1 : 0, userId).run()
+    
+    // Invalidate user sessions if banning
+    if (banned) {
+      await db.prepare('DELETE FROM user_sessions WHERE user_id = ?').bind(userId).run()
+    }
+    
+    // Log admin action
+    await db.prepare(`
+      INSERT INTO admin_actions (admin_id, action_type, target_user_id, details)
+      VALUES (?, ?, ?, ?)
+    `).bind(user.id, banned ? 'ban_user' : 'unban_user', userId, JSON.stringify({ reason })).run()
+    
+    return c.json({ success: true })
+  } catch (error) {
+    console.error('Admin ban user error:', error)
+    return c.json({ success: false, error: 'Failed to update user' }, 500)
+  }
+})
+
+// Admin API: Update user role
+app.post('/api/admin/users/:id/role', async (c) => {
+  const user = c.get('user') as any
+  if (!user) return c.json({ success: false, error: 'Not authenticated' }, 401)
+  if (user.role !== 'admin') return c.json({ success: false, error: 'Not authorized' }, 403)
+  
+  const db = c.env.TESCO_DB
+  const userId = c.req.param('id')
+  const { role } = await c.req.json()
+  
+  if (!['user', 'admin'].includes(role)) {
+    return c.json({ success: false, error: 'Invalid role' }, 400)
+  }
+  
+  try {
+    await db.prepare('UPDATE users SET role = ? WHERE id = ?').bind(role, userId).run()
+    
+    // Log admin action
+    await db.prepare(`
+      INSERT INTO admin_actions (admin_id, action_type, target_user_id, details)
+      VALUES (?, 'change_role', ?, ?)
+    `).bind(user.id, userId, JSON.stringify({ role })).run()
+    
+    return c.json({ success: true })
+  } catch (error) {
+    console.error('Admin change role error:', error)
+    return c.json({ success: false, error: 'Failed to update role' }, 500)
+  }
+})
+
+// Admin API: Export users CSV
+app.get('/api/admin/export/users', async (c) => {
+  const user = c.get('user') as any
+  if (!user) return c.json({ success: false, error: 'Not authenticated' }, 401)
+  if (user.role !== 'admin') return c.json({ success: false, error: 'Not authorized' }, 403)
+  
+  const db = c.env.TESCO_DB
+  
+  try {
+    const users = await db.prepare(`
+      SELECT email, name, cheaper_credits, better_credits, subscription_status, 
+             subscription_plan, created_at
+      FROM users 
+      ORDER BY created_at DESC
+    `).all() as any
+    
+    const csvRows = ['Email,Name,Cheaper Credits,Better Credits,Status,Plan,Created']
+    for (const u of users?.results || []) {
+      csvRows.push(`"${u.email}","${u.name || ''}",${u.cheaper_credits},${u.better_credits},"${u.subscription_status}","${u.subscription_plan}","${u.created_at}"`)
+    }
+    
+    return new Response(csvRows.join('\n'), {
+      headers: {
+        'Content-Type': 'text/csv',
+        'Content-Disposition': 'attachment; filename="shopshot_users.csv"'
+      }
+    })
+  } catch (error) {
+    console.error('Admin export error:', error)
+    return c.json({ success: false, error: 'Failed to export users' }, 500)
+  }
 })
 
 // API: Get all sessions (filtered by authenticated user)
@@ -9689,6 +10094,1215 @@ function getDashboardPage(user: User) {
   </script>
 </body>
 </html>`
+}
+
+// ============================================================================
+// ADMIN DASHBOARD PAGE
+// ============================================================================
+function getAdminDashboardPage(user: any) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Dashboard - ShopShot</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'><stop offset='0%25' style='stop-color:%233B82F6'/><stop offset='100%25' style='stop-color:%238B5CF6'/></linearGradient></defs><rect width='100' height='100' rx='22' fill='url(%23g)'/><circle cx='50' cy='50' r='28' fill='none' stroke='white' stroke-width='6'/><circle cx='50' cy='50' r='12' fill='white'/></svg>">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    * { font-family: 'Inter', system-ui, sans-serif; box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0F0F10; min-height: 100vh; color: #E5E7EB; }
+    
+    /* Header */
+    .admin-header {
+      background: linear-gradient(180deg, #18181B 0%, #0F0F10 100%);
+      border-bottom: 1px solid #27272A;
+      padding: 16px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .admin-title {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 20px;
+      font-weight: 700;
+      color: white;
+    }
+    .admin-title span {
+      background: linear-gradient(135deg, #3B82F6, #8B5CF6);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .header-actions {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+    .refresh-btn {
+      background: #27272A;
+      border: 1px solid #3F3F46;
+      color: #A1A1AA;
+      padding: 8px 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+    .refresh-btn:hover { background: #3F3F46; color: white; }
+    .refresh-btn.loading { opacity: 0.7; pointer-events: none; }
+    .back-link {
+      color: #A1A1AA;
+      text-decoration: none;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .back-link:hover { color: white; }
+    .last-updated {
+      font-size: 12px;
+      color: #71717A;
+    }
+    
+    /* Main Layout */
+    .admin-container {
+      max-width: 1600px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+    
+    /* KPI Cards */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    @media (max-width: 1200px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 640px) { .kpi-grid { grid-template-columns: 1fr; } }
+    
+    .kpi-card {
+      background: linear-gradient(145deg, #18181B 0%, #1F1F23 100%);
+      border: 1px solid #27272A;
+      border-radius: 16px;
+      padding: 24px;
+      position: relative;
+      overflow: hidden;
+    }
+    .kpi-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, #3B82F6, #8B5CF6);
+      opacity: 0.8;
+    }
+    .kpi-label {
+      font-size: 13px;
+      color: #71717A;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .kpi-value {
+      font-size: 32px;
+      font-weight: 800;
+      color: white;
+      margin-bottom: 8px;
+    }
+    .kpi-trend {
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .kpi-trend.up { color: #22C55E; }
+    .kpi-trend.down { color: #EF4444; }
+    .kpi-trend.neutral { color: #71717A; }
+    
+    /* Main Grid */
+    .main-grid {
+      display: grid;
+      grid-template-columns: 1fr 2fr 1fr;
+      gap: 24px;
+    }
+    @media (max-width: 1200px) { 
+      .main-grid { 
+        grid-template-columns: 1fr 1fr;
+      }
+      .main-grid > div:nth-child(3) {
+        grid-column: span 2;
+      }
+    }
+    @media (max-width: 768px) { 
+      .main-grid { 
+        grid-template-columns: 1fr;
+      }
+      .main-grid > div:nth-child(3) {
+        grid-column: span 1;
+      }
+    }
+    
+    /* Panels */
+    .panel {
+      background: #18181B;
+      border: 1px solid #27272A;
+      border-radius: 16px;
+      overflow: hidden;
+    }
+    .panel-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid #27272A;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .panel-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: white;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .panel-title .icon {
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+    }
+    .panel-badge {
+      font-size: 11px;
+      padding: 4px 8px;
+      border-radius: 20px;
+      background: #27272A;
+      color: #A1A1AA;
+    }
+    .panel-content {
+      padding: 16px 20px;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .panel-content::-webkit-scrollbar { width: 6px; }
+    .panel-content::-webkit-scrollbar-track { background: transparent; }
+    .panel-content::-webkit-scrollbar-thumb { background: #3F3F46; border-radius: 3px; }
+    
+    /* Activity Feed */
+    .activity-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 12px 0;
+      border-bottom: 1px solid #27272A;
+      cursor: pointer;
+      transition: background 0.2s;
+      margin: 0 -20px;
+      padding-left: 20px;
+      padding-right: 20px;
+    }
+    .activity-item:hover { background: #1F1F23; }
+    .activity-item:last-child { border-bottom: none; }
+    .activity-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+    .activity-icon.join { background: #22C55E20; color: #22C55E; }
+    .activity-icon.churn { background: #EF444420; color: #EF4444; }
+    .activity-icon.gen { background: #3B82F620; color: #3B82F6; }
+    .activity-details { flex: 1; min-width: 0; }
+    .activity-email {
+      font-size: 13px;
+      color: white;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .activity-meta {
+      font-size: 11px;
+      color: #71717A;
+      margin-top: 2px;
+    }
+    .activity-time {
+      font-size: 11px;
+      color: #52525B;
+      flex-shrink: 0;
+    }
+    
+    /* Revenue Chart */
+    .chart-container {
+      padding: 20px;
+      height: 300px;
+    }
+    
+    /* Plan Breakdown Table */
+    .breakdown-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .breakdown-table th {
+      text-align: left;
+      font-size: 11px;
+      color: #71717A;
+      font-weight: 500;
+      padding: 8px 12px;
+      border-bottom: 1px solid #27272A;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .breakdown-table td {
+      padding: 12px;
+      font-size: 13px;
+      border-bottom: 1px solid #27272A;
+    }
+    .breakdown-table tr:last-child td { border-bottom: none; }
+    .plan-badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .plan-badge.free { background: #3F3F46; color: #A1A1AA; }
+    .plan-badge.standard { background: #3B82F620; color: #60A5FA; }
+    .plan-badge.pro { background: #8B5CF620; color: #A78BFA; }
+    
+    /* Error Log */
+    .error-item {
+      display: flex;
+      gap: 12px;
+      padding: 12px 0;
+      border-bottom: 1px solid #27272A;
+    }
+    .error-item:last-child { border-bottom: none; }
+    .error-severity {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      margin-top: 6px;
+    }
+    .error-severity.critical { background: #EF4444; box-shadow: 0 0 8px #EF444480; }
+    .error-severity.warning { background: #F59E0B; }
+    .error-severity.info { background: #22C55E; }
+    .error-details { flex: 1; min-width: 0; }
+    .error-type {
+      font-size: 12px;
+      color: white;
+      font-weight: 500;
+    }
+    .error-message {
+      font-size: 11px;
+      color: #71717A;
+      margin-top: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .error-meta {
+      font-size: 10px;
+      color: #52525B;
+      margin-top: 4px;
+    }
+    
+    /* Quick Actions */
+    .quick-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .action-btn {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 16px;
+      background: #27272A;
+      border: 1px solid #3F3F46;
+      border-radius: 10px;
+      color: white;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-decoration: none;
+    }
+    .action-btn:hover { background: #3F3F46; border-color: #52525B; }
+    .action-btn .icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+    }
+    .action-btn .icon.credits { background: #22C55E20; color: #22C55E; }
+    .action-btn .icon.ban { background: #EF444420; color: #EF4444; }
+    .action-btn .icon.export { background: #3B82F620; color: #3B82F6; }
+    .action-btn .icon.search { background: #8B5CF620; color: #A78BFA; }
+    
+    /* User Modal */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.8);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .modal-overlay.show { display: flex; }
+    .modal {
+      background: #18181B;
+      border: 1px solid #27272A;
+      border-radius: 16px;
+      width: 100%;
+      max-width: 700px;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+    .modal-header {
+      padding: 20px 24px;
+      border-bottom: 1px solid #27272A;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      background: #18181B;
+      z-index: 10;
+    }
+    .modal-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: white;
+    }
+    .modal-close {
+      background: none;
+      border: none;
+      color: #71717A;
+      font-size: 20px;
+      cursor: pointer;
+      padding: 4px;
+    }
+    .modal-close:hover { color: white; }
+    .modal-body { padding: 24px; }
+    
+    .user-info-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .info-item {
+      background: #27272A;
+      padding: 16px;
+      border-radius: 10px;
+    }
+    .info-label {
+      font-size: 11px;
+      color: #71717A;
+      margin-bottom: 4px;
+      text-transform: uppercase;
+    }
+    .info-value {
+      font-size: 14px;
+      color: white;
+      font-weight: 500;
+    }
+    
+    .modal-section {
+      margin-bottom: 24px;
+    }
+    .modal-section-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: white;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .modal-actions {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .modal-btn {
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      cursor: pointer;
+      border: none;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+    .modal-btn.primary {
+      background: linear-gradient(135deg, #3B82F6, #8B5CF6);
+      color: white;
+    }
+    .modal-btn.primary:hover { opacity: 0.9; }
+    .modal-btn.danger {
+      background: #EF444420;
+      color: #EF4444;
+      border: 1px solid #EF444440;
+    }
+    .modal-btn.danger:hover { background: #EF444430; }
+    .modal-btn.secondary {
+      background: #27272A;
+      color: #A1A1AA;
+      border: 1px solid #3F3F46;
+    }
+    .modal-btn.secondary:hover { background: #3F3F46; color: white; }
+    
+    /* Empty State */
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: #71717A;
+      font-size: 13px;
+    }
+    .empty-state .icon {
+      font-size: 32px;
+      margin-bottom: 12px;
+      opacity: 0.5;
+    }
+    
+    /* Input Fields */
+    .input-group {
+      margin-bottom: 16px;
+    }
+    .input-label {
+      display: block;
+      font-size: 12px;
+      color: #A1A1AA;
+      margin-bottom: 6px;
+    }
+    .input-field {
+      width: 100%;
+      padding: 10px 14px;
+      background: #27272A;
+      border: 1px solid #3F3F46;
+      border-radius: 8px;
+      color: white;
+      font-size: 14px;
+    }
+    .input-field:focus {
+      outline: none;
+      border-color: #3B82F6;
+    }
+    .input-row {
+      display: flex;
+      gap: 12px;
+    }
+    .input-row > * { flex: 1; }
+    
+    /* Search */
+    .search-box {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .search-input {
+      flex: 1;
+      padding: 10px 14px;
+      background: #27272A;
+      border: 1px solid #3F3F46;
+      border-radius: 8px;
+      color: white;
+      font-size: 14px;
+    }
+    .search-input:focus { outline: none; border-color: #3B82F6; }
+    .search-btn {
+      padding: 10px 20px;
+      background: linear-gradient(135deg, #3B82F6, #8B5CF6);
+      border: none;
+      border-radius: 8px;
+      color: white;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .search-btn:hover { opacity: 0.9; }
+    
+    /* Stats Row */
+    .stats-row {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    @media (max-width: 768px) {
+      .stats-row { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <header class="admin-header">
+    <div class="admin-title">
+      <span>ShopShot</span> Admin Dashboard
+    </div>
+    <div class="header-actions">
+      <span class="last-updated" id="last-updated">Loading...</span>
+      <button class="refresh-btn" onclick="refreshDashboard()" id="refresh-btn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+        </svg>
+        Refresh
+      </button>
+      <a href="/app" class="back-link">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M19 12H5M12 19l-7-7 7-7"/>
+        </svg>
+        Back to App
+      </a>
+    </div>
+  </header>
+  
+  <div class="admin-container">
+    <!-- KPI Cards -->
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-label">Total Users</div>
+        <div class="kpi-value" id="kpi-users">-</div>
+        <div class="kpi-trend neutral" id="kpi-users-trend">Loading...</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Active Members</div>
+        <div class="kpi-value" id="kpi-active">-</div>
+        <div class="kpi-trend neutral" id="kpi-active-trend">Paid subscribers</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">MRR</div>
+        <div class="kpi-value" id="kpi-mrr">-</div>
+        <div class="kpi-trend neutral" id="kpi-mrr-trend">Monthly recurring</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Credits Used (30d)</div>
+        <div class="kpi-value" id="kpi-credits">-</div>
+        <div class="kpi-trend neutral" id="kpi-credits-trend">Total consumed</div>
+      </div>
+    </div>
+    
+    <!-- Main Grid -->
+    <div class="main-grid">
+      <!-- User Activity -->
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span class="icon" style="background: #22C55E20; color: #22C55E;">👥</span>
+            Today's Activity
+          </div>
+          <span class="panel-badge" id="activity-count">0</span>
+        </div>
+        <div class="panel-content" id="activity-feed">
+          <div class="empty-state">
+            <div class="icon">📭</div>
+            No activity yet today
+          </div>
+        </div>
+      </div>
+      
+      <!-- Revenue Section -->
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span class="icon" style="background: #3B82F620; color: #3B82F6;">📈</span>
+            Revenue Overview
+          </div>
+        </div>
+        <div class="chart-container">
+          <canvas id="revenue-chart"></canvas>
+        </div>
+        <div class="panel-content" style="padding-top: 0; max-height: none;">
+          <table class="breakdown-table">
+            <thead>
+              <tr>
+                <th>Plan</th>
+                <th>Subscribers</th>
+                <th>MRR</th>
+              </tr>
+            </thead>
+            <tbody id="plan-breakdown">
+              <tr>
+                <td><span class="plan-badge free">Free</span></td>
+                <td>-</td>
+                <td>£0</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      
+      <!-- Error Log + Quick Actions -->
+      <div style="display: flex; flex-direction: column; gap: 24px;">
+        <div class="panel" style="flex: 1;">
+          <div class="panel-header">
+            <div class="panel-title">
+              <span class="icon" style="background: #EF444420; color: #EF4444;">🔴</span>
+              Error Log (24h)
+            </div>
+            <span class="panel-badge" id="error-count">0</span>
+          </div>
+          <div class="panel-content" id="error-log">
+            <div class="empty-state">
+              <div class="icon">✨</div>
+              No errors - all systems operational
+            </div>
+          </div>
+        </div>
+        
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">
+              <span class="icon" style="background: #8B5CF620; color: #A78BFA;">⚡</span>
+              Quick Actions
+            </div>
+          </div>
+          <div class="panel-content quick-actions" style="max-height: none;">
+            <button class="action-btn" onclick="openSearchModal()">
+              <span class="icon search">🔍</span>
+              Search Users
+            </button>
+            <button class="action-btn" onclick="openCreditsModal()">
+              <span class="icon credits">💰</span>
+              Add Credits
+            </button>
+            <a class="action-btn" href="/api/admin/export/users" download>
+              <span class="icon export">📥</span>
+              Export Users CSV
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- User Modal -->
+  <div class="modal-overlay" id="user-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title" id="modal-title">User Details</div>
+        <button class="modal-close" onclick="closeModal()">&times;</button>
+      </div>
+      <div class="modal-body" id="modal-body">
+        Loading...
+      </div>
+    </div>
+  </div>
+  
+  <!-- Search Modal -->
+  <div class="modal-overlay" id="search-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title">Search Users</div>
+        <button class="modal-close" onclick="closeSearchModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="search-box">
+          <input type="text" class="search-input" id="search-input" placeholder="Search by email or name..." onkeyup="handleSearchKeyup(event)">
+          <button class="search-btn" onclick="searchUsers()">Search</button>
+        </div>
+        <div id="search-results"></div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Add Credits Modal -->
+  <div class="modal-overlay" id="credits-modal">
+    <div class="modal" style="max-width: 500px;">
+      <div class="modal-header">
+        <div class="modal-title">Add Credits to User</div>
+        <button class="modal-close" onclick="closeCreditsModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="input-group">
+          <label class="input-label">User Email</label>
+          <input type="email" class="input-field" id="credits-email" placeholder="user@example.com">
+        </div>
+        <div class="input-row">
+          <div class="input-group">
+            <label class="input-label">Amount</label>
+            <input type="number" class="input-field" id="credits-amount" placeholder="10" min="1">
+          </div>
+          <div class="input-group">
+            <label class="input-label">Credit Type</label>
+            <select class="input-field" id="credits-type">
+              <option value="cheaper">Standard (Cheaper)</option>
+              <option value="better">Premium (Better)</option>
+            </select>
+          </div>
+        </div>
+        <div class="input-group">
+          <label class="input-label">Reason (optional)</label>
+          <input type="text" class="input-field" id="credits-reason" placeholder="Compensation, promo, etc.">
+        </div>
+        <div class="modal-actions" style="margin-top: 20px;">
+          <button class="modal-btn primary" onclick="addCredits()">Add Credits</button>
+          <button class="modal-btn secondary" onclick="closeCreditsModal()">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <script>
+    let revenueChart = null;
+    let dashboardData = null;
+    let autoRefreshInterval = null;
+    
+    // Initialize
+    document.addEventListener('DOMContentLoaded', () => {
+      refreshDashboard();
+      // Auto-refresh every 30 seconds
+      autoRefreshInterval = setInterval(refreshDashboard, 30000);
+    });
+    
+    async function refreshDashboard() {
+      const btn = document.getElementById('refresh-btn');
+      btn.classList.add('loading');
+      btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spin"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg> Loading...';
+      
+      try {
+        const res = await fetch('/api/admin/dashboard');
+        const data = await res.json();
+        
+        if (data.success) {
+          dashboardData = data;
+          updateKPIs(data.kpis);
+          updateActivityFeed(data.todayJoins, data.todayCancellations);
+          updatePlanBreakdown(data.planBreakdown);
+          updateErrorLog(data.recentErrors);
+          updateRevenueChart(data.dailyRevenue);
+          
+          document.getElementById('last-updated').textContent = 'Updated: ' + new Date().toLocaleTimeString();
+        } else {
+          console.error('Dashboard error:', data.error);
+        }
+      } catch (error) {
+        console.error('Failed to load dashboard:', error);
+      }
+      
+      btn.classList.remove('loading');
+      btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg> Refresh';
+    }
+    
+    function updateKPIs(kpis) {
+      document.getElementById('kpi-users').textContent = kpis.totalUsers.toLocaleString();
+      document.getElementById('kpi-active').textContent = kpis.activeMembers.toLocaleString();
+      document.getElementById('kpi-mrr').textContent = '£' + (kpis.mrr || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+      document.getElementById('kpi-credits').textContent = (kpis.creditsConsumed || 0).toLocaleString();
+    }
+    
+    function updateActivityFeed(joins, cancellations) {
+      const feed = document.getElementById('activity-feed');
+      const count = (joins?.length || 0) + (cancellations?.length || 0);
+      document.getElementById('activity-count').textContent = count;
+      
+      if (count === 0) {
+        feed.innerHTML = '<div class="empty-state"><div class="icon">📭</div>No activity yet today</div>';
+        return;
+      }
+      
+      let html = '';
+      
+      // Combine and sort by time
+      const activities = [
+        ...(joins || []).map(u => ({ ...u, type: 'join' })),
+        ...(cancellations || []).map(u => ({ ...u, type: 'churn' }))
+      ].sort((a, b) => new Date(b.created_at || b.updated_at) - new Date(a.created_at || a.updated_at));
+      
+      activities.forEach(item => {
+        const time = new Date(item.created_at || item.updated_at);
+        const timeStr = time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const icon = item.type === 'join' ? 'join' : 'churn';
+        const iconEmoji = item.type === 'join' ? '✨' : '👋';
+        const label = item.type === 'join' ? 'New signup' : 'Cancelled';
+        
+        html += \`
+          <div class="activity-item" onclick="openUserModal('\${item.id}')">
+            <div class="activity-icon \${icon}">\${iconEmoji}</div>
+            <div class="activity-details">
+              <div class="activity-email">\${item.email}</div>
+              <div class="activity-meta">\${label} - \${item.subscription_plan || 'free'}</div>
+            </div>
+            <div class="activity-time">\${timeStr}</div>
+          </div>
+        \`;
+      });
+      
+      feed.innerHTML = html;
+    }
+    
+    function updatePlanBreakdown(breakdown) {
+      const tbody = document.getElementById('plan-breakdown');
+      
+      // Ensure we have all plans
+      const plans = { free: { count: 0, revenue: 0 }, standard: { count: 0, revenue: 0 }, pro: { count: 0, revenue: 0 } };
+      (breakdown || []).forEach(p => {
+        if (plans[p.plan]) {
+          plans[p.plan] = { count: p.count, revenue: p.revenue || 0 };
+        }
+      });
+      
+      tbody.innerHTML = \`
+        <tr>
+          <td><span class="plan-badge free">Free</span></td>
+          <td>\${plans.free.count}</td>
+          <td>£0</td>
+        </tr>
+        <tr>
+          <td><span class="plan-badge standard">Standard</span></td>
+          <td>\${plans.standard.count}</td>
+          <td>£\${(plans.standard.revenue || 0).toFixed(2)}</td>
+        </tr>
+        <tr>
+          <td><span class="plan-badge pro">Pro</span></td>
+          <td>\${plans.pro.count}</td>
+          <td>£\${(plans.pro.revenue || 0).toFixed(2)}</td>
+        </tr>
+      \`;
+    }
+    
+    function updateErrorLog(errors) {
+      const log = document.getElementById('error-log');
+      document.getElementById('error-count').textContent = errors?.length || 0;
+      
+      if (!errors || errors.length === 0) {
+        log.innerHTML = '<div class="empty-state"><div class="icon">✨</div>No errors - all systems operational</div>';
+        return;
+      }
+      
+      let html = '';
+      errors.forEach(err => {
+        const time = new Date(err.timestamp);
+        const timeStr = time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const severity = err.severity || 'warning';
+        
+        html += \`
+          <div class="error-item">
+            <div class="error-severity \${severity}"></div>
+            <div class="error-details">
+              <div class="error-type">\${err.error_type}</div>
+              <div class="error-message">\${err.error_message || 'No message'}</div>
+              <div class="error-meta">\${timeStr}\${err.user_email ? ' - ' + err.user_email : ''}\${err.endpoint ? ' - ' + err.endpoint : ''}</div>
+            </div>
+          </div>
+        \`;
+      });
+      
+      log.innerHTML = html;
+    }
+    
+    function updateRevenueChart(dailyRevenue) {
+      const ctx = document.getElementById('revenue-chart').getContext('2d');
+      
+      // Prepare data for last 30 days
+      const labels = [];
+      const data = [];
+      const today = new Date();
+      
+      for (let i = 29; i >= 0; i--) {
+        const date = new Date(today);
+        date.setDate(date.getDate() - i);
+        const dateStr = date.toISOString().split('T')[0];
+        labels.push(date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }));
+        
+        const dayData = (dailyRevenue || []).find(d => d.date === dateStr);
+        data.push(dayData?.revenue || 0);
+      }
+      
+      if (revenueChart) {
+        revenueChart.destroy();
+      }
+      
+      revenueChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Revenue (£)',
+            data: data,
+            borderColor: '#8B5CF6',
+            backgroundColor: 'rgba(139, 92, 246, 0.1)',
+            fill: true,
+            tension: 0.4,
+            pointRadius: 0,
+            pointHoverRadius: 6,
+            pointHoverBackgroundColor: '#8B5CF6'
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false }
+          },
+          scales: {
+            x: {
+              grid: { color: '#27272A' },
+              ticks: { color: '#71717A', maxTicksLimit: 7 }
+            },
+            y: {
+              grid: { color: '#27272A' },
+              ticks: { 
+                color: '#71717A',
+                callback: value => '£' + value
+              },
+              beginAtZero: true
+            }
+          }
+        }
+      });
+    }
+    
+    // Modal Functions
+    async function openUserModal(userId) {
+      const modal = document.getElementById('user-modal');
+      const body = document.getElementById('modal-body');
+      const title = document.getElementById('modal-title');
+      
+      modal.classList.add('show');
+      body.innerHTML = '<div class="empty-state">Loading user details...</div>';
+      
+      try {
+        const res = await fetch('/api/admin/users/' + userId);
+        const data = await res.json();
+        
+        if (data.success) {
+          const u = data.user;
+          title.textContent = u.name || u.email;
+          
+          body.innerHTML = \`
+            <div class="user-info-grid">
+              <div class="info-item">
+                <div class="info-label">Email</div>
+                <div class="info-value">\${u.email}</div>
+              </div>
+              <div class="info-item">
+                <div class="info-label">Name</div>
+                <div class="info-value">\${u.name || 'Not set'}</div>
+              </div>
+              <div class="info-item">
+                <div class="info-label">Plan</div>
+                <div class="info-value"><span class="plan-badge \${u.subscription_plan}">\${u.subscription_plan}</span></div>
+              </div>
+              <div class="info-item">
+                <div class="info-label">Status</div>
+                <div class="info-value">\${u.is_banned ? '🚫 Banned' : '✅ Active'}</div>
+              </div>
+              <div class="info-item">
+                <div class="info-label">Standard Credits</div>
+                <div class="info-value">\${u.cheaper_credits}</div>
+              </div>
+              <div class="info-item">
+                <div class="info-label">Premium Credits</div>
+                <div class="info-value">\${u.better_credits}</div>
+              </div>
+              <div class="info-item">
+                <div class="info-label">Joined</div>
+                <div class="info-value">\${new Date(u.created_at).toLocaleDateString()}</div>
+              </div>
+              <div class="info-item">
+                <div class="info-label">Auth Method</div>
+                <div class="info-value">\${u.google_id ? '🔵 Google' : '📧 Email'}</div>
+              </div>
+            </div>
+            
+            <div class="modal-section">
+              <div class="modal-section-title">📋 Recent Transactions</div>
+              \${renderTransactions(data.transactions)}
+            </div>
+            
+            <div class="modal-actions">
+              <button class="modal-btn primary" onclick="addCreditsForUser('\${u.id}', '\${u.email}')">
+                💰 Add Credits
+              </button>
+              <button class="modal-btn \${u.is_banned ? 'secondary' : 'danger'}" onclick="toggleBan('\${u.id}', \${u.is_banned ? 'false' : 'true'})">
+                \${u.is_banned ? '✅ Unban User' : '🚫 Ban User'}
+              </button>
+            </div>
+          \`;
+        } else {
+          body.innerHTML = '<div class="empty-state">Failed to load user details</div>';
+        }
+      } catch (error) {
+        body.innerHTML = '<div class="empty-state">Error loading user</div>';
+      }
+    }
+    
+    function renderTransactions(transactions) {
+      if (!transactions || transactions.length === 0) {
+        return '<div class="empty-state" style="padding: 20px 0;">No transactions</div>';
+      }
+      
+      return '<div style="max-height: 200px; overflow-y: auto;">' + transactions.slice(0, 10).map(t => \`
+        <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #27272A; font-size: 12px;">
+          <span style="color: #A1A1AA;">\${t.type} (\${t.credit_type})</span>
+          <span style="color: \${t.amount > 0 ? '#22C55E' : '#EF4444'};">\${t.amount > 0 ? '+' : ''}\${t.amount}</span>
+        </div>
+      \`).join('') + '</div>';
+    }
+    
+    function closeModal() {
+      document.getElementById('user-modal').classList.remove('show');
+    }
+    
+    // Search Modal
+    function openSearchModal() {
+      document.getElementById('search-modal').classList.add('show');
+      document.getElementById('search-input').focus();
+    }
+    
+    function closeSearchModal() {
+      document.getElementById('search-modal').classList.remove('show');
+    }
+    
+    function handleSearchKeyup(e) {
+      if (e.key === 'Enter') searchUsers();
+    }
+    
+    async function searchUsers() {
+      const query = document.getElementById('search-input').value;
+      const results = document.getElementById('search-results');
+      results.innerHTML = '<div class="empty-state">Searching...</div>';
+      
+      try {
+        const res = await fetch('/api/admin/users?search=' + encodeURIComponent(query));
+        const data = await res.json();
+        
+        if (data.success && data.users.length > 0) {
+          results.innerHTML = data.users.map(u => \`
+            <div class="activity-item" onclick="closeSearchModal(); openUserModal('\${u.id}')">
+              <div class="activity-icon join">👤</div>
+              <div class="activity-details">
+                <div class="activity-email">\${u.email}</div>
+                <div class="activity-meta">\${u.name || 'No name'} - <span class="plan-badge \${u.subscription_plan}" style="font-size: 10px;">\${u.subscription_plan}</span></div>
+              </div>
+            </div>
+          \`).join('');
+        } else {
+          results.innerHTML = '<div class="empty-state">No users found</div>';
+        }
+      } catch (error) {
+        results.innerHTML = '<div class="empty-state">Search failed</div>';
+      }
+    }
+    
+    // Credits Modal
+    function openCreditsModal() {
+      document.getElementById('credits-modal').classList.add('show');
+      document.getElementById('credits-email').focus();
+    }
+    
+    function closeCreditsModal() {
+      document.getElementById('credits-modal').classList.remove('show');
+    }
+    
+    function addCreditsForUser(userId, email) {
+      closeModal();
+      document.getElementById('credits-email').value = email;
+      openCreditsModal();
+    }
+    
+    async function addCredits() {
+      const email = document.getElementById('credits-email').value;
+      const amount = parseInt(document.getElementById('credits-amount').value);
+      const creditType = document.getElementById('credits-type').value;
+      const reason = document.getElementById('credits-reason').value;
+      
+      if (!email || !amount) {
+        alert('Please enter email and amount');
+        return;
+      }
+      
+      // First find user by email
+      const searchRes = await fetch('/api/admin/users?search=' + encodeURIComponent(email));
+      const searchData = await searchRes.json();
+      
+      if (!searchData.success || searchData.users.length === 0) {
+        alert('User not found');
+        return;
+      }
+      
+      const user = searchData.users.find(u => u.email.toLowerCase() === email.toLowerCase());
+      if (!user) {
+        alert('User not found with that exact email');
+        return;
+      }
+      
+      try {
+        const res = await fetch('/api/admin/users/' + user.id + '/credits', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ amount, creditType, reason })
+        });
+        const data = await res.json();
+        
+        if (data.success) {
+          alert('Credits added successfully! New balance: ' + data.newBalance);
+          closeCreditsModal();
+          refreshDashboard();
+        } else {
+          alert('Failed: ' + data.error);
+        }
+      } catch (error) {
+        alert('Failed to add credits');
+      }
+    }
+    
+    async function toggleBan(userId, ban) {
+      const reason = ban === 'true' ? prompt('Reason for ban (optional):') : '';
+      
+      try {
+        const res = await fetch('/api/admin/users/' + userId + '/ban', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ banned: ban === 'true', reason })
+        });
+        const data = await res.json();
+        
+        if (data.success) {
+          alert(ban === 'true' ? 'User banned' : 'User unbanned');
+          closeModal();
+          refreshDashboard();
+        } else {
+          alert('Failed: ' + data.error);
+        }
+      } catch (error) {
+        alert('Failed to update user');
+      }
+    }
+  </script>
+  
+  <style>
+    .spin { animation: spin 1s linear infinite; }
+    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  </style>
+</body>
+</html>`;
 }
 
 // ============================================================================
