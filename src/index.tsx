@@ -848,6 +848,30 @@ const app = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
 app.use('*', cors())
 
+// SEO: Redirect .pages.dev to custom domain
+const PRIMARY_DOMAIN = 'www.shopshot.co.uk'
+app.use('*', async (c, next) => {
+  const host = c.req.header('host') || ''
+  
+  // Redirect .pages.dev URLs to primary domain for SEO
+  if (host.includes('.pages.dev')) {
+    const url = new URL(c.req.url)
+    url.host = PRIMARY_DOMAIN
+    url.protocol = 'https:'
+    return c.redirect(url.toString(), 301)
+  }
+  
+  // Redirect naked domain to www for consistency
+  if (host === 'shopshot.co.uk') {
+    const url = new URL(c.req.url)
+    url.host = PRIMARY_DOMAIN
+    url.protocol = 'https:'
+    return c.redirect(url.toString(), 301)
+  }
+  
+  return next()
+})
+
 // Auto-migrate database on first request
 async function ensureDatabase(db: D1Database) {
   try {
@@ -1325,6 +1349,55 @@ app.get('/about', (c) => {
 // Contact Page
 app.get('/contact', (c) => {
   return c.html(getContactPage())
+})
+
+// SEO: robots.txt
+app.get('/robots.txt', (c) => {
+  const robotsTxt = `User-agent: *
+Allow: /
+
+# Sitemap
+Sitemap: https://www.shopshot.co.uk/sitemap.xml
+
+# Block internal/API routes
+Disallow: /api/
+Disallow: /app
+Disallow: /register
+Disallow: /login
+Disallow: /reset-password
+Disallow: /verify-email
+`
+  return c.text(robotsTxt, 200, { 'Content-Type': 'text/plain' })
+})
+
+// SEO: sitemap.xml
+app.get('/sitemap.xml', (c) => {
+  const baseUrl = 'https://www.shopshot.co.uk'
+  const today = new Date().toISOString().split('T')[0]
+  
+  const pages = [
+    { url: '/', priority: '1.0', changefreq: 'weekly' },
+    { url: '/pricing', priority: '0.9', changefreq: 'weekly' },
+    { url: '/faq', priority: '0.8', changefreq: 'monthly' },
+    { url: '/about', priority: '0.7', changefreq: 'monthly' },
+    { url: '/contact', priority: '0.7', changefreq: 'monthly' },
+    { url: '/privacy', priority: '0.5', changefreq: 'yearly' },
+    { url: '/terms', priority: '0.5', changefreq: 'yearly' },
+    { url: '/refunds', priority: '0.5', changefreq: 'yearly' },
+    { url: '/cookies', priority: '0.3', changefreq: 'yearly' },
+  ]
+  
+  const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${pages.map(p => `  <url>
+    <loc>${baseUrl}${p.url}</loc>
+    <lastmod>${today}</lastmod>
+    <changefreq>${p.changefreq}</changefreq>
+    <priority>${p.priority}</priority>
+  </url>`).join('\n')}
+</urlset>`
+  
+  return c.text(sitemap, 200, { 'Content-Type': 'application/xml' })
 })
 
 // Contact Form API
@@ -3810,6 +3883,12 @@ function getMarketingPage() {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ShopShot - Turn Any Product Photo Into Professional Shots in Seconds</title>
   <meta name="description" content="AI-powered product photography. Upload any photo, get 10 professional variations in 36 seconds. Perfect for eBay, Etsy, Amazon sellers.">
+  <link rel="canonical" href="https://www.shopshot.co.uk/">
+  <meta property="og:title" content="ShopShot - AI Product Photography">
+  <meta property="og:description" content="Turn any product photo into 10 professional shots in seconds. Perfect for eBay, Etsy, Amazon sellers.">
+  <meta property="og:url" content="https://www.shopshot.co.uk/">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary_large_image">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'><stop offset='0%25' style='stop-color:%233B82F6'/><stop offset='100%25' style='stop-color:%238B5CF6'/></linearGradient></defs><rect width='100' height='100' rx='22' fill='url(%23g)'/><circle cx='50' cy='50' r='28' fill='none' stroke='white' stroke-width='6'/><circle cx='50' cy='50' r='12' fill='white'/></svg>">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
@@ -10077,6 +10156,7 @@ function getPricingPage(user?: User) {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Pricing - ShopShot</title>
+  <link rel="canonical" href="https://www.shopshot.co.uk/pricing">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'><stop offset='0%25' style='stop-color:%233B82F6'/><stop offset='100%25' style='stop-color:%238B5CF6'/></linearGradient></defs><rect width='100' height='100' rx='22' fill='url(%23g)'/><circle cx='50' cy='50' r='28' fill='none' stroke='white' stroke-width='6'/><circle cx='50' cy='50' r='12' fill='white'/></svg>">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
