@@ -7047,15 +7047,15 @@ function getHomePage(user?: User) {
       color: #6B7280;
     }
     
-    /* Upload zone - glassmorphism */
+    /* Upload zone - glassmorphism (75% size) */
     .upload-zone {
       width: 100%;
-      min-height: 180px;
+      min-height: 135px;
       background: rgba(255, 255, 255, 0.7);
       backdrop-filter: blur(12px);
       -webkit-backdrop-filter: blur(12px);
       border: 2px dashed rgba(147, 197, 253, 0.5);
-      border-radius: 16px;
+      border-radius: 12px;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -7063,7 +7063,7 @@ function getHomePage(user?: User) {
       cursor: pointer;
       transition: all 0.3s ease;
       box-shadow: 0 6px 24px rgba(59, 130, 246, 0.1);
-      padding: 24px;
+      padding: 18px;
     }
     .upload-zone:hover {
       border-color: rgba(59, 130, 246, 0.8);
@@ -7077,9 +7077,9 @@ function getHomePage(user?: User) {
       transform: scale(1.01);
     }
     .upload-icon {
-      width: 56px;
-      height: 56px;
-      margin-bottom: 12px;
+      width: 42px;
+      height: 42px;
+      margin-bottom: 8px;
       background: linear-gradient(135deg, #60A5FA 0%, #3B82F6 100%);
       border-radius: 50%;
       display: flex;
@@ -7091,24 +7091,24 @@ function getHomePage(user?: User) {
         inset 0 2px 6px rgba(255,255,255,0.5);
     }
     .upload-icon svg {
-      width: 24px;
-      height: 24px;
+      width: 20px;
+      height: 20px;
       color: white;
     }
     .upload-primary {
-      font-size: 15px;
+      font-size: 13px;
       font-weight: 600;
       color: #1F2937;
-      margin-bottom: 4px;
+      margin-bottom: 3px;
     }
     .upload-secondary {
-      font-size: 12px;
+      font-size: 11px;
       color: #6B7280;
     }
     .upload-formats {
-      font-size: 11px;
+      font-size: 10px;
       color: #9CA3AF;
-      margin-top: 10px;
+      margin-top: 6px;
     }
     
     /* Image preview */
@@ -8004,7 +8004,7 @@ function getHomePage(user?: User) {
         display: none;
       }
       .sidebar-overlay.open { display: block; }
-      .main-content { margin-left: 0; }
+      .main-content { margin-left: 0; padding-bottom: 120px; }
       .header {
         justify-content: flex-start;
         background: white;
@@ -8935,7 +8935,7 @@ function getHomePage(user?: User) {
           updateCreditsDisplay();
           
           // Save image to database for history
-          saveGeneratedImage(index, v.type, data.image);
+          saveGeneratedImage(index, v.field, data.image);
           
           // If this is Hero (White BG) image (index 6), enable 360 video button
           if (index === 6) {
@@ -9077,7 +9077,7 @@ function getHomePage(user?: User) {
           updateCreditsDisplay(); // Update credits after regeneration
           
           // Save regenerated image to database for history
-          saveGeneratedImage(index, v.type, data.image);
+          saveGeneratedImage(index, v.field, data.image);
           
           // If this is Hero (White BG) image (index 6), update the URL
           if (index === 6) {
