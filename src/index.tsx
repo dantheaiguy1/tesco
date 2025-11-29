@@ -248,6 +248,11 @@ async function generateImageWithVertex(
   // Vertex AI endpoint - plain aiplatform.googleapis.com works for global location
   const endpoint = `https://aiplatform.googleapis.com/v1/projects/${projectId}/locations/${VERTEX_REGION}/publishers/google/models/${vertexModel}:generateContent`;
   
+  // Build generation config
+  const generationConfig: any = {
+    responseModalities: ['TEXT', 'IMAGE']
+  };
+  
   const requestBody = JSON.stringify({
     contents: [{
       role: 'user',
@@ -261,9 +266,7 @@ async function generateImageWithVertex(
         { text: prompt }
       ]
     }],
-    generationConfig: {
-      responseModalities: ['TEXT', 'IMAGE']
-    }
+    generationConfig
   });
   
   // Retry with exponential backoff for rate limiting (429 errors)
@@ -359,7 +362,7 @@ async function generateImageWithVertex(
 }
 
 // ============================================================================
-// VEO 2 VIDEO GENERATION (360° Product Spin)
+// VEO 3 VIDEO GENERATION (360° Product Spin)
 // ============================================================================
 async function generate360VideoWithVeo(
   projectId: string,
@@ -370,25 +373,15 @@ async function generate360VideoWithVeo(
 ): Promise<{ success: boolean; videoUrl?: string; error?: string }> {
   const accessToken = await getAccessToken(clientEmail, privateKey);
   
-  // Use us-central1 region for Imagen Video (Veo) - it's not available in global
+  // Use us-central1 region for Veo - required location
   const videoRegion = 'us-central1';
-  // Veo 2 endpoint for video generation (image-to-video)
-  const endpoint = `https://${videoRegion}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${videoRegion}/publishers/google/models/veo-001-preview:predictLongRunning`;
+  // Veo 3 Preview model for image-to-video generation
+  const modelId = 'veo-3.0-generate-preview';
+  const endpoint = `https://${videoRegion}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${videoRegion}/publishers/google/models/${modelId}:predictLongRunning`;
   
-  const prompt = `Analyze the provided image and identify the main product. Create a smooth, professional 360-degree rotation video showcasing the product on a clean white studio background.
+  const prompt = `Smooth, professional 360-degree rotation of the product on a clean white studio background. The product rotates clockwise on an invisible turntable, completing one full rotation. Professional e-commerce lighting with soft shadows. 8 seconds duration.`;
 
-Studio Setup: Clean white seamless backdrop with soft, even studio lighting from multiple angles to eliminate harsh shadows. Professional product photography aesthetic with subtle gradient from pure white to light gray beneath the product for depth.
-
-Camera: Fixed position at eye-level to the product, maintaining steady framing throughout. The product remains centered in frame while rotating on an invisible turntable.
-
-Lighting: Soft, diffused key light from the front, subtle fill lights from the sides, gentle rim light from behind to separate the product from the background. No harsh shadows or hotspots. Professional e-commerce photography lighting quality. Preserve the product's original materials, textures, colors, and any surface effects.
-
-Motion: Smooth, continuous clockwise rotation starting from the front-facing view. Consistent rotation speed with no acceleration or deceleration. The product should complete exactly one full 360-degree turn over 8 seconds, ending where it started, showing all angles.
-
-Style: Premium e-commerce product photography aesthetic. Clean, minimal, professional. The focus is entirely on the product with no distractions. Suitable for high-end online retail platforms.
-
-Output: 8 seconds, 1080p resolution, no audio, seamless loop-ready.`;
-
+  // Veo 3 request format with image as first frame
   const requestBody = JSON.stringify({
     instances: [{
       prompt: prompt,
@@ -398,38 +391,33 @@ Output: 8 seconds, 1080p resolution, no audio, seamless loop-ready.`;
       }
     }],
     parameters: {
-      aspectRatio: "16:9",
-      sampleCount: 1,
-      durationSeconds: 8,
-      enhancePrompt: true,
-      includeRaiReason: true,
-      personGeneration: "dont_allow",
-      addWatermark: false
+      sampleCount: 1
     }
   });
 
   try {
-    console.log('[Veo 2] Starting 360° video generation...');
+    console.log('[Veo 3] Starting 360° video generation...');
+    console.log('[Veo 3] Endpoint:', endpoint);
     
     // Start the long-running operation
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json; charset=utf-8'
       },
       body: requestBody
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('[Veo 2 ERROR] Status:', response.status, errorText);
+      console.error('[Veo 3 ERROR] Status:', response.status, errorText);
       let errorMsg = 'Video generation error';
       try {
         const errJson = JSON.parse(errorText);
         errorMsg = errJson.error?.message || `API error: ${response.status}`;
       } catch {
-        errorMsg = `API error: ${response.status}`;
+        errorMsg = `API error: ${response.status} - ${errorText.substring(0, 200)}`;
       }
       return { success: false, error: errorMsg };
     }
@@ -439,27 +427,33 @@ Output: 8 seconds, 1080p resolution, no audio, seamless loop-ready.`;
     // Get the operation name for polling
     const operationName = data.name;
     if (!operationName) {
+      console.error('[Veo 3] No operation name in response:', JSON.stringify(data));
       return { success: false, error: 'No operation name returned' };
     }
 
-    console.log('[Veo 2] Operation started:', operationName);
+    console.log('[Veo 3] Operation started:', operationName);
     
-    // Poll for completion (max 5 minutes)
-    // The operation name already includes the full path, so we just need the base URL
-    const pollEndpoint = `https://us-central1-aiplatform.googleapis.com/v1/${operationName}`;
+    // Poll for completion using fetchPredictOperation (max 5 minutes)
+    const pollEndpoint = `https://${videoRegion}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${videoRegion}/publishers/google/models/${modelId}:fetchPredictOperation`;
     const maxPollAttempts = 60; // 60 * 5 seconds = 5 minutes
     
     for (let i = 0; i < maxPollAttempts; i++) {
       await new Promise(r => setTimeout(r, 5000)); // Wait 5 seconds between polls
       
       const pollResponse = await fetch(pollEndpoint, {
+        method: 'POST',
         headers: {
-          'Authorization': `Bearer ${accessToken}`
-        }
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json; charset=utf-8'
+        },
+        body: JSON.stringify({
+          operationName: operationName
+        })
       });
       
       if (!pollResponse.ok) {
-        console.error('[Veo 2] Poll error:', pollResponse.status);
+        const pollError = await pollResponse.text();
+        console.error('[Veo 3] Poll error:', pollResponse.status, pollError);
         continue;
       }
       
@@ -467,14 +461,21 @@ Output: 8 seconds, 1080p resolution, no audio, seamless loop-ready.`;
       
       if (pollData.done) {
         if (pollData.error) {
-          console.error('[Veo 2] Generation failed:', pollData.error);
+          console.error('[Veo 3] Generation failed:', pollData.error);
           return { success: false, error: pollData.error.message || 'Video generation failed' };
         }
         
-        // Extract video URL from response
+        // Veo 3 response format - check for gcsUri in videos array
+        const videoGcsUri = pollData.response?.videos?.[0]?.gcsUri;
+        if (videoGcsUri) {
+          console.log('[Veo 3] Video generated at GCS:', videoGcsUri);
+          return { success: true, videoUrl: videoGcsUri };
+        }
+        
+        // Check for generatedSamples format (alternative response)
         const videoUri = pollData.response?.generatedSamples?.[0]?.video?.uri;
         if (videoUri) {
-          console.log('[Veo 2] Video generated successfully');
+          console.log('[Veo 3] Video generated successfully');
           return { success: true, videoUrl: videoUri };
         }
         
@@ -485,15 +486,16 @@ Output: 8 seconds, 1080p resolution, no audio, seamless loop-ready.`;
           return { success: true, videoUrl: videoDataUrl };
         }
         
+        console.error('[Veo 3] Unexpected response format:', JSON.stringify(pollData.response));
         return { success: false, error: 'No video in response' };
       }
       
-      console.log(`[Veo 2] Still processing... (${i + 1}/${maxPollAttempts})`);
+      console.log(`[Veo 3] Still processing... (${i + 1}/${maxPollAttempts})`);
     }
     
     return { success: false, error: 'Video generation timed out' };
   } catch (err) {
-    console.error('[Veo 2] Error:', err);
+    console.error('[Veo 3] Error:', err);
     return { success: false, error: err instanceof Error ? err.message : 'Video generation failed' };
   }
 }
@@ -3368,6 +3370,82 @@ app.post('/api/test-body', async (c) => {
   })
 })
 
+// API: Test Veo video generation availability
+app.get('/api/test-veo', async (c) => {
+  try {
+    const projectId = c.env.VERTEX_PROJECT_ID;
+    const clientEmail = c.env.VERTEX_CLIENT_EMAIL;
+    const privateKey = c.env.VERTEX_PRIVATE_KEY;
+
+    if (!projectId || !clientEmail || !privateKey) {
+      return c.json({ 
+        status: 'error', 
+        message: 'Missing Vertex AI credentials',
+        hasProjectId: !!projectId,
+        hasClientEmail: !!clientEmail,
+        hasPrivateKey: !!privateKey
+      });
+    }
+
+    // Get access token
+    const accessToken = await getAccessToken(clientEmail, privateKey);
+    
+    // Test Veo model by calling the actual endpoint (POST required)
+    const videoRegion = 'us-central1';
+    const modelId = 'veo-3.0-generate-preview';
+    const testEndpoint = `https://${videoRegion}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${videoRegion}/publishers/google/models/${modelId}:predictLongRunning`;
+    
+    // Minimal test request - will fail with validation error if model exists, 404 if not accessible
+    const response = await fetch(testEndpoint, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json; charset=utf-8'
+      },
+      body: JSON.stringify({
+        instances: [{ prompt: "test" }],
+        parameters: { sampleCount: 1 }
+      })
+    });
+
+    const responseText = await response.text();
+    let responseData;
+    try {
+      responseData = JSON.parse(responseText);
+    } catch {
+      responseData = responseText.substring(0, 500);
+    }
+
+    // 400 = model exists but invalid request (good!)
+    // 404 = model not found/not accessible (bad)
+    // 403 = permission denied (need allowlist)
+    const modelAccessible = response.status === 400 || response.status === 200;
+
+    return c.json({
+      status: modelAccessible ? 'success' : 'error',
+      httpStatus: response.status,
+      projectId: projectId,
+      model: modelId,
+      region: videoRegion,
+      endpoint: testEndpoint,
+      response: responseData,
+      message: modelAccessible 
+        ? 'Veo 3 model is accessible!' 
+        : response.status === 404 
+          ? 'Veo 3 not found - need to enable in Model Garden or apply for allowlist'
+          : response.status === 403
+            ? 'Permission denied - apply for Veo 3 allowlist access'
+            : `Veo access error: ${response.status}`
+    });
+  } catch (err) {
+    return c.json({
+      status: 'error',
+      message: err instanceof Error ? err.message : 'Unknown error',
+      stack: err instanceof Error ? err.stack : undefined
+    });
+  }
+})
+
 // API: Create session from upload (requires auth + credits for full generation)
 app.post('/api/upload', async (c) => {
   try {
@@ -3621,7 +3699,7 @@ function getPrompts(productName: string): Record<string, string> {
     
     // === CONTEXT/LIFESTYLE SHOTS (6-10) - Conversion-driving ===
     
-    'hero_white': `Clean professional product photo of this ${productName} on pure white background. Studio lighting from multiple angles. Product positioned at slight 45-degree angle showing depth and dimensionality. Soft natural shadow underneath. Centered composition. Amazon and Shopify listing style. High resolution 2k, catalog-quality commercial photography.`,
+    'hero_white': `Clean professional product photo of this ${productName} on pure white (#FFFFFF) background. Product centered with generous white space padding on all sides. Studio lighting from multiple angles. Product positioned at slight 45-degree angle showing depth and dimensionality. Soft natural shadow underneath. High resolution 2k, catalog-quality commercial photography.`,
     
     'inuse_action': `This ${productName} being actively used in real-world scenario. Natural hands interacting with product showing scale and functionality. Authentic everyday setting. Lifestyle photography demonstrating practical application. Candid moment captured. Relatable use-case photography. Natural lighting. High resolution 2k, genuine user experience style.`,
     
@@ -4075,15 +4153,32 @@ app.post('/api/generate-360-video', async (c) => {
 
     // Create video record
     const videoId = `vid_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    
+    // Start Veo generation immediately (synchronous - gets operation name)
+    const veoResult = await startVeoVideoGeneration(c.env, videoId, image_url);
+    
+    if (!veoResult.success || !veoResult.operationName) {
+      // Refund credits if Veo start fails
+      await db.prepare(
+        'UPDATE users SET cheaper_credits = ? WHERE id = ?'
+      ).bind(user.cheaper_credits, user.id).run();
+      
+      return c.json({ 
+        success: false, 
+        error: veoResult.error || 'Failed to start video generation'
+      }, 500);
+    }
+    
+    // Save video record with operation name
     await db.prepare(`
-      INSERT INTO generated_videos (id, user_id, session_id, original_image_url, status, credits_charged)
-      VALUES (?, ?, ?, ?, 'processing', ?)
-    `).bind(videoId, user.id, session_id, image_url, CREDITS.VIDEO_360).run();
+      INSERT INTO generated_videos (id, user_id, session_id, original_image_url, status, credits_charged, operation_name)
+      VALUES (?, ?, ?, ?, 'processing', ?, ?)
+    `).bind(videoId, user.id, session_id, image_url, CREDITS.VIDEO_360, veoResult.operationName).run();
 
-    // Log credit transaction
+    // Log credit transaction (use 'generation' type which is allowed by CHECK constraint)
     await db.prepare(`
       INSERT INTO credit_transactions (id, user_id, amount, balance_after, credit_type, type, description, session_id)
-      VALUES (?, ?, ?, ?, 'cheaper', 'video_360', '360° Product Spin Video', ?)
+      VALUES (?, ?, ?, ?, 'cheaper', 'generation', '360° Product Spin Video', ?)
     `).bind(
       `txn_${Date.now()}`,
       user.id,
@@ -4092,28 +4187,30 @@ app.post('/api/generate-360-video', async (c) => {
       session_id
     ).run();
 
-    // Start async video generation (non-blocking)
-    c.executionCtx.waitUntil(
-      processVideoGeneration(c.env, videoId, user.id, image_url, session_id)
-    );
-
     return c.json({
       success: true,
       video_id: videoId,
       status: 'processing',
-      estimated_time_seconds: 90,
+      estimated_time_seconds: 180,
       credits_charged: CREDITS.VIDEO_360,
       remaining_credits: newCheaperCredits
     });
 
   } catch (error) {
     console.error('360 video generation error:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    return c.json({ success: false, error: `Failed to start video generation: ${errorMessage}` }, 500);
+    const errorMessage = error instanceof Error ? `${error.message} | ${error.stack}` : 'Unknown error';
+    return c.json({ 
+      success: false, 
+      error: `Failed to start video generation: ${errorMessage}`,
+      debug: {
+        errorType: error instanceof Error ? error.constructor.name : typeof error,
+        message: error instanceof Error ? error.message : String(error)
+      }
+    }, 500);
   }
 });
 
-// Poll video generation status
+// Poll video generation status - actively checks Veo operation
 app.get('/api/generate-360-video/:videoId', async (c) => {
   const user = c.get('user');
   if (!user) {
@@ -4137,7 +4234,7 @@ app.get('/api/generate-360-video/:videoId', async (c) => {
         video_id: videoId,
         status: 'completed',
         video_url: video.video_url,
-        duration_seconds: video.duration_seconds,
+        duration_seconds: video.duration_seconds || 8,
         completed_at: video.completed_at
       });
     }
@@ -4149,6 +4246,75 @@ app.get('/api/generate-360-video/:videoId', async (c) => {
         error_message: video.error_message,
         credits_refunded: video.credits_charged
       });
+    }
+
+    // Still processing - poll Veo operation
+    if (video.operation_name) {
+      try {
+        const pollResult = await pollVeoOperation(c.env, video.operation_name);
+        
+        if (pollResult.done) {
+          if (pollResult.videoUrl) {
+            // Success! For base64 data URLs, don't store in DB (too large)
+            // Just mark as completed and return the URL directly
+            const isBase64 = pollResult.videoUrl.startsWith('data:');
+            
+            if (isBase64) {
+              // Store a placeholder, return full data to client
+              await db.prepare(`
+                UPDATE generated_videos 
+                SET status = 'completed', video_url = 'base64_video', completed_at = datetime('now')
+                WHERE id = ?
+              `).bind(videoId).run();
+            } else {
+              // Store GCS URL normally
+              await db.prepare(`
+                UPDATE generated_videos 
+                SET status = 'completed', video_url = ?, completed_at = datetime('now')
+                WHERE id = ?
+              `).bind(pollResult.videoUrl, videoId).run();
+            }
+            
+            return c.json({
+              video_id: videoId,
+              status: 'completed',
+              video_url: pollResult.videoUrl,
+              duration_seconds: 8
+            });
+          } else {
+            // Failed - update database and refund
+            await db.prepare(`
+              UPDATE generated_videos SET status = 'failed', error_message = ? WHERE id = ?
+            `).bind(pollResult.error || 'Video generation failed', videoId).run();
+            
+            // Refund credits
+            const refundedCredits = user.cheaper_credits + CREDITS.VIDEO_360;
+            await db.prepare('UPDATE users SET cheaper_credits = ? WHERE id = ?')
+              .bind(refundedCredits, user.id).run();
+            
+            await db.prepare(`
+              INSERT INTO credit_transactions (id, user_id, amount, balance_after, credit_type, type, description, session_id)
+              VALUES (?, ?, ?, ?, 'cheaper', 'refund', '360° Video generation failed - refund', ?)
+            `).bind(
+              `txn_refund_${Date.now()}`,
+              user.id,
+              CREDITS.VIDEO_360,
+              refundedCredits,
+              video.session_id
+            ).run();
+            
+            return c.json({
+              video_id: videoId,
+              status: 'failed',
+              error_message: pollResult.error || 'Video generation failed',
+              credits_refunded: CREDITS.VIDEO_360
+            });
+          }
+        }
+      } catch (pollError) {
+        console.error('[Poll] Error polling Veo:', pollError);
+        // Don't fail the request, just return processing status
+      }
     }
 
     // Still processing
@@ -4190,18 +4356,60 @@ app.get('/api/sessions/:sessionId/videos', async (c) => {
   }
 });
 
-// Async video generation processor
-async function processVideoGeneration(
+// Detect image aspect ratio using Gemini - Veo only supports 16:9 or 9:16
+async function detectImageAspectRatio(
+  projectId: string,
+  clientEmail: string,
+  privateKey: string,
+  imageBase64: string,
+  mimeType: string
+): Promise<string> {
+  try {
+    const accessToken = await getAccessToken(clientEmail, privateKey);
+    const endpoint = `https://aiplatform.googleapis.com/v1/projects/${projectId}/locations/${VERTEX_REGION}/publishers/google/models/gemini-2.0-flash:generateContent`;
+    
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        contents: [{
+          role: 'user',
+          parts: [
+            { inlineData: { mimeType, data: imageBase64 } },
+            { text: 'Is this image LANDSCAPE (wider than tall) or PORTRAIT (taller than wide)? Reply with ONLY one word: "LANDSCAPE" or "PORTRAIT". For square images, reply "LANDSCAPE".' }
+          ]
+        }]
+      })
+    });
+
+    if (!response.ok) {
+      console.error('[Aspect Ratio] API error, defaulting to 16:9');
+      return '16:9';
+    }
+
+    const data = await response.json() as any;
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim().toUpperCase() || '';
+    
+    // Veo only supports 16:9 (landscape) or 9:16 (portrait)
+    if (text.includes('PORTRAIT')) return '9:16';
+    return '16:9'; // Default to landscape for most product images
+  } catch (err) {
+    console.error('[Aspect Ratio] Detection failed, defaulting to 16:9:', err);
+    return '16:9';
+  }
+}
+
+// Start Veo video generation - returns operation name for polling
+async function startVeoVideoGeneration(
   env: any,
   videoId: string,
-  userId: string,
-  imageUrl: string,
-  sessionId: string
-) {
-  const db = env.TESCO_DB;
-  
+  imageUrl: string
+): Promise<{ success: boolean; operationName?: string; error?: string }> {
   try {
-    console.log(`[360 Video] Starting generation for video ${videoId}`);
+    console.log(`[360 Video] Starting Veo generation for video ${videoId}`);
     
     // Extract base64 and mime type from image URL
     let imageBase64: string;
@@ -4224,85 +4432,191 @@ async function processVideoGeneration(
     const privateKey = env.VERTEX_PRIVATE_KEY;
 
     if (!projectId || !clientEmail || !privateKey) {
-      throw new Error('AI service not configured');
+      return { success: false, error: 'AI service not configured' };
     }
 
-    // Step 1: Check if background removal is needed
-    console.log('[360 Video] Checking background...');
-    const hasWhiteBackground = await detectWhiteBackground(
-      projectId, clientEmail, privateKey, imageBase64, mimeType
-    );
+    // Image should already be the Hero (White BG) version from frontend
+    // Hero White is now generated as 16:9 aspect ratio to match video output
+    console.log('[Veo 3] Using Hero White BG image (should be 16:9)');
+    
+    const finalImageBase64 = imageBase64;
+    const finalMimeType = mimeType;
 
-    let cleanImageBase64 = imageBase64;
-    let cleanImageUrl = imageUrl;
+    const accessToken = await getAccessToken(clientEmail, privateKey);
+    
+    // Use us-central1 region for Veo
+    const videoRegion = 'us-central1';
+    const modelId = 'veo-3.0-generate-preview';
+    const endpoint = `https://${videoRegion}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${videoRegion}/publishers/google/models/${modelId}:predictLongRunning`;
+    
+    // Always use 16:9 for product videos - best for e-commerce
+    const aspectRatio = '16:9';
+    
+    const prompt = `Professional 360-degree product rotation video on a PURE WHITE (#FFFFFF) background. The product is centered with WHITE padding/margins on all sides. The product rotates smoothly clockwise, completing exactly one full 360-degree turn. Bright white studio backdrop, clean e-commerce style with soft shadows. No black margins - entire frame should be white. 8 seconds.`;
 
-    if (!hasWhiteBackground) {
-      console.log('[360 Video] Removing background...');
-      const bgResult = await removeBackgroundWithGemini(
-        projectId, clientEmail, privateKey, imageBase64, mimeType
-      );
-      
-      if (bgResult.success && bgResult.image) {
-        cleanImageUrl = bgResult.image;
-        cleanImageBase64 = bgResult.image.split(',')[1];
-        
-        // Update clean image URL in database
-        await db.prepare(
-          'UPDATE generated_videos SET clean_image_url = ? WHERE id = ?'
-        ).bind(cleanImageUrl, videoId).run();
+    const requestBody = JSON.stringify({
+      instances: [{
+        prompt: prompt,
+        image: {
+          bytesBase64Encoded: finalImageBase64,
+          mimeType: finalMimeType
+        }
+      }],
+      parameters: {
+        sampleCount: 1,
+        aspectRatio: aspectRatio,
+        generateAudio: false
       }
+    });
+
+    console.log('[Veo 3] Sending request to:', endpoint, 'with aspectRatio:', aspectRatio);
+    
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json; charset=utf-8'
+      },
+      body: requestBody
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[Veo 3 ERROR] Status:', response.status, errorText);
+      let errorMsg = 'Video generation error';
+      try {
+        const errJson = JSON.parse(errorText);
+        errorMsg = errJson.error?.message || `API error: ${response.status}`;
+      } catch {
+        errorMsg = `API error: ${response.status}`;
+      }
+      return { success: false, error: errorMsg };
     }
 
-    // Step 2: Generate 360° video with Veo 2
-    console.log('[360 Video] Generating video with Veo 2...');
-    const videoResult = await generate360VideoWithVeo(
-      projectId, clientEmail, privateKey, cleanImageBase64, mimeType
-    );
-
-    if (videoResult.success && videoResult.videoUrl) {
-      // Success - update database
-      await db.prepare(`
-        UPDATE generated_videos 
-        SET status = 'completed', video_url = ?, completed_at = datetime('now')
-        WHERE id = ?
-      `).bind(videoResult.videoUrl, videoId).run();
-      
-      console.log(`[360 Video] Successfully generated video ${videoId}`);
-    } else {
-      throw new Error(videoResult.error || 'Video generation failed');
+    const data = await response.json() as any;
+    const operationName = data.name;
+    
+    if (!operationName) {
+      console.error('[Veo 3] No operation name in response:', JSON.stringify(data));
+      return { success: false, error: 'No operation name returned' };
     }
+
+    console.log('[Veo 3] Operation started:', operationName);
+    return { success: true, operationName };
 
   } catch (error) {
-    console.error(`[360 Video] Error generating video ${videoId}:`, error);
-    
-    // Update status to failed
-    await db.prepare(`
-      UPDATE generated_videos SET status = 'failed', error_message = ? WHERE id = ?
-    `).bind(error instanceof Error ? error.message : 'Unknown error', videoId).run();
+    console.error('[Veo 3] Error starting generation:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+}
 
-    // Refund credits
-    const user = await db.prepare('SELECT cheaper_credits FROM users WHERE id = ?')
-      .bind(userId).first() as any;
-    
-    if (user) {
-      const refundedCredits = user.cheaper_credits + CREDITS.VIDEO_360;
-      await db.prepare('UPDATE users SET cheaper_credits = ? WHERE id = ?')
-        .bind(refundedCredits, userId).run();
-      
-      // Log refund transaction
-      await db.prepare(`
-        INSERT INTO credit_transactions (id, user_id, amount, balance_after, credit_type, type, description, session_id)
-        VALUES (?, ?, ?, ?, 'cheaper', 'refund', '360° Video generation failed - refund', ?)
-      `).bind(
-        `txn_refund_${Date.now()}`,
-        userId,
-        CREDITS.VIDEO_360,
-        refundedCredits,
-        sessionId
-      ).run();
-      
-      console.log(`[360 Video] Refunded ${CREDITS.VIDEO_360} credits to user ${userId}`);
+// Poll Veo operation status
+async function pollVeoOperation(
+  env: any,
+  operationName: string
+): Promise<{ done: boolean; videoUrl?: string; error?: string }> {
+  try {
+    const projectId = env.VERTEX_PROJECT_ID;
+    const clientEmail = env.VERTEX_CLIENT_EMAIL;
+    const privateKey = env.VERTEX_PRIVATE_KEY;
+
+    if (!projectId || !clientEmail || !privateKey) {
+      return { done: true, error: 'AI service not configured' };
     }
+
+    const accessToken = await getAccessToken(clientEmail, privateKey);
+    
+    const videoRegion = 'us-central1';
+    const modelId = 'veo-3.0-generate-preview';
+    const pollEndpoint = `https://${videoRegion}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${videoRegion}/publishers/google/models/${modelId}:fetchPredictOperation`;
+    
+    const pollResponse = await fetch(pollEndpoint, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json; charset=utf-8'
+      },
+      body: JSON.stringify({ operationName })
+    });
+    
+    if (!pollResponse.ok) {
+      const pollError = await pollResponse.text();
+      console.error('[Veo 3] Poll error:', pollResponse.status, pollError);
+      return { done: false };
+    }
+    
+    const pollData = await pollResponse.json() as any;
+    
+    if (pollData.done) {
+      console.log('[Veo 3] Operation done, full response:', JSON.stringify(pollData));
+      
+      if (pollData.error) {
+        console.error('[Veo 3] Generation failed:', pollData.error);
+        return { done: true, error: pollData.error.message || 'Video generation failed' };
+      }
+      
+      const response = pollData.response;
+      
+      // Veo 3 format: {"@type": "...", "videos": [{"bytesBase64Encoded": "..."}]}
+      if (response?.videos?.[0]?.bytesBase64Encoded) {
+        const videoBase64 = response.videos[0].bytesBase64Encoded;
+        const mimeType = response.videos[0].mimeType || 'video/mp4';
+        console.log('[Veo 3] Video generated as base64, length:', videoBase64.length);
+        return { done: true, videoUrl: `data:${mimeType};base64,${videoBase64}` };
+      }
+      
+      // Check for gcsUri in videos array
+      if (response?.videos?.[0]?.gcsUri) {
+        console.log('[Veo 3] Video generated at GCS:', response.videos[0].gcsUri);
+        return { done: true, videoUrl: response.videos[0].gcsUri };
+      }
+      
+      // Fallback: response is an array directly
+      if (Array.isArray(response) && response[0]?.bytesBase64Encoded) {
+        const videoBase64 = response[0].bytesBase64Encoded;
+        const mimeType = response[0].mimeType || 'video/mp4';
+        console.log('[Veo 3] Video generated as base64 array, length:', videoBase64.length);
+        return { done: true, videoUrl: `data:${mimeType};base64,${videoBase64}` };
+      }
+      
+      // Check for generatedSamples format
+      const videoUri = response?.generatedSamples?.[0]?.video?.uri;
+      if (videoUri) {
+        return { done: true, videoUrl: videoUri };
+      }
+      
+      // Check for base64 video data in generatedSamples
+      const videoBase64 = response?.generatedSamples?.[0]?.video?.bytesBase64Encoded;
+      if (videoBase64) {
+        return { done: true, videoUrl: `data:video/mp4;base64,${videoBase64}` };
+      }
+      
+      // Check for predictions format
+      const predictionVideo = response?.predictions?.[0]?.video;
+      if (predictionVideo) {
+        if (predictionVideo.gcsUri) {
+          return { done: true, videoUrl: predictionVideo.gcsUri };
+        }
+        if (predictionVideo.bytesBase64Encoded) {
+          return { done: true, videoUrl: `data:video/mp4;base64,${predictionVideo.bytesBase64Encoded}` };
+        }
+      }
+      
+      // Check if response itself has bytesBase64Encoded (direct format)
+      if (response?.bytesBase64Encoded) {
+        return { done: true, videoUrl: `data:video/mp4;base64,${response.bytesBase64Encoded}` };
+      }
+      
+      // Return full response as error for debugging
+      console.error('[Veo 3] Unexpected response format:', JSON.stringify(response));
+      return { done: true, error: `No video in response. Debug: ${JSON.stringify(response).substring(0, 200)}` };
+    }
+    
+    return { done: false };
+
+  } catch (error) {
+    console.error('[Veo 3] Poll error:', error);
+    return { done: false };
   }
 }
 
@@ -8165,9 +8479,11 @@ function getHomePage(user?: User) {
         document.getElementById('upload-prompt').style.display = 'none';
         document.getElementById('upload-preview').style.display = 'block';
         document.getElementById('upload-zone').style.height = 'auto';
-        document.getElementById('generate-btn').disabled = false;
+        // Keep button disabled until upload completes
+        document.getElementById('generate-btn').disabled = true;
+        document.getElementById('generate-btn').textContent = 'Uploading...';
         
-        // Upload immediately
+        // Upload immediately - button enabled after success
         uploadImage();
       };
       reader.readAsDataURL(file);
@@ -8230,6 +8546,9 @@ function getHomePage(user?: User) {
         if (data.success) {
           currentSessionId = data.sessionId;
           loadSessions();
+          // Enable generate button now that upload is complete
+          document.getElementById('generate-btn').disabled = false;
+          document.getElementById('generate-btn').textContent = 'Generate 10 Professional Shots';
         } else if (data.needsAuth) {
           // Server says not authenticated - redirect to signup
           window.location.href = '/get-started?redirect=' + encodeURIComponent(window.location.pathname);
@@ -8237,10 +8556,16 @@ function getHomePage(user?: User) {
           showPaywallModal(data.required, data.current);
         } else {
           showError(data.error || 'Upload failed');
+          // Reset button on error
+          document.getElementById('generate-btn').disabled = false;
+          document.getElementById('generate-btn').textContent = 'Generate 10 Professional Shots';
         }
       } catch (e) { 
         console.error('Upload failed:', e);
         showError('Upload failed. Please try again.');
+        // Reset button on error
+        document.getElementById('generate-btn').disabled = false;
+        document.getElementById('generate-btn').textContent = 'Generate 10 Professional Shots';
       }
     }
 
@@ -8276,6 +8601,10 @@ function getHomePage(user?: User) {
 
     // Full generation for authenticated users
     async function generateFullVariations() {
+      // Reset Hero White image state for new generation
+      window.heroWhiteImageReady = false;
+      window.heroWhiteImageUrl = null;
+      
       document.getElementById('upload-screen').style.display = 'none';
       document.getElementById('results-screen').style.display = 'block';
       document.getElementById('product-name-edit').value = selectedFile?.name?.replace(/\\.[^.]+$/, '') || 'Product';
@@ -8386,6 +8715,14 @@ function getHomePage(user?: User) {
             '<div class="card-label">' + v.label + '</div>';
           // Update credits display after each successful generation
           updateCreditsDisplay();
+          
+          // If this is Hero (White BG) image (index 6), enable 360 video button
+          if (index === 6) {
+            console.log('[Hero White] Setting heroWhiteImageUrl from index 6:', data.image?.substring(0, 80) + '...');
+            window.heroWhiteImageReady = true;
+            window.heroWhiteImageUrl = data.image;
+            update360VideoButton();
+          }
         } else if (data.needsUpgrade) {
           // Out of credits mid-generation
           card.innerHTML = '<div style="width:100%; aspect-ratio:1; background:#FEF3C7; border-radius:6px; display:flex; align-items:center; justify-content:center; color:#92400E; cursor:pointer" onclick="window.location.href=\\'/pricing\\'">💳 Need Credits</div>' +
@@ -8679,12 +9016,34 @@ function getHomePage(user?: User) {
     function get360VideoTileHTML() {
       const creditCost = 40;
       const hasEnoughCredits = currentUser && (window.currentCheaperCredits || currentUser.cheaper_credits || 0) >= creditCost;
+      // Button disabled until Hero White BG image is ready
+      const isHeroWhiteReady = window.heroWhiteImageReady === true;
+      const canGenerate = hasEnoughCredits && isHeroWhiteReady;
+      
+      let buttonMessage = '';
+      let messageColor = '#FCD34D';
+      let messageText = '⏳ Waiting for Hero (White BG) image to generate...';
+      
+      if (!hasEnoughCredits) {
+        messageColor = '#F87171';
+        messageText = 'Need ' + creditCost + ' Standard credits';
+      } else if (!isHeroWhiteReady) {
+        messageColor = '#FCD34D';
+        messageText = '⏳ Waiting for Hero (White BG) image to generate...';
+      } else {
+        messageColor = '#10B981';
+        messageText = '✓ Ready to generate';
+      }
+      buttonMessage = '<p class="video-btn-message" style="color:' + messageColor + ';font-size:11px;margin-top:8px;">' + messageText + '</p>';
+      
+      // Use Hero image if available, otherwise original
+      const previewImage = isHeroWhiteReady && window.heroWhiteImageUrl ? window.heroWhiteImageUrl : currentOriginalImage;
       
       return \`
         <div class="video-card-360" id="video-card-360">
           <div class="video-card-360-inner">
             <div class="video-preview-area" id="video-preview-360">
-              <img src="\${currentOriginalImage}" alt="Product preview" id="video-preview-image">
+              <img src="\${previewImage}" alt="Product preview" id="video-preview-image">
             </div>
             <div class="video-info-area">
               <div class="video-premium-badge">✨ Premium</div>
@@ -8696,10 +9055,10 @@ function getHomePage(user?: User) {
                 💎 \${creditCost} Standard Credits
               </div>
               <div id="video-generate-section">
-                <button class="video-generate-btn" id="generate-360-btn" onclick="generate360Video()" \${hasEnoughCredits ? '' : 'disabled'}>
+                <button class="video-generate-btn" id="generate-360-btn" onclick="generate360Video()" \${canGenerate ? '' : 'disabled'}>
                   🎬 Generate 360° Video
                 </button>
-                \${!hasEnoughCredits ? '<p style="color:#F87171;font-size:11px;margin-top:8px;">Need ' + creditCost + ' Standard credits</p>' : ''}
+                \${buttonMessage}
               </div>
               <div id="video-status-section" style="display:none">
                 <div class="video-status-360">
@@ -8719,9 +9078,101 @@ function getHomePage(user?: User) {
       \`;
     }
     
+    // Update 360 video button state when Hero White image becomes available
+    function update360VideoButton() {
+      const btn = document.getElementById('generate-360-btn');
+      const generateSection = document.getElementById('video-generate-section');
+      if (!btn || !generateSection) return;
+      
+      const creditCost = 40;
+      const hasEnoughCredits = currentUser && (window.currentCheaperCredits || currentUser.cheaper_credits || 0) >= creditCost;
+      const isHeroWhiteReady = window.heroWhiteImageReady === true;
+      const canGenerate = hasEnoughCredits && isHeroWhiteReady;
+      
+      btn.disabled = !canGenerate;
+      
+      // Update the message below the button (element created in initial HTML)
+      const messageEl = generateSection.querySelector('.video-btn-message');
+      if (messageEl) {
+        if (!hasEnoughCredits) {
+          messageEl.style.color = '#F87171';
+          messageEl.textContent = 'Need ' + creditCost + ' Standard credits';
+        } else if (!isHeroWhiteReady) {
+          messageEl.style.color = '#FCD34D';
+          messageEl.textContent = '⏳ Waiting for Hero (White BG) image to generate...';
+        } else {
+          messageEl.style.color = '#10B981';
+          messageEl.textContent = '✓ Ready to generate';
+        }
+      }
+      
+      // Also update the preview image to show Hero White when ready
+      if (isHeroWhiteReady && window.heroWhiteImageUrl) {
+        const previewImg = document.getElementById('video-preview-image');
+        if (previewImg) {
+          previewImg.src = window.heroWhiteImageUrl;
+        }
+      }
+    }
+    
+    // Pad image to 16:9 aspect ratio with white background using canvas
+    async function padImageTo16x9(imageDataUrl) {
+      return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          // Calculate 16:9 dimensions
+          const targetRatio = 16 / 9;
+          const currentRatio = img.width / img.height;
+          
+          let canvasWidth, canvasHeight;
+          
+          if (currentRatio > targetRatio) {
+            // Image is wider than 16:9 - pad top/bottom
+            canvasWidth = img.width;
+            canvasHeight = Math.round(img.width / targetRatio);
+          } else {
+            // Image is taller than 16:9 - pad left/right
+            canvasHeight = img.height;
+            canvasWidth = Math.round(img.height * targetRatio);
+          }
+          
+          // Create canvas with white background
+          const canvas = document.createElement('canvas');
+          canvas.width = canvasWidth;
+          canvas.height = canvasHeight;
+          const ctx = canvas.getContext('2d');
+          
+          // Fill with white
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+          
+          // Center the image
+          const x = Math.round((canvasWidth - img.width) / 2);
+          const y = Math.round((canvasHeight - img.height) / 2);
+          ctx.drawImage(img, x, y);
+          
+          // Return as data URL
+          const paddedDataUrl = canvas.toDataURL('image/png');
+          console.log('[Pad 16:9] Original:', img.width + 'x' + img.height, 'Padded:', canvasWidth + 'x' + canvasHeight);
+          resolve(paddedDataUrl);
+        };
+        img.onerror = () => {
+          console.error('[Pad 16:9] Failed to load image, using original');
+          resolve(imageDataUrl);
+        };
+        img.src = imageDataUrl;
+      });
+    }
+    
     async function generate360Video() {
       if (!currentSessionId || !currentOriginalImage) {
         showError('Please generate images first');
+        return;
+      }
+      
+      // Must have Hero White image ready
+      if (!window.heroWhiteImageReady || !window.heroWhiteImageUrl) {
+        showError('Please wait for Hero (White BG) image to generate first');
         return;
       }
       
@@ -8733,12 +9184,20 @@ function getHomePage(user?: User) {
       btn.innerHTML = '⏳ Starting...';
       
       try {
+        // Use the Hero (White BG) image and pad to 16:9 for video
+        btn.innerHTML = '⏳ Preparing 16:9 image...';
+        console.log('[360 Video] Original Hero URL length:', window.heroWhiteImageUrl?.length);
+        const paddedImage = await padImageTo16x9(window.heroWhiteImageUrl);
+        console.log('[360 Video] Padded image URL length:', paddedImage?.length);
+        console.log('[360 Video] Padded image starts with:', paddedImage?.substring(0, 50));
+        
+        btn.innerHTML = '⏳ Starting...';
         const response = await fetch('/api/generate-360-video', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             session_id: currentSessionId,
-            image_url: currentOriginalImage
+            image_url: paddedImage
           })
         });
         
@@ -8800,7 +9259,7 @@ function getHomePage(user?: User) {
             document.getElementById('video-status-text').textContent = '❌ ' + (data.error_message || 'Generation failed');
             document.getElementById('video-status-section').querySelector('.video-status-spinner').style.display = 'none';
             // Refund notification
-            showSuccess('Credits refunded due to generation failure');
+            showNotification('Credits refunded due to generation failure');
             updateCreditsDisplay();
           } else {
             // Still processing - update status
@@ -8823,10 +9282,11 @@ function getHomePage(user?: User) {
       statusSection.style.display = 'none';
       completeSection.style.display = 'block';
       
-      // Replace preview image with video thumbnail or first frame
+      // Replace preview image with video - use Hero White image as poster
+      const posterImage = window.heroWhiteImageUrl || currentOriginalImage;
       previewArea.innerHTML = \`
         <video id="video-preview-player" src="\${videoUrl}" loop muted playsinline 
-               onmouseenter="this.play()" onmouseleave="this.pause()" poster="\${currentOriginalImage}">
+               onmouseenter="this.play()" onmouseleave="this.pause()" poster="\${posterImage}">
         </video>
         <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;">
           <div style="width:48px;height:48px;background:rgba(0,0,0,0.6);border-radius:50%;display:flex;align-items:center;justify-content:center;">
@@ -8838,7 +9298,7 @@ function getHomePage(user?: User) {
       // Store video URL for playback
       window.current360VideoUrl = videoUrl;
       
-      showSuccess('360° video generated successfully!');
+      showNotification('360° video generated successfully!');
     }
     
     function play360Video() {
