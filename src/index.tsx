@@ -1406,7 +1406,24 @@ async function ensureDatabase(db: D1Database) {
       )
     `).run()
     
+    // Feature suggestions table (user feedback)
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS feature_suggestions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        user_email TEXT,
+        suggestion TEXT NOT NULL,
+        page TEXT,
+        submitted_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'reviewed', 'implemented', 'declined')),
+        admin_notes TEXT,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `).run()
+    
     // Create indexes
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_feature_suggestions_user ON feature_suggestions(user_id)').run()
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_feature_suggestions_status ON feature_suggestions(status)').run()
     await db.prepare('CREATE INDEX IF NOT EXISTS idx_sessions_created_at ON sessions(created_at DESC)').run()
     await db.prepare('CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status)').run()
     await db.prepare('CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)').run()
@@ -4084,6 +4101,143 @@ app.delete('/api/sessions/:id', async (c) => {
     return c.json({ success: false, error: 'Failed to delete session' }, 500)
   }
 })
+
+// ============================================================================
+// FEATURE SUGGESTIONS API
+// ============================================================================
+
+// Submit a feature suggestion
+app.post('/api/feature-suggestions', async (c) => {
+  const user = c.get('user');
+  if (!user) {
+    return c.json({ success: false, error: 'Authentication required' }, 401);
+  }
+
+  const db = c.env.TESCO_DB;
+  await ensureDatabase(db);
+
+  try {
+    const body = await c.req.json();
+    const { suggestion, page } = body;
+
+    // Validate suggestion
+    if (!suggestion || suggestion.length < 10) {
+      return c.json({ success: false, error: 'Suggestion must be at least 10 characters' }, 400);
+    }
+    if (suggestion.length > 500) {
+      return c.json({ success: false, error: 'Suggestion must be less than 500 characters' }, 400);
+    }
+
+    // Check for duplicate submission within 60 seconds
+    const recentSubmission = await db.prepare(`
+      SELECT id FROM feature_suggestions 
+      WHERE user_id = ? AND suggestion = ? 
+      AND datetime(submitted_at) > datetime('now', '-60 seconds')
+    `).bind(user.id, suggestion).first();
+
+    if (recentSubmission) {
+      return c.json({ success: false, error: 'Please wait before submitting another suggestion' }, 429);
+    }
+
+    // Insert suggestion
+    await db.prepare(`
+      INSERT INTO feature_suggestions (user_id, user_email, suggestion, page, submitted_at)
+      VALUES (?, ?, ?, ?, datetime('now'))
+    `).bind(user.id, user.email, suggestion, page || '/app').run();
+
+    return c.json({ success: true, message: 'Thank you! Your suggestion has been submitted.' });
+  } catch (error) {
+    console.error('Feature suggestion error:', error);
+    return c.json({ success: false, error: 'Failed to submit suggestion' }, 500);
+  }
+});
+
+// Get all feature suggestions (admin only)
+app.get('/api/admin/feature-suggestions', async (c) => {
+  const user = c.get('user');
+  if (!user || user.role !== 'admin') {
+    return c.json({ success: false, error: 'Admin access required' }, 403);
+  }
+
+  const db = c.env.TESCO_DB;
+  const url = new URL(c.req.url);
+  const status = url.searchParams.get('status') || 'all';
+  const page = parseInt(url.searchParams.get('page') || '1');
+  const limit = 20;
+  const offset = (page - 1) * limit;
+
+  try {
+    let query = 'SELECT * FROM feature_suggestions';
+    let countQuery = 'SELECT COUNT(*) as total FROM feature_suggestions';
+    const params: string[] = [];
+
+    if (status !== 'all') {
+      query += ' WHERE status = ?';
+      countQuery += ' WHERE status = ?';
+      params.push(status);
+    }
+
+    query += ' ORDER BY submitted_at DESC LIMIT ? OFFSET ?';
+
+    const suggestions = await db.prepare(query).bind(...params, limit, offset).all();
+    const countResult = await db.prepare(countQuery).bind(...params).first() as any;
+
+    return c.json({
+      success: true,
+      suggestions: suggestions.results,
+      total: countResult?.total || 0,
+      page,
+      totalPages: Math.ceil((countResult?.total || 0) / limit)
+    });
+  } catch (error) {
+    console.error('Get suggestions error:', error);
+    return c.json({ success: false, error: 'Failed to get suggestions' }, 500);
+  }
+});
+
+// Update suggestion status (admin only)
+app.patch('/api/admin/feature-suggestions/:id', async (c) => {
+  const user = c.get('user');
+  if (!user || user.role !== 'admin') {
+    return c.json({ success: false, error: 'Admin access required' }, 403);
+  }
+
+  const db = c.env.TESCO_DB;
+  const id = c.req.param('id');
+
+  try {
+    const body = await c.req.json();
+    const { status, admin_notes } = body;
+
+    if (status && !['pending', 'reviewed', 'implemented', 'declined'].includes(status)) {
+      return c.json({ success: false, error: 'Invalid status' }, 400);
+    }
+
+    const updates: string[] = [];
+    const values: any[] = [];
+
+    if (status) {
+      updates.push('status = ?');
+      values.push(status);
+    }
+    if (admin_notes !== undefined) {
+      updates.push('admin_notes = ?');
+      values.push(admin_notes);
+    }
+
+    if (updates.length === 0) {
+      return c.json({ success: false, error: 'No updates provided' }, 400);
+    }
+
+    values.push(id);
+    await db.prepare(`UPDATE feature_suggestions SET ${updates.join(', ')} WHERE id = ?`).bind(...values).run();
+
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('Update suggestion error:', error);
+    return c.json({ success: false, error: 'Failed to update suggestion' }, 500);
+  }
+});
 
 // ============================================================================
 // 360° VIDEO GENERATION API
@@ -9440,6 +9594,316 @@ function getHomePage(user?: User) {
         if (e.key === 'ArrowRight') navigateLightbox(1);
       }
     });
+    
+    // ============================================================================
+    // FLOATING FOOTER BAR - Help & Suggestions
+    // ============================================================================
+    ${user ? `
+    (function() {
+      const footerBarHTML = \`
+        <div id="footer-bar" class="footer-bar minimized">
+          <div class="footer-tab" onclick="toggleFooterBar()">
+            <span>💬</span>
+            <span class="footer-tab-text">Help & Ideas</span>
+          </div>
+          <div class="footer-content">
+            <div class="footer-header">
+              <div class="footer-tabs">
+                <button class="footer-tab-btn active" onclick="switchFooterTab('suggestions')">💡 Suggestions</button>
+                <button class="footer-tab-btn" onclick="switchFooterTab('support')">🤖 AI Support</button>
+              </div>
+              <button class="footer-close" onclick="toggleFooterBar()">✕</button>
+            </div>
+            <div class="footer-body">
+              <div id="suggestions-tab" class="footer-tab-content active">
+                <p class="suggestions-intro">Have an idea to improve ShopShot? We'd love to hear it!</p>
+                <textarea id="suggestion-input" maxlength="500" placeholder="Suggest an app improvement..." oninput="updateSuggestionCount()"></textarea>
+                <div class="suggestion-footer">
+                  <span class="char-count"><span id="suggestion-count">0</span>/500</span>
+                  <button id="submit-suggestion-btn" class="submit-suggestion-btn" onclick="submitSuggestion()" disabled>Submit Suggestion</button>
+                </div>
+                <div id="suggestion-success" class="suggestion-success" style="display:none">
+                  ✅ Thanks! Your idea has been logged.
+                </div>
+              </div>
+              <div id="support-tab" class="footer-tab-content">
+                <div class="elevenlabs-container">
+                  <elevenlabs-convai agent-id="agent_01jwhf48pte44axkv9bgc22fef"></elevenlabs-convai>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      \`;
+      
+      // Inject footer bar
+      document.body.insertAdjacentHTML('beforeend', footerBarHTML);
+      
+      // Load ElevenLabs script
+      const script = document.createElement('script');
+      script.src = 'https://unpkg.com/@elevenlabs/convai-widget-embed';
+      script.async = true;
+      document.head.appendChild(script);
+      
+      // Inject styles
+      const styles = document.createElement('style');
+      styles.textContent = \`
+        .footer-bar {
+          position: fixed;
+          bottom: 0;
+          right: 24px;
+          width: 380px;
+          z-index: 999;
+          font-family: 'Inter', sans-serif;
+          transition: all 0.3s ease;
+        }
+        .footer-bar.minimized {
+          height: 48px;
+        }
+        .footer-bar.expanded {
+          height: 500px;
+        }
+        .footer-tab {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          background: linear-gradient(135deg, #3B82F6, #8B5CF6);
+          color: white;
+          padding: 12px 20px;
+          border-radius: 12px 12px 0 0;
+          cursor: pointer;
+          font-weight: 600;
+          font-size: 14px;
+          box-shadow: 0 -4px 20px rgba(0,0,0,0.15);
+        }
+        .footer-bar.expanded .footer-tab {
+          display: none;
+        }
+        .footer-content {
+          display: none;
+          background: #1E293B;
+          border-radius: 12px 12px 0 0;
+          box-shadow: 0 -4px 30px rgba(0,0,0,0.3);
+          height: 100%;
+          flex-direction: column;
+        }
+        .footer-bar.expanded .footer-content {
+          display: flex;
+        }
+        .footer-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 12px 16px;
+          border-bottom: 1px solid #334155;
+        }
+        .footer-tabs {
+          display: flex;
+          gap: 4px;
+        }
+        .footer-tab-btn {
+          background: transparent;
+          border: none;
+          color: #94A3B8;
+          padding: 8px 12px;
+          border-radius: 6px;
+          cursor: pointer;
+          font-size: 13px;
+          font-weight: 500;
+          transition: all 0.2s;
+        }
+        .footer-tab-btn:hover {
+          background: #334155;
+          color: white;
+        }
+        .footer-tab-btn.active {
+          background: #3B82F6;
+          color: white;
+        }
+        .footer-close {
+          background: transparent;
+          border: none;
+          color: #94A3B8;
+          font-size: 18px;
+          cursor: pointer;
+          padding: 4px 8px;
+          border-radius: 4px;
+        }
+        .footer-close:hover {
+          background: #334155;
+          color: white;
+        }
+        .footer-body {
+          flex: 1;
+          overflow: hidden;
+        }
+        .footer-tab-content {
+          display: none;
+          padding: 16px;
+          height: 100%;
+          flex-direction: column;
+        }
+        .footer-tab-content.active {
+          display: flex;
+        }
+        .suggestions-intro {
+          color: #CBD5E1;
+          font-size: 13px;
+          margin-bottom: 12px;
+        }
+        #suggestion-input {
+          flex: 1;
+          width: 100%;
+          background: #0F172A;
+          border: 1px solid #334155;
+          border-radius: 8px;
+          padding: 12px;
+          color: white;
+          font-size: 14px;
+          resize: none;
+          min-height: 120px;
+        }
+        #suggestion-input:focus {
+          outline: none;
+          border-color: #3B82F6;
+        }
+        #suggestion-input::placeholder {
+          color: #64748B;
+        }
+        .suggestion-footer {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-top: 12px;
+        }
+        .char-count {
+          color: #64748B;
+          font-size: 12px;
+        }
+        .submit-suggestion-btn {
+          background: linear-gradient(135deg, #3B82F6, #8B5CF6);
+          color: white;
+          border: none;
+          padding: 10px 20px;
+          border-radius: 8px;
+          font-weight: 600;
+          font-size: 13px;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+        .submit-suggestion-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+        .submit-suggestion-btn:not(:disabled):hover {
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+        }
+        .suggestion-success {
+          background: #065F46;
+          color: #6EE7B7;
+          padding: 12px;
+          border-radius: 8px;
+          margin-top: 12px;
+          font-size: 13px;
+          text-align: center;
+        }
+        .elevenlabs-container {
+          height: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: #94A3B8;
+        }
+        elevenlabs-convai {
+          width: 100%;
+          height: 380px;
+        }
+        @media (max-width: 480px) {
+          .footer-bar {
+            width: calc(100% - 32px);
+            right: 16px;
+          }
+        }
+      \`;
+      document.head.appendChild(styles);
+      
+      // Check localStorage for minimized state
+      const isMinimized = localStorage.getItem('footerBar_minimized') !== 'false';
+      if (!isMinimized) {
+        document.getElementById('footer-bar').classList.remove('minimized');
+        document.getElementById('footer-bar').classList.add('expanded');
+      }
+    })();
+    
+    function toggleFooterBar() {
+      const bar = document.getElementById('footer-bar');
+      const isExpanded = bar.classList.contains('expanded');
+      bar.classList.toggle('minimized', isExpanded);
+      bar.classList.toggle('expanded', !isExpanded);
+      localStorage.setItem('footerBar_minimized', isExpanded ? 'true' : 'false');
+    }
+    
+    function switchFooterTab(tab) {
+      document.querySelectorAll('.footer-tab-btn').forEach(btn => btn.classList.remove('active'));
+      document.querySelectorAll('.footer-tab-content').forEach(content => content.classList.remove('active'));
+      
+      if (tab === 'suggestions') {
+        document.querySelector('.footer-tab-btn:first-child').classList.add('active');
+        document.getElementById('suggestions-tab').classList.add('active');
+      } else {
+        document.querySelector('.footer-tab-btn:last-child').classList.add('active');
+        document.getElementById('support-tab').classList.add('active');
+      }
+    }
+    
+    function updateSuggestionCount() {
+      const input = document.getElementById('suggestion-input');
+      const count = input.value.length;
+      document.getElementById('suggestion-count').textContent = count;
+      document.getElementById('submit-suggestion-btn').disabled = count < 10;
+      document.getElementById('suggestion-success').style.display = 'none';
+    }
+    
+    async function submitSuggestion() {
+      const input = document.getElementById('suggestion-input');
+      const btn = document.getElementById('submit-suggestion-btn');
+      const suggestion = input.value.trim();
+      
+      if (suggestion.length < 10) return;
+      
+      btn.disabled = true;
+      btn.textContent = 'Submitting...';
+      
+      try {
+        const response = await fetch('/api/feature-suggestions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            suggestion: suggestion,
+            page: window.location.pathname
+          })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          input.value = '';
+          document.getElementById('suggestion-count').textContent = '0';
+          document.getElementById('suggestion-success').style.display = 'block';
+          btn.textContent = 'Submit Suggestion';
+        } else {
+          showError(data.error || 'Failed to submit suggestion');
+          btn.disabled = false;
+          btn.textContent = 'Submit Suggestion';
+        }
+      } catch (err) {
+        showError('Failed to submit suggestion');
+        btn.disabled = false;
+        btn.textContent = 'Submit Suggestion';
+      }
+    }
+    ` : ''}
   </script>
 </body>
 </html>`
@@ -13630,6 +14094,30 @@ function getAdminDashboardPage(user: any) {
         <div class="panel">
           <div class="panel-header">
             <div class="panel-title">
+              <span class="icon" style="background: #F59E0B20; color: #F59E0B;">💡</span>
+              User Suggestions
+            </div>
+            <span class="panel-badge" id="suggestions-count">0</span>
+          </div>
+          <div class="panel-content" style="max-height: 300px;">
+            <div class="suggestions-filter" style="margin-bottom: 12px; display: flex; gap: 8px;">
+              <select id="suggestions-status-filter" onchange="loadSuggestions()" style="background: #18181B; border: 1px solid #27272A; color: #A1A1AA; padding: 6px 10px; border-radius: 6px; font-size: 12px;">
+                <option value="all">All</option>
+                <option value="pending" selected>Pending</option>
+                <option value="reviewed">Reviewed</option>
+                <option value="implemented">Implemented</option>
+                <option value="declined">Declined</option>
+              </select>
+            </div>
+            <div id="suggestions-list">
+              <div class="empty-state"><div class="icon">📝</div>No suggestions yet</div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">
               <span class="icon" style="background: #8B5CF620; color: #A78BFA;">⚡</span>
               Quick Actions
             </div>
@@ -13871,6 +14359,7 @@ function getAdminDashboardPage(user: any) {
           updatePlanBreakdown(data.planBreakdown);
           updateErrorLog(data.recentErrors);
           updateRevenueChart(data.dailyRevenue);
+          loadSuggestions();
           
           document.getElementById('last-updated').textContent = 'Updated: ' + new Date().toLocaleTimeString();
         } else {
@@ -14543,6 +15032,79 @@ function getAdminDashboardPage(user: any) {
         }
       } catch (error) {
         alert('Failed to update user');
+      }
+    }
+    
+    // ============================================================================
+    // SUGGESTIONS MANAGEMENT
+    // ============================================================================
+    
+    async function loadSuggestions() {
+      const status = document.getElementById('suggestions-status-filter').value;
+      try {
+        const res = await fetch('/api/admin/feature-suggestions?status=' + status);
+        const data = await res.json();
+        
+        if (data.success) {
+          document.getElementById('suggestions-count').textContent = data.total;
+          const list = document.getElementById('suggestions-list');
+          
+          if (data.suggestions.length === 0) {
+            list.innerHTML = '<div class="empty-state"><div class="icon">📝</div>No suggestions</div>';
+            return;
+          }
+          
+          list.innerHTML = data.suggestions.map(s => {
+            const statusColors = {
+              pending: '#F59E0B',
+              reviewed: '#3B82F6',
+              implemented: '#22C55E',
+              declined: '#EF4444'
+            };
+            const timeAgo = formatTimeAgo(new Date(s.submitted_at));
+            
+            return \`
+              <div class="activity-item" style="border-left: 3px solid \${statusColors[s.status] || '#6B7280'};">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px;">
+                  <span style="color: #A1A1AA; font-size: 11px;">\${s.user_email || 'Unknown'}</span>
+                  <span style="color: #6B7280; font-size: 10px;">\${timeAgo}</span>
+                </div>
+                <div style="color: #E5E7EB; font-size: 13px; margin-bottom: 8px;">\${s.suggestion}</div>
+                <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                  <select onchange="updateSuggestionStatus(\${s.id}, this.value)" style="background: #27272A; border: 1px solid #3F3F46; color: #A1A1AA; padding: 4px 8px; border-radius: 4px; font-size: 11px;">
+                    <option value="pending" \${s.status === 'pending' ? 'selected' : ''}>Pending</option>
+                    <option value="reviewed" \${s.status === 'reviewed' ? 'selected' : ''}>Reviewed</option>
+                    <option value="implemented" \${s.status === 'implemented' ? 'selected' : ''}>Implemented</option>
+                    <option value="declined" \${s.status === 'declined' ? 'selected' : ''}>Declined</option>
+                  </select>
+                  <span style="color: #6B7280; font-size: 10px; padding: 4px 0;">from \${s.page || '/app'}</span>
+                </div>
+                \${s.admin_notes ? '<div style="color: #6B7280; font-size: 11px; margin-top: 6px; font-style: italic;">Note: ' + s.admin_notes + '</div>' : ''}
+              </div>
+            \`;
+          }).join('');
+        }
+      } catch (error) {
+        console.error('Failed to load suggestions:', error);
+      }
+    }
+    
+    async function updateSuggestionStatus(id, status) {
+      try {
+        const res = await fetch('/api/admin/feature-suggestions/' + id, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status })
+        });
+        const data = await res.json();
+        
+        if (data.success) {
+          loadSuggestions();
+        } else {
+          alert('Failed to update: ' + data.error);
+        }
+      } catch (error) {
+        alert('Failed to update suggestion');
       }
     }
   </script>
