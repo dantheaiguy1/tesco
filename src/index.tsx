@@ -9833,6 +9833,30 @@ function getHomePage(user?: User) {
           font-size: 11px;
           text-align: center;
         }
+        
+        /* Mobile toggle for ElevenLabs widget */
+        .elevenlabs-mobile-toggle {
+          display: none;
+          position: fixed;
+          bottom: 16px;
+          right: 16px;
+          width: 50px;
+          height: 50px;
+          background: linear-gradient(135deg, #10B981, #059669);
+          border-radius: 50%;
+          border: none;
+          color: white;
+          font-size: 24px;
+          cursor: pointer;
+          z-index: 1000;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+          align-items: center;
+          justify-content: center;
+        }
+        .elevenlabs-mobile-toggle:hover {
+          transform: scale(1.05);
+        }
+        
         /* Responsive */
         @media (max-width: 900px) {
           .suggestions-bar {
@@ -9840,13 +9864,48 @@ function getHomePage(user?: User) {
             width: 280px;
           }
         }
-        @media (max-width: 480px) {
+        @media (max-width: 640px) {
           .suggestions-bar {
-            display: none;
+            left: 12px;
+            width: calc(100% - 24px);
+            max-width: 320px;
+          }
+          .suggestions-bar.expanded {
+            height: 300px;
+          }
+          /* Hide ElevenLabs widget by default on mobile, show toggle button */
+          elevenlabs-convai {
+            display: none !important;
+          }
+          elevenlabs-convai.mobile-visible {
+            display: block !important;
+            position: fixed !important;
+            bottom: 70px !important;
+            right: 12px !important;
+            width: calc(100% - 24px) !important;
+            max-width: 350px !important;
+            height: 450px !important;
+            z-index: 1001 !important;
+          }
+          .elevenlabs-mobile-toggle {
+            display: flex;
           }
         }
       \`;
       document.head.appendChild(styles);
+      
+      // Add mobile toggle button for ElevenLabs
+      const mobileToggle = document.createElement('button');
+      mobileToggle.className = 'elevenlabs-mobile-toggle';
+      mobileToggle.innerHTML = '💬';
+      mobileToggle.onclick = function() {
+        const widget = document.querySelector('elevenlabs-convai');
+        if (widget) {
+          widget.classList.toggle('mobile-visible');
+          this.innerHTML = widget.classList.contains('mobile-visible') ? '✕' : '💬';
+        }
+      };
+      document.body.appendChild(mobileToggle);
       
       // Suggestions bar stays minimized by default - only expand if user explicitly opened it before
       const wasExpanded = localStorage.getItem('suggestionsBar_minimized') === 'false';
