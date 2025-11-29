@@ -6565,15 +6565,10 @@ function getMarketingPage() {
     const videoPlaceholder = document.getElementById('promo-video-placeholder');
     const videoEmbed = document.getElementById('promo-video-embed');
     const youtubeIframe = document.getElementById('youtube-iframe');
-    const YOUTUBE_VIDEO_ID = 'YOUR_VIDEO_ID'; // TODO: Replace with actual video ID
+    const YOUTUBE_VIDEO_ID = 'm5iA7_2J2u4'; // ShopShot demo video
     
     if (videoPlaceholder) {
       videoPlaceholder.addEventListener('click', function() {
-        if (YOUTUBE_VIDEO_ID === 'YOUR_VIDEO_ID') {
-          // No video yet - show alert
-          alert('Demo video coming soon! We are creating an awesome walkthrough.');
-          return;
-        }
         // Hide placeholder, show embed
         videoPlaceholder.style.display = 'none';
         videoEmbed.style.display = 'block';
