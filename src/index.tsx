@@ -1445,6 +1445,8 @@ async function ensureDatabase(db: D1Database) {
     try { await db.prepare('ALTER TABLE sessions ADD COLUMN credits_charged INTEGER DEFAULT 0').run() } catch (e) {}
     try { await db.prepare('ALTER TABLE sessions ADD COLUMN credits_refunded INTEGER DEFAULT 0').run() } catch (e) {}
     try { await db.prepare('ALTER TABLE sessions ADD COLUMN generation_count INTEGER DEFAULT 0').run() } catch (e) {}
+    try { await db.prepare('ALTER TABLE sessions ADD COLUMN video_url TEXT').run() } catch (e) {}
+    try { await db.prepare('ALTER TABLE sessions ADD COLUMN video_type TEXT').run() } catch (e) {}
     try { await db.prepare('ALTER TABLE generated_images ADD COLUMN model TEXT DEFAULT \'nano\'').run() } catch (e) {}
   } catch (err) {
     console.log('Database already initialized or error:', err)
@@ -2486,6 +2488,31 @@ app.post('/api/sessions/:id/images', async (c) => {
   } catch (error) {
     console.error('Error saving image:', error)
     return c.json({ success: false, error: 'Failed to save image' }, 500)
+  }
+})
+
+// API: Save 360 video to session
+app.post('/api/sessions/:id/video', async (c) => {
+  try {
+    const db = c.env.TESCO_DB
+    await ensureDatabase(db)
+    const sessionId = c.req.param('id')
+    const { video_url, video_type } = await c.req.json()
+    
+    if (!video_url) {
+      return c.json({ success: false, error: 'Missing video URL' }, 400)
+    }
+    
+    // Update session with video URL
+    await db.prepare(
+      'UPDATE sessions SET video_url = ?, video_type = ? WHERE id = ?'
+    ).bind(video_url, video_type || '360_spin', sessionId).run()
+    
+    console.log('[Save360Video] Saved video to session', sessionId)
+    return c.json({ success: true })
+  } catch (error) {
+    console.error('Error saving video:', error)
+    return c.json({ success: false, error: 'Failed to save video' }, 500)
   }
 })
 
@@ -9585,7 +9612,39 @@ function getHomePage(user?: User) {
       // Store video URL for playback
       window.current360VideoUrl = videoUrl;
       
+      // Save video to session history
+      save360VideoToSession(videoUrl);
+      
       showNotification('360° video generated successfully!');
+    }
+    
+    // Save 360 video to session for history
+    async function save360VideoToSession(videoUrl) {
+      if (!currentSessionId) {
+        console.log('[Save360Video] No session ID, skipping save');
+        return;
+      }
+      
+      try {
+        console.log('[Save360Video] Saving video to session', currentSessionId);
+        const res = await fetch('/api/sessions/' + currentSessionId + '/video', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            video_url: videoUrl,
+            video_type: '360_spin'
+          })
+        });
+        
+        const data = await res.json();
+        if (data.success) {
+          console.log('[Save360Video] Successfully saved video to session');
+        } else {
+          console.error('[Save360Video] Failed to save video:', data.error);
+        }
+      } catch (e) {
+        console.error('[Save360Video] Error saving video:', e);
+      }
     }
     
     function play360Video() {
@@ -10223,7 +10282,7 @@ function getResultsPage(sessionId: string, user?: User) {
           });
         }
         
-        if (images.length === 0) {
+        if (images.length === 0 && !sessionData.video_url) {
           showError();
           return;
         }
@@ -10249,10 +10308,11 @@ function getResultsPage(sessionId: string, user?: User) {
       const date = new Date(sessionData.created_at).toLocaleDateString('en-GB', {
         day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
       });
-      document.getElementById('session-info').textContent = images.length + ' images - ' + date;
+      const videoText = sessionData.video_url ? ' + 1 video' : '';
+      document.getElementById('session-info').textContent = images.length + ' images' + videoText + ' - ' + date;
       
       const grid = document.getElementById('images-grid');
-      grid.innerHTML = images.map((img, idx) => {
+      let gridContent = images.map((img, idx) => {
         const isOriginal = img.type === 'original';
         const regenButton = isOriginal ? '' : \`
           <button onclick="event.stopPropagation(); regenerateImage(\${idx})" 
@@ -10277,6 +10337,46 @@ function getResultsPage(sessionId: string, user?: User) {
           </div>
         \`;
       }).join('');
+      
+      // Add video card if session has a video
+      if (sessionData.video_url) {
+        gridContent += \`
+          <div class="card-3d rounded-xl overflow-hidden cursor-pointer group relative" onclick="playSessionVideo()">
+            <div class="aspect-square bg-gradient-to-br from-purple-500 to-blue-500 relative flex items-center justify-center">
+              <video src="\${sessionData.video_url}" class="w-full h-full object-cover absolute inset-0" muted loop 
+                     onmouseenter="this.play()" onmouseleave="this.pause()"></video>
+              <div class="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/10 transition">
+                <div class="w-14 h-14 rounded-full bg-white/90 shadow-lg flex items-center justify-center">
+                  <i class="fas fa-play text-brand-purple text-xl ml-1"></i>
+                </div>
+              </div>
+            </div>
+            <div class="p-3 text-center border-t border-slate-100">
+              <p class="text-xs font-medium text-brand-dark truncate">🎬 360° Spin Video</p>
+            </div>
+          </div>
+        \`;
+      }
+      
+      grid.innerHTML = gridContent;
+    }
+    
+    // Play session video in modal
+    function playSessionVideo() {
+      if (!sessionData.video_url) return;
+      
+      const modal = document.createElement('div');
+      modal.id = 'video-modal';
+      modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.9);z-index:100;display:flex;align-items:center;justify-content:center;flex-direction:column;padding:20px;';
+      modal.innerHTML = \`
+        <button onclick="this.parentElement.remove()" style="position:absolute;top:20px;right:20px;width:40px;height:40px;background:rgba(255,255,255,0.2);border:none;border-radius:50%;color:white;font-size:20px;cursor:pointer;">✕</button>
+        <video src="\${sessionData.video_url}" controls autoplay loop style="max-width:90%;max-height:70vh;border-radius:12px;"></video>
+        <a href="\${sessionData.video_url}" download="360-spin-video.mp4" style="margin-top:16px;background:linear-gradient(135deg,#3B82F6,#8B5CF6);color:white;padding:12px 24px;border-radius:12px;text-decoration:none;font-weight:600;">
+          <i class="fas fa-download" style="margin-right:8px;"></i>Download MP4
+        </a>
+      \`;
+      modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+      document.body.appendChild(modal);
     }
     
     // Session name editing
