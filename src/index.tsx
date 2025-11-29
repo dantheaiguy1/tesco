@@ -2409,6 +2409,7 @@ app.get('/api/sessions', async (c) => {
 app.get('/api/sessions/:id', async (c) => {
   try {
     const db = c.env.TESCO_DB
+    await ensureDatabase(db)
     const id = c.req.param('id')
     const user = c.get('user')
     
@@ -2430,14 +2431,21 @@ app.get('/api/sessions/:id', async (c) => {
     }
     
     // Get generated images for this session
-    const images = await db.prepare(
-      'SELECT variation_type, variation_index, image_data FROM generated_images WHERE session_id = ? ORDER BY variation_index'
-    ).bind(id).all()
+    let images: any[] = []
+    try {
+      const imagesResult = await db.prepare(
+        'SELECT variation_type, variation_index, image_data FROM generated_images WHERE session_id = ? ORDER BY variation_index'
+      ).bind(id).all()
+      images = imagesResult.results || []
+    } catch (imgError) {
+      console.error('Error fetching images (table may not exist):', imgError)
+      // Continue with empty images array - table might not exist yet
+    }
     
     return c.json({ 
       success: true, 
       session,
-      images: images.results || []
+      images
     })
   } catch (error) {
     console.error('Error fetching session:', error)
