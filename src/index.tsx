@@ -2449,6 +2449,7 @@ app.get('/api/sessions/:id', async (c) => {
 app.post('/api/sessions/:id/images', async (c) => {
   try {
     const db = c.env.TESCO_DB
+    await ensureDatabase(db)
     const sessionId = c.req.param('id')
     const { variation_type, variation_index, image_data } = await c.req.json()
     
@@ -8811,6 +8812,8 @@ function getHomePage(user?: User) {
       // Reset Hero White image state for new generation
       window.heroWhiteImageReady = false;
       window.heroWhiteImageUrl = null;
+      // Reset retry counts for new generation
+      window.retryCount = {};
       
       document.getElementById('upload-screen').style.display = 'none';
       document.getElementById('results-screen').style.display = 'block';
@@ -8923,6 +8926,9 @@ function getHomePage(user?: User) {
           // Update credits display after each successful generation
           updateCreditsDisplay();
           
+          // Save image to database for history
+          saveGeneratedImage(index, v.type, data.image);
+          
           // If this is Hero (White BG) image (index 6), enable 360 video button
           if (index === 6) {
             console.log('[Hero White] Setting heroWhiteImageUrl from index 6:', data.image?.substring(0, 80) + '...');
@@ -8936,14 +8942,69 @@ function getHomePage(user?: User) {
             '<div class="card-label">' + v.label + '</div>';
           showPaywallModal(data.required, data.current);
         } else {
-          card.innerHTML = '<div style="width:100%; aspect-ratio:1; background:#FEE2E2; border-radius:6px; display:flex; align-items:center; justify-content:center; color:#DC2626; cursor:pointer" onclick="regenerate(' + index + ')">⚠️ Retry</div>' +
-            '<div class="card-label">' + v.label + '</div>';
+          // Auto-retry on failure (max 2 retries)
+          const retryCount = window.retryCount || {};
+          retryCount[index] = (retryCount[index] || 0) + 1;
+          window.retryCount = retryCount;
+          
+          if (retryCount[index] <= 2) {
+            console.log('[Generate] Auto-retrying variation ' + index + ' (attempt ' + retryCount[index] + '/2)');
+            card.innerHTML = '<div style="width:100%; aspect-ratio:1; background:#FEF3C7; border-radius:6px; display:flex; align-items:center; justify-content:center; color:#92400E;">🔄 Retrying...</div>' +
+              '<div class="card-label">' + v.label + '</div>';
+            setTimeout(() => generateSingle(index), 1000);
+          } else {
+            card.innerHTML = '<div style="width:100%; aspect-ratio:1; background:#FEE2E2; border-radius:6px; display:flex; align-items:center; justify-content:center; color:#DC2626; cursor:pointer" onclick="regenerate(' + index + ')">⚠️ Retry</div>' +
+              '<div class="card-label">' + v.label + '</div>';
+          }
         }
       } catch (e) {
         clearInterval(interval);
         const card = document.getElementById('card-' + index);
-        card.innerHTML = '<div style="width:100%; aspect-ratio:1; background:#FEE2E2; border-radius:6px; display:flex; align-items:center; justify-content:center; color:#DC2626; cursor:pointer" onclick="regenerate(' + index + ')">⚠️ Retry</div>' +
-          '<div class="card-label">' + variationDefs[index].label + '</div>';
+        
+        // Auto-retry on error (max 2 retries)
+        const retryCount = window.retryCount || {};
+        retryCount[index] = (retryCount[index] || 0) + 1;
+        window.retryCount = retryCount;
+        
+        if (retryCount[index] <= 2) {
+          console.log('[Generate] Auto-retrying variation ' + index + ' after error (attempt ' + retryCount[index] + '/2)');
+          card.innerHTML = '<div style="width:100%; aspect-ratio:1; background:#FEF3C7; border-radius:6px; display:flex; align-items:center; justify-content:center; color:#92400E;">🔄 Retrying...</div>' +
+            '<div class="card-label">' + variationDefs[index].label + '</div>';
+          setTimeout(() => generateSingle(index), 1000);
+        } else {
+          card.innerHTML = '<div style="width:100%; aspect-ratio:1; background:#FEE2E2; border-radius:6px; display:flex; align-items:center; justify-content:center; color:#DC2626; cursor:pointer" onclick="regenerate(' + index + ')">⚠️ Retry</div>' +
+            '<div class="card-label">' + variationDefs[index].label + '</div>';
+        }
+      }
+    }
+
+    // Save generated image to database for history
+    async function saveGeneratedImage(index, variationType, imageData) {
+      if (!currentSessionId) {
+        console.log('[SaveImage] No session ID, skipping save');
+        return;
+      }
+      
+      try {
+        console.log('[SaveImage] Saving image for variation', index, variationType);
+        const res = await fetch('/api/sessions/' + currentSessionId + '/images', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            variation_type: variationType,
+            variation_index: index,
+            image_data: imageData
+          })
+        });
+        
+        const data = await res.json();
+        if (data.success) {
+          console.log('[SaveImage] Successfully saved image for variation', index);
+        } else {
+          console.error('[SaveImage] Failed to save image:', data.error);
+        }
+      } catch (e) {
+        console.error('[SaveImage] Error saving image:', e);
       }
     }
 
@@ -9006,6 +9067,17 @@ function getHomePage(user?: User) {
             '</div>' +
             '<div class="card-label">' + v.label + '</div>';
           updateCreditsDisplay(); // Update credits after regeneration
+          
+          // Save regenerated image to database for history
+          saveGeneratedImage(index, v.type, data.image);
+          
+          // If this is Hero (White BG) image (index 6), update the URL
+          if (index === 6) {
+            console.log('[Hero White] Regenerated - setting heroWhiteImageUrl');
+            window.heroWhiteImageReady = true;
+            window.heroWhiteImageUrl = data.image;
+            update360VideoButton();
+          }
         } else {
           // Restore previous image if it exists, with retry overlay
           if (lightboxImages[index] && lightboxImages[index].src) {
