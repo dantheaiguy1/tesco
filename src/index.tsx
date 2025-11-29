@@ -4412,11 +4412,11 @@ app.post('/api/generate-360-video', async (c) => {
       }, 500);
     }
     
-    // Save video record with operation name
+    // Save video record with operation name (don't store full image - too large for D1)
     await db.prepare(`
       INSERT INTO generated_videos (id, user_id, session_id, original_image_url, status, credits_charged, operation_name)
       VALUES (?, ?, ?, ?, 'processing', ?, ?)
-    `).bind(videoId, user.id, session_id, image_url, CREDITS.VIDEO_360, veoResult.operationName).run();
+    `).bind(videoId, user.id, session_id, 'stored_in_session', CREDITS.VIDEO_360, veoResult.operationName).run();
 
     // Log credit transaction (use 'generation' type which is allowed by CHECK constraint)
     await db.prepare(`
@@ -9013,6 +9013,39 @@ function getHomePage(user?: User) {
       }
     }
 
+    // Compress image for storage (max 800px, JPEG quality 0.7)
+    function compressImageForStorage(imageData, maxSize = 800) {
+      return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+          
+          // Scale down if larger than maxSize
+          if (width > maxSize || height > maxSize) {
+            if (width > height) {
+              height = Math.round(height * maxSize / width);
+              width = maxSize;
+            } else {
+              width = Math.round(width * maxSize / height);
+              height = maxSize;
+            }
+          }
+          
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+          
+          // Convert to JPEG with 0.7 quality for smaller size
+          resolve(canvas.toDataURL('image/jpeg', 0.7));
+        };
+        img.onerror = () => resolve(imageData); // Return original on error
+        img.src = imageData;
+      });
+    }
+    
     // Save generated image to database for history
     async function saveGeneratedImage(index, variationType, imageData) {
       if (!currentSessionId) {
@@ -9021,14 +9054,18 @@ function getHomePage(user?: User) {
       }
       
       try {
-        console.log('[SaveImage] Saving image for variation', index, variationType);
+        // Compress image before saving to avoid D1 size limits
+        console.log('[SaveImage] Compressing image for variation', index, variationType);
+        const compressedImage = await compressImageForStorage(imageData);
+        console.log('[SaveImage] Original size:', Math.round(imageData.length/1024) + 'KB, Compressed:', Math.round(compressedImage.length/1024) + 'KB');
+        
         const res = await fetch('/api/sessions/' + currentSessionId + '/images', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             variation_type: variationType,
             variation_index: index,
-            image_data: imageData
+            image_data: compressedImage
           })
         });
         
