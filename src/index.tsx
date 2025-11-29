@@ -4140,15 +4140,53 @@ app.post('/api/feature-suggestions', async (c) => {
     }
 
     // Insert suggestion
-    await db.prepare(`
+    console.log('[Suggestions] Inserting for user:', user.id, user.email, 'suggestion:', suggestion.substring(0, 50));
+    const result = await db.prepare(`
       INSERT INTO feature_suggestions (user_id, user_email, suggestion, page, submitted_at)
       VALUES (?, ?, ?, ?, datetime('now'))
     `).bind(user.id, user.email, suggestion, page || '/app').run();
+    console.log('[Suggestions] Insert result:', result);
 
     return c.json({ success: true, message: 'Thank you! Your suggestion has been submitted.' });
+  } catch (error: any) {
+    console.error('Feature suggestion error:', error?.message || error);
+    return c.json({ success: false, error: 'Failed to submit suggestion: ' + (error?.message || 'Unknown error') }, 500);
+  }
+});
+
+// Simple support chat - FAQ-based responses
+app.post('/api/support-chat', async (c) => {
+  try {
+    const { message } = await c.req.json();
+    const lowerMessage = message.toLowerCase();
+    
+    // Simple FAQ matching
+    let reply = '';
+    
+    if (lowerMessage.includes('credit') || lowerMessage.includes('cost') || lowerMessage.includes('price')) {
+      reply = "ShopShot uses a credit system. Standard credits cost less and work with our fast model. Pro credits give you higher quality images. You can purchase credits from the pricing page or upgrade to a subscription for the best value!";
+    } else if (lowerMessage.includes('how') && (lowerMessage.includes('work') || lowerMessage.includes('use'))) {
+      reply = "It's easy! 1) Upload your product photo, 2) Choose Standard or Pro quality, 3) Click Generate and wait ~25 seconds, 4) Download your 10 professional product images! You can also generate 360° spin videos.";
+    } else if (lowerMessage.includes('refund') || lowerMessage.includes('money back')) {
+      reply = "We offer refunds within 14 days of purchase if you're not satisfied. Please email support@shopshot.co.uk with your account email and reason for the refund request.";
+    } else if (lowerMessage.includes('360') || lowerMessage.includes('video') || lowerMessage.includes('spin')) {
+      reply = "Our 360° Product Spin feature creates an 8-second rotation video of your product. It uses 40 Standard credits and requires the Hero (White BG) image to be generated first. Perfect for e-commerce listings!";
+    } else if (lowerMessage.includes('quality') || lowerMessage.includes('standard') || lowerMessage.includes('pro')) {
+      reply = "Standard mode is fast (~25 seconds for 10 images) and great for most products. Pro mode takes longer (~2-5 minutes) but produces higher quality results with better detail. Try both and see which works best for your products!";
+    } else if (lowerMessage.includes('contact') || lowerMessage.includes('email') || lowerMessage.includes('support')) {
+      reply = "You can reach our team at support@shopshot.co.uk. We typically respond within 24 hours on business days.";
+    } else if (lowerMessage.includes('cancel') || lowerMessage.includes('subscription')) {
+      reply = "You can manage or cancel your subscription from the Account page. Click on your profile in the sidebar, then go to Account settings. Cancellations take effect at the end of your billing period.";
+    } else if (lowerMessage.includes('hello') || lowerMessage.includes('hi') || lowerMessage.includes('hey')) {
+      reply = "Hello! How can I help you today? I can answer questions about credits, pricing, how to use ShopShot, 360° videos, and more.";
+    } else {
+      reply = "I'm not sure about that specific question. For detailed help, please email support@shopshot.co.uk or check our FAQ page. Is there anything else I can help with - like credits, pricing, or how to use the app?";
+    }
+    
+    return c.json({ success: true, reply });
   } catch (error) {
-    console.error('Feature suggestion error:', error);
-    return c.json({ success: false, error: 'Failed to submit suggestion' }, 500);
+    console.error('Support chat error:', error);
+    return c.json({ success: false, reply: 'Sorry, something went wrong. Please email support@shopshot.co.uk for help.' });
   }
 });
 
@@ -4159,14 +4197,29 @@ app.get('/api/admin/feature-suggestions', async (c) => {
     return c.json({ success: false, error: 'Admin access required' }, 403);
   }
 
-  const db = c.env.TESCO_DB;
-  const url = new URL(c.req.url);
-  const status = url.searchParams.get('status') || 'all';
-  const page = parseInt(url.searchParams.get('page') || '1');
-  const limit = 20;
-  const offset = (page - 1) * limit;
-
   try {
+    const db = c.env.TESCO_DB;
+    
+    // Ensure the feature_suggestions table exists
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS feature_suggestions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        user_email TEXT,
+        suggestion TEXT NOT NULL,
+        page TEXT,
+        submitted_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'reviewed', 'implemented', 'declined')),
+        admin_notes TEXT
+      )
+    `).run();
+    
+    const url = new URL(c.req.url);
+    const status = url.searchParams.get('status') || 'all';
+    const page = parseInt(url.searchParams.get('page') || '1');
+    const limit = 20;
+    const offset = (page - 1) * limit;
+
     let query = 'SELECT * FROM feature_suggestions';
     let countQuery = 'SELECT COUNT(*) as total FROM feature_suggestions';
     const params: string[] = [];
@@ -4184,14 +4237,14 @@ app.get('/api/admin/feature-suggestions', async (c) => {
 
     return c.json({
       success: true,
-      suggestions: suggestions.results,
+      suggestions: suggestions.results || [],
       total: countResult?.total || 0,
       page,
       totalPages: Math.ceil((countResult?.total || 0) / limit)
     });
-  } catch (error) {
-    console.error('Get suggestions error:', error);
-    return c.json({ success: false, error: 'Failed to get suggestions' }, 500);
+  } catch (error: any) {
+    console.error('Get suggestions error:', error?.message || error);
+    return c.json({ success: false, error: 'Failed to get suggestions: ' + (error?.message || 'Unknown error') }, 500);
   }
 });
 
@@ -9596,172 +9649,145 @@ function getHomePage(user?: User) {
     });
     
     // ============================================================================
-    // FLOATING FOOTER BAR - Help & Suggestions
+    // FLOATING SUGGESTIONS BAR (Bottom, next to sidebar) + SUPPORT CHAT (Bottom Right)
     // ============================================================================
     ${user ? `
     (function() {
-      const footerBarHTML = \`
-        <div id="footer-bar" class="footer-bar minimized">
-          <div class="footer-tab" onclick="toggleFooterBar()">
-            <span>💬</span>
-            <span class="footer-tab-text">Help & Ideas</span>
+      // Suggestions bar - positioned next to sidebar (200px sidebar + 16px gap)
+      const suggestionsBarHTML = \`
+        <div id="suggestions-bar" class="suggestions-bar minimized">
+          <div class="suggestions-tab" onclick="toggleSuggestionsBar()">
+            <span>💡</span>
+            <span class="suggestions-tab-text">Suggestions</span>
           </div>
-          <div class="footer-content">
-            <div class="footer-header">
-              <div class="footer-tabs">
-                <button class="footer-tab-btn active" onclick="switchFooterTab('suggestions')">💡 Suggestions</button>
-                <button class="footer-tab-btn" onclick="switchFooterTab('support')">🤖 AI Support</button>
-              </div>
-              <button class="footer-close" onclick="toggleFooterBar()">✕</button>
+          <div class="suggestions-content">
+            <div class="suggestions-header">
+              <span class="suggestions-title">💡 Feature Suggestions</span>
+              <button class="suggestions-close" onclick="toggleSuggestionsBar()">✕</button>
             </div>
-            <div class="footer-body">
-              <div id="suggestions-tab" class="footer-tab-content active">
-                <p class="suggestions-intro">Have an idea to improve ShopShot? We'd love to hear it!</p>
-                <textarea id="suggestion-input" maxlength="500" placeholder="Suggest an app improvement..." oninput="updateSuggestionCount()"></textarea>
-                <div class="suggestion-footer">
-                  <span class="char-count"><span id="suggestion-count">0</span>/500</span>
-                  <button id="submit-suggestion-btn" class="submit-suggestion-btn" onclick="submitSuggestion()" disabled>Submit Suggestion</button>
-                </div>
-                <div id="suggestion-success" class="suggestion-success" style="display:none">
-                  ✅ Thanks! Your idea has been logged.
-                </div>
+            <div class="suggestions-body">
+              <p class="suggestions-intro">Have an idea to improve ShopShot? We'd love to hear it!</p>
+              <textarea id="suggestion-input" maxlength="500" placeholder="Suggest an app improvement..." oninput="updateSuggestionCount()"></textarea>
+              <div class="suggestion-footer">
+                <span class="char-count"><span id="suggestion-count">0</span>/500</span>
+                <button id="submit-suggestion-btn" class="submit-suggestion-btn" onclick="submitSuggestion()" disabled>Submit</button>
               </div>
-              <div id="support-tab" class="footer-tab-content">
-                <div class="elevenlabs-container">
-                  <elevenlabs-convai agent-id="agent_01jwhf48pte44axkv9bgc22fef"></elevenlabs-convai>
-                </div>
+              <div id="suggestion-success" class="suggestion-success" style="display:none">
+                ✅ Thanks! Your idea has been logged.
               </div>
             </div>
           </div>
         </div>
       \`;
       
-      // Inject footer bar
-      document.body.insertAdjacentHTML('beforeend', footerBarHTML);
+      // Inject suggestions bar
+      document.body.insertAdjacentHTML('beforeend', suggestionsBarHTML);
       
-      // Load ElevenLabs script
-      const script = document.createElement('script');
-      script.src = 'https://unpkg.com/@elevenlabs/convai-widget-embed';
-      script.async = true;
-      document.head.appendChild(script);
+      // Inject ElevenLabs widget element and script
+      const elevenlabsWidget = document.createElement('elevenlabs-convai');
+      elevenlabsWidget.setAttribute('agent-id', 'agent_8301kb7bb8mkfg8sk49j8cjtcvnp');
+      document.body.appendChild(elevenlabsWidget);
+      
+      const elevenlabsScript = document.createElement('script');
+      elevenlabsScript.src = 'https://unpkg.com/@elevenlabs/convai-widget-embed';
+      elevenlabsScript.async = true;
+      elevenlabsScript.type = 'text/javascript';
+      document.body.appendChild(elevenlabsScript);
       
       // Inject styles
       const styles = document.createElement('style');
       styles.textContent = \`
-        .footer-bar {
+        /* Suggestions bar - LEFT (next to 200px sidebar) */
+        .suggestions-bar {
           position: fixed;
           bottom: 0;
-          right: 24px;
-          width: 380px;
+          left: 216px;
+          width: 300px;
           z-index: 999;
           font-family: 'Inter', sans-serif;
           transition: all 0.3s ease;
         }
-        .footer-bar.minimized {
-          height: 48px;
+        .suggestions-bar.minimized {
+          height: 40px;
         }
-        .footer-bar.expanded {
-          height: 500px;
+        .suggestions-bar.expanded {
+          height: 340px;
         }
-        .footer-tab {
+        .suggestions-tab {
           display: flex;
           align-items: center;
-          gap: 8px;
+          gap: 6px;
           background: linear-gradient(135deg, #3B82F6, #8B5CF6);
           color: white;
-          padding: 12px 20px;
-          border-radius: 12px 12px 0 0;
+          padding: 9px 14px;
+          border-radius: 10px 10px 0 0;
           cursor: pointer;
           font-weight: 600;
-          font-size: 14px;
-          box-shadow: 0 -4px 20px rgba(0,0,0,0.15);
+          font-size: 12px;
+          box-shadow: 0 -2px 12px rgba(0,0,0,0.1);
         }
-        .footer-bar.expanded .footer-tab {
+        .suggestions-bar.expanded .suggestions-tab {
           display: none;
         }
-        .footer-content {
+        .suggestions-content {
           display: none;
           background: #1E293B;
-          border-radius: 12px 12px 0 0;
-          box-shadow: 0 -4px 30px rgba(0,0,0,0.3);
+          border-radius: 10px 10px 0 0;
+          box-shadow: 0 -4px 20px rgba(0,0,0,0.25);
           height: 100%;
           flex-direction: column;
         }
-        .footer-bar.expanded .footer-content {
+        .suggestions-bar.expanded .suggestions-content {
           display: flex;
         }
-        .footer-header {
+        .suggestions-header {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          padding: 12px 16px;
+          padding: 10px 14px;
           border-bottom: 1px solid #334155;
         }
-        .footer-tabs {
-          display: flex;
-          gap: 4px;
-        }
-        .footer-tab-btn {
-          background: transparent;
-          border: none;
-          color: #94A3B8;
-          padding: 8px 12px;
-          border-radius: 6px;
-          cursor: pointer;
+        .suggestions-title {
+          color: white;
+          font-weight: 600;
           font-size: 13px;
-          font-weight: 500;
-          transition: all 0.2s;
         }
-        .footer-tab-btn:hover {
-          background: #334155;
-          color: white;
-        }
-        .footer-tab-btn.active {
-          background: #3B82F6;
-          color: white;
-        }
-        .footer-close {
+        .suggestions-close, .support-close {
           background: transparent;
           border: none;
           color: #94A3B8;
-          font-size: 18px;
+          font-size: 16px;
           cursor: pointer;
-          padding: 4px 8px;
+          padding: 2px 6px;
           border-radius: 4px;
         }
-        .footer-close:hover {
+        .suggestions-close:hover, .support-close:hover {
           background: #334155;
           color: white;
         }
-        .footer-body {
+        .suggestions-body {
           flex: 1;
-          overflow: hidden;
-        }
-        .footer-tab-content {
-          display: none;
-          padding: 16px;
-          height: 100%;
-          flex-direction: column;
-        }
-        .footer-tab-content.active {
+          padding: 12px;
           display: flex;
+          flex-direction: column;
+          overflow: hidden;
         }
         .suggestions-intro {
           color: #CBD5E1;
-          font-size: 13px;
-          margin-bottom: 12px;
+          font-size: 12px;
+          margin-bottom: 10px;
         }
         #suggestion-input {
           flex: 1;
           width: 100%;
           background: #0F172A;
           border: 1px solid #334155;
-          border-radius: 8px;
-          padding: 12px;
+          border-radius: 6px;
+          padding: 10px;
           color: white;
-          font-size: 14px;
+          font-size: 13px;
           resize: none;
-          min-height: 120px;
+          min-height: 80px;
         }
         #suggestion-input:focus {
           outline: none;
@@ -9774,20 +9800,20 @@ function getHomePage(user?: User) {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          margin-top: 12px;
+          margin-top: 10px;
         }
         .char-count {
           color: #64748B;
-          font-size: 12px;
+          font-size: 11px;
         }
         .submit-suggestion-btn {
           background: linear-gradient(135deg, #3B82F6, #8B5CF6);
           color: white;
           border: none;
-          padding: 10px 20px;
-          border-radius: 8px;
+          padding: 7px 14px;
+          border-radius: 6px;
           font-weight: 600;
-          font-size: 13px;
+          font-size: 12px;
           cursor: pointer;
           transition: all 0.2s;
         }
@@ -9797,64 +9823,45 @@ function getHomePage(user?: User) {
         }
         .submit-suggestion-btn:not(:disabled):hover {
           transform: translateY(-1px);
-          box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
         }
         .suggestion-success {
           background: #065F46;
           color: #6EE7B7;
-          padding: 12px;
-          border-radius: 8px;
-          margin-top: 12px;
-          font-size: 13px;
+          padding: 8px;
+          border-radius: 6px;
+          margin-top: 10px;
+          font-size: 11px;
           text-align: center;
         }
-        .elevenlabs-container {
-          height: 100%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: #94A3B8;
-        }
-        elevenlabs-convai {
-          width: 100%;
-          height: 380px;
+        /* Responsive */
+        @media (max-width: 900px) {
+          .suggestions-bar {
+            left: 16px;
+            width: 280px;
+          }
         }
         @media (max-width: 480px) {
-          .footer-bar {
-            width: calc(100% - 32px);
-            right: 16px;
+          .suggestions-bar {
+            display: none;
           }
         }
       \`;
       document.head.appendChild(styles);
       
-      // Check localStorage for minimized state
-      const isMinimized = localStorage.getItem('footerBar_minimized') !== 'false';
-      if (!isMinimized) {
-        document.getElementById('footer-bar').classList.remove('minimized');
-        document.getElementById('footer-bar').classList.add('expanded');
+      // Suggestions bar stays minimized by default - only expand if user explicitly opened it before
+      const wasExpanded = localStorage.getItem('suggestionsBar_minimized') === 'false';
+      if (wasExpanded) {
+        document.getElementById('suggestions-bar').classList.remove('minimized');
+        document.getElementById('suggestions-bar').classList.add('expanded');
       }
     })();
     
-    function toggleFooterBar() {
-      const bar = document.getElementById('footer-bar');
+    function toggleSuggestionsBar() {
+      const bar = document.getElementById('suggestions-bar');
       const isExpanded = bar.classList.contains('expanded');
       bar.classList.toggle('minimized', isExpanded);
       bar.classList.toggle('expanded', !isExpanded);
-      localStorage.setItem('footerBar_minimized', isExpanded ? 'true' : 'false');
-    }
-    
-    function switchFooterTab(tab) {
-      document.querySelectorAll('.footer-tab-btn').forEach(btn => btn.classList.remove('active'));
-      document.querySelectorAll('.footer-tab-content').forEach(content => content.classList.remove('active'));
-      
-      if (tab === 'suggestions') {
-        document.querySelector('.footer-tab-btn:first-child').classList.add('active');
-        document.getElementById('suggestions-tab').classList.add('active');
-      } else {
-        document.querySelector('.footer-tab-btn:last-child').classList.add('active');
-        document.getElementById('support-tab').classList.add('active');
-      }
+      localStorage.setItem('suggestionsBar_minimized', isExpanded ? 'true' : 'false');
     }
     
     function updateSuggestionCount() {
@@ -9873,7 +9880,7 @@ function getHomePage(user?: User) {
       if (suggestion.length < 10) return;
       
       btn.disabled = true;
-      btn.textContent = 'Submitting...';
+      btn.textContent = 'Sending...';
       
       try {
         const response = await fetch('/api/feature-suggestions', {
@@ -9891,16 +9898,16 @@ function getHomePage(user?: User) {
           input.value = '';
           document.getElementById('suggestion-count').textContent = '0';
           document.getElementById('suggestion-success').style.display = 'block';
-          btn.textContent = 'Submit Suggestion';
+          btn.textContent = 'Submit';
         } else {
           showError(data.error || 'Failed to submit suggestion');
           btn.disabled = false;
-          btn.textContent = 'Submit Suggestion';
+          btn.textContent = 'Submit';
         }
       } catch (err) {
         showError('Failed to submit suggestion');
         btn.disabled = false;
-        btn.textContent = 'Submit Suggestion';
+        btn.textContent = 'Submit';
       }
     }
     ` : ''}
@@ -14102,8 +14109,8 @@ function getAdminDashboardPage(user: any) {
           <div class="panel-content" style="max-height: 300px;">
             <div class="suggestions-filter" style="margin-bottom: 12px; display: flex; gap: 8px;">
               <select id="suggestions-status-filter" onchange="loadSuggestions()" style="background: #18181B; border: 1px solid #27272A; color: #A1A1AA; padding: 6px 10px; border-radius: 6px; font-size: 12px;">
-                <option value="all">All</option>
-                <option value="pending" selected>Pending</option>
+                <option value="all" selected>All</option>
+                <option value="pending">Pending</option>
                 <option value="reviewed">Reviewed</option>
                 <option value="implemented">Implemented</option>
                 <option value="declined">Declined</option>
@@ -15039,18 +15046,32 @@ function getAdminDashboardPage(user: any) {
     // SUGGESTIONS MANAGEMENT
     // ============================================================================
     
+    function formatTimeAgo(date) {
+      const now = new Date();
+      const seconds = Math.floor((now - date) / 1000);
+      if (seconds < 60) return 'Just now';
+      const minutes = Math.floor(seconds / 60);
+      if (minutes < 60) return minutes + 'm ago';
+      const hours = Math.floor(minutes / 60);
+      if (hours < 24) return hours + 'h ago';
+      const days = Math.floor(hours / 24);
+      if (days < 7) return days + 'd ago';
+      return date.toLocaleDateString();
+    }
+    
     async function loadSuggestions() {
       const status = document.getElementById('suggestions-status-filter').value;
+      const list = document.getElementById('suggestions-list');
       try {
         const res = await fetch('/api/admin/feature-suggestions?status=' + status);
         const data = await res.json();
+        console.log('[Admin] Suggestions response:', data);
         
         if (data.success) {
           document.getElementById('suggestions-count').textContent = data.total;
-          const list = document.getElementById('suggestions-list');
           
-          if (data.suggestions.length === 0) {
-            list.innerHTML = '<div class="empty-state"><div class="icon">📝</div>No suggestions</div>';
+          if (!data.suggestions || data.suggestions.length === 0) {
+            list.innerHTML = '<div class="empty-state"><div class="icon">📝</div>No suggestions yet</div>';
             return;
           }
           
@@ -15086,6 +15107,7 @@ function getAdminDashboardPage(user: any) {
         }
       } catch (error) {
         console.error('Failed to load suggestions:', error);
+        list.innerHTML = '<div class="empty-state"><div class="icon">⚠️</div>Failed to load suggestions</div>';
       }
     }
     
