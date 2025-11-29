@@ -4046,17 +4046,23 @@ app.post('/api/generate-360-video', async (c) => {
       return c.json({ success: false, error: 'Session not found' }, 404);
     }
 
-    // Check if video already exists for this session
-    const existingVideo = await db.prepare(
-      'SELECT * FROM generated_videos WHERE session_id = ? AND status != ?'
-    ).bind(session_id, 'failed').first();
+    // Check if video is currently being generated for this session
+    const processingVideo = await db.prepare(
+      'SELECT * FROM generated_videos WHERE session_id = ? AND status = ?'
+    ).bind(session_id, 'processing').first();
 
-    if (existingVideo) {
+    if (processingVideo) {
       return c.json({ 
         success: false, 
-        error: 'Video already exists or is being generated for this session' 
+        error: 'Video is already being generated for this session',
+        video_id: (processingVideo as any).id
       }, 400);
     }
+    
+    // Delete any previous failed or completed videos for this session (allow re-generation)
+    await db.prepare(
+      'DELETE FROM generated_videos WHERE session_id = ? AND status IN (?, ?)'
+    ).bind(session_id, 'failed', 'completed').run();
 
     // Reserve credits (deduct immediately)
     const newCheaperCredits = user.cheaper_credits - CREDITS.VIDEO_360;
@@ -8683,7 +8689,7 @@ function getHomePage(user?: User) {
                 Create an 8-second studio-quality rotation video. Perfect for e-commerce, social media & product showcases.
               </div>
               <div class="video-cost-360">
-                💎 \${creditCost} Standard Credits (~5.00)
+                💎 \${creditCost} Standard Credits
               </div>
               <div id="video-generate-section">
                 <button class="video-generate-btn" id="generate-360-btn" onclick="generate360Video()" \${hasEnoughCredits ? '' : 'disabled'}>
