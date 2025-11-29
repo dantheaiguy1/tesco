@@ -82,6 +82,9 @@ const CREDITS = {
   // Per-image costs (always 1 credit of the appropriate type)
   PER_IMAGE: 1,
   
+  // 360° Video generation cost (uses cheaper credits)
+  VIDEO_360: 40,              // 40 credits for 8-second 360° spin video (~£5 value)
+  
   // Subscription allocations
   STANDARD_CHEAPER: 500,      // Standard plan: 500 cheaper credits/month
   STANDARD_BETTER: 45,        // Standard plan: 45 better credits/month
@@ -353,6 +356,219 @@ async function generateImageWithVertex(
   
   // All retries exhausted
   return { success: false, error: `Generation failed after ${maxRetries} attempts. ${lastError}` };
+}
+
+// ============================================================================
+// VEO 3 VIDEO GENERATION (360° Product Spin)
+// ============================================================================
+async function generate360VideoWithVeo(
+  projectId: string,
+  clientEmail: string,
+  privateKey: string,
+  imageBase64: string,
+  mimeType: string
+): Promise<{ success: boolean; videoUrl?: string; error?: string }> {
+  const accessToken = await getAccessToken(clientEmail, privateKey);
+  
+  // Veo 3 Fast endpoint for video generation
+  const endpoint = `https://${VERTEX_REGION}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${VERTEX_REGION}/publishers/google/models/veo-3.0-fast-generate-001:predictLongRunning`;
+  
+  const prompt = `Analyze the provided image and identify the main product. Create a smooth, professional 360-degree rotation video showcasing the product on a clean white studio background.
+
+Studio Setup: Clean white seamless backdrop with soft, even studio lighting from multiple angles to eliminate harsh shadows. Professional product photography aesthetic with subtle gradient from pure white to light gray beneath the product for depth.
+
+Camera: Fixed position at eye-level to the product, maintaining steady framing throughout. The product remains centered in frame while rotating on an invisible turntable.
+
+Lighting: Soft, diffused key light from the front, subtle fill lights from the sides, gentle rim light from behind to separate the product from the background. No harsh shadows or hotspots. Professional e-commerce photography lighting quality. Preserve the product's original materials, textures, colors, and any surface effects.
+
+Motion: Smooth, continuous clockwise rotation starting from the front-facing view. Consistent rotation speed with no acceleration or deceleration. The product should complete exactly one full 360-degree turn over 8 seconds, ending where it started, showing all angles.
+
+Style: Premium e-commerce product photography aesthetic. Clean, minimal, professional. The focus is entirely on the product with no distractions. Suitable for high-end online retail platforms.
+
+Output: 8 seconds, 1080p resolution, no audio, seamless loop-ready.`;
+
+  const requestBody = JSON.stringify({
+    instances: [{
+      prompt: prompt,
+      image: {
+        bytesBase64Encoded: imageBase64,
+        mimeType: mimeType
+      }
+    }],
+    parameters: {
+      aspectRatio: "16:9",
+      sampleCount: 1,
+      durationSeconds: 8,
+      enhancePrompt: true,
+      includeRaiReason: true,
+      personGeneration: "dont_allow",
+      addWatermark: false
+    }
+  });
+
+  try {
+    console.log('[Veo 3] Starting 360° video generation...');
+    
+    // Start the long-running operation
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: requestBody
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[Veo 3 ERROR] Status:', response.status, errorText);
+      let errorMsg = 'Video generation error';
+      try {
+        const errJson = JSON.parse(errorText);
+        errorMsg = errJson.error?.message || `API error: ${response.status}`;
+      } catch {
+        errorMsg = `API error: ${response.status}`;
+      }
+      return { success: false, error: errorMsg };
+    }
+
+    const data = await response.json() as any;
+    
+    // Get the operation name for polling
+    const operationName = data.name;
+    if (!operationName) {
+      return { success: false, error: 'No operation name returned' };
+    }
+
+    console.log('[Veo 3] Operation started:', operationName);
+    
+    // Poll for completion (max 5 minutes)
+    const pollEndpoint = `https://${VERTEX_REGION}-aiplatform.googleapis.com/v1/${operationName}`;
+    const maxPollAttempts = 60; // 60 * 5 seconds = 5 minutes
+    
+    for (let i = 0; i < maxPollAttempts; i++) {
+      await new Promise(r => setTimeout(r, 5000)); // Wait 5 seconds between polls
+      
+      const pollResponse = await fetch(pollEndpoint, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`
+        }
+      });
+      
+      if (!pollResponse.ok) {
+        console.error('[Veo 3] Poll error:', pollResponse.status);
+        continue;
+      }
+      
+      const pollData = await pollResponse.json() as any;
+      
+      if (pollData.done) {
+        if (pollData.error) {
+          console.error('[Veo 3] Generation failed:', pollData.error);
+          return { success: false, error: pollData.error.message || 'Video generation failed' };
+        }
+        
+        // Extract video URL from response
+        const videoUri = pollData.response?.generatedSamples?.[0]?.video?.uri;
+        if (videoUri) {
+          console.log('[Veo 3] Video generated successfully');
+          return { success: true, videoUrl: videoUri };
+        }
+        
+        // Check for base64 video data
+        const videoBase64 = pollData.response?.generatedSamples?.[0]?.video?.bytesBase64Encoded;
+        if (videoBase64) {
+          const videoDataUrl = `data:video/mp4;base64,${videoBase64}`;
+          return { success: true, videoUrl: videoDataUrl };
+        }
+        
+        return { success: false, error: 'No video in response' };
+      }
+      
+      console.log(`[Veo 3] Still processing... (${i + 1}/${maxPollAttempts})`);
+    }
+    
+    return { success: false, error: 'Video generation timed out' };
+  } catch (err) {
+    console.error('[Veo 3] Error:', err);
+    return { success: false, error: err instanceof Error ? err.message : 'Video generation failed' };
+  }
+}
+
+// Background detection - check if image has a clean white background
+async function detectWhiteBackground(
+  projectId: string,
+  clientEmail: string,
+  privateKey: string,
+  imageBase64: string,
+  mimeType: string
+): Promise<boolean> {
+  const accessToken = await getAccessToken(clientEmail, privateKey);
+  
+  const endpoint = `https://aiplatform.googleapis.com/v1/projects/${projectId}/locations/${VERTEX_REGION}/publishers/google/models/gemini-2.0-flash:generateContent`;
+  
+  const requestBody = JSON.stringify({
+    contents: [{
+      role: 'user',
+      parts: [
+        {
+          inlineData: {
+            mimeType: mimeType,
+            data: imageBase64
+          }
+        },
+        { text: 'Does this product image have a clean white or very light colored background (white, off-white, light gray)? Answer with only YES or NO.' }
+      ]
+    }]
+  });
+
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: requestBody
+    });
+
+    if (!response.ok) {
+      console.error('[Background Detection] API error:', response.status);
+      return false; // Assume needs removal if detection fails
+    }
+
+    const data = await response.json() as any;
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    return text.toUpperCase().includes('YES');
+  } catch (err) {
+    console.error('[Background Detection] Error:', err);
+    return false; // Assume needs removal if detection fails
+  }
+}
+
+// Remove background from product image using Gemini
+async function removeBackgroundWithGemini(
+  projectId: string,
+  clientEmail: string,
+  privateKey: string,
+  imageBase64: string,
+  mimeType: string
+): Promise<{ success: boolean; image?: string; error?: string }> {
+  const prompt = `Extract the main product from this image and place it on a pure white background (#FFFFFF). 
+Preserve all product details, textures, colors, reflections, and shadows exactly as they are.
+The product should be centered and maintain its original proportions.
+Remove any distracting background elements but keep the product looking natural.
+Output a clean product image suitable for e-commerce.`;
+
+  return generateImageWithVertex(
+    projectId,
+    clientEmail,
+    privateKey,
+    imageBase64,
+    mimeType,
+    prompt,
+    'flash' // Use flash model for background removal (faster)
+  );
 }
 
 // ============================================================================
@@ -1097,7 +1313,7 @@ async function ensureDatabase(db: D1Database) {
         amount INTEGER NOT NULL,
         balance_after INTEGER NOT NULL,
         credit_type TEXT NOT NULL DEFAULT 'cheaper' CHECK (credit_type IN ('cheaper', 'better')),
-        type TEXT NOT NULL CHECK (type IN ('signup_bonus', 'subscription', 'topup', 'generation', 'regeneration', 'refund')),
+        type TEXT NOT NULL CHECK (type IN ('signup_bonus', 'subscription', 'topup', 'generation', 'regeneration', 'refund', 'video_360')),
         description TEXT,
         session_id TEXT,
         stripe_payment_id TEXT,
@@ -1165,6 +1381,26 @@ async function ensureDatabase(db: D1Database) {
       )
     `).run()
     
+    // Generated videos table (360° product spins)
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS generated_videos (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        original_image_url TEXT NOT NULL,
+        clean_image_url TEXT,
+        video_url TEXT,
+        duration_seconds INTEGER DEFAULT 8,
+        status TEXT DEFAULT 'processing' CHECK(status IN ('processing', 'completed', 'failed')),
+        credits_charged INTEGER DEFAULT 40,
+        error_message TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        completed_at DATETIME,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+      )
+    `).run()
+    
     // Create indexes
     await db.prepare('CREATE INDEX IF NOT EXISTS idx_sessions_created_at ON sessions(created_at DESC)').run()
     await db.prepare('CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status)').run()
@@ -1178,6 +1414,8 @@ async function ensureDatabase(db: D1Database) {
     await db.prepare('CREATE INDEX IF NOT EXISTS idx_error_logs_user ON error_logs(user_id)').run()
     await db.prepare('CREATE INDEX IF NOT EXISTS idx_admin_actions_admin ON admin_actions(admin_id)').run()
     await db.prepare('CREATE INDEX IF NOT EXISTS idx_users_role ON users(role)').run()
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_generated_videos_user ON generated_videos(user_id)').run()
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_generated_videos_session ON generated_videos(session_id)').run()
     
     // Migration: Add new columns to sessions if they don't exist
     try { await db.prepare('ALTER TABLE sessions ADD COLUMN model TEXT DEFAULT \'nano\'').run() } catch (e) {}
@@ -3765,6 +4003,298 @@ app.delete('/api/sessions/:id', async (c) => {
     return c.json({ success: false, error: 'Failed to delete session' }, 500)
   }
 })
+
+// ============================================================================
+// 360° VIDEO GENERATION API
+// ============================================================================
+
+// Generate 360° product spin video
+app.post('/api/generate-360-video', async (c) => {
+  const user = c.get('user');
+  if (!user) {
+    return c.json({ success: false, error: 'Authentication required' }, 401);
+  }
+
+  const db = c.env.TESCO_DB;
+  await ensureDatabase(db);
+
+  try {
+    const body = await c.req.json();
+    const { session_id, image_url } = body;
+
+    if (!session_id || !image_url) {
+      return c.json({ success: false, error: 'session_id and image_url required' }, 400);
+    }
+
+    // Check if user has enough credits (uses cheaper credits)
+    if (user.cheaper_credits < CREDITS.VIDEO_360) {
+      return c.json({
+        success: false,
+        error: 'insufficient_credits',
+        message: `You need ${CREDITS.VIDEO_360} credits to generate a 360° video. Current balance: ${user.cheaper_credits} credits.`,
+        required_credits: CREDITS.VIDEO_360,
+        current_credits: user.cheaper_credits
+      }, 400);
+    }
+
+    // Verify session exists and belongs to user
+    const session = await db.prepare(
+      'SELECT * FROM sessions WHERE id = ? AND user_id = ?'
+    ).bind(session_id, user.id).first() as any;
+
+    if (!session) {
+      return c.json({ success: false, error: 'Session not found' }, 404);
+    }
+
+    // Check if video already exists for this session
+    const existingVideo = await db.prepare(
+      'SELECT * FROM generated_videos WHERE session_id = ? AND status != ?'
+    ).bind(session_id, 'failed').first();
+
+    if (existingVideo) {
+      return c.json({ 
+        success: false, 
+        error: 'Video already exists or is being generated for this session' 
+      }, 400);
+    }
+
+    // Reserve credits (deduct immediately)
+    const newCheaperCredits = user.cheaper_credits - CREDITS.VIDEO_360;
+    await db.prepare(
+      'UPDATE users SET cheaper_credits = ? WHERE id = ?'
+    ).bind(newCheaperCredits, user.id).run();
+
+    // Create video record
+    const videoId = `vid_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    await db.prepare(`
+      INSERT INTO generated_videos (id, user_id, session_id, original_image_url, status, credits_charged)
+      VALUES (?, ?, ?, ?, 'processing', ?)
+    `).bind(videoId, user.id, session_id, image_url, CREDITS.VIDEO_360).run();
+
+    // Log credit transaction
+    await db.prepare(`
+      INSERT INTO credit_transactions (id, user_id, amount, balance_after, credit_type, type, description, session_id)
+      VALUES (?, ?, ?, ?, 'cheaper', 'video_360', '360° Product Spin Video', ?)
+    `).bind(
+      `txn_${Date.now()}`,
+      user.id,
+      -CREDITS.VIDEO_360,
+      newCheaperCredits,
+      session_id
+    ).run();
+
+    // Start async video generation (non-blocking)
+    c.executionCtx.waitUntil(
+      processVideoGeneration(c.env, videoId, user.id, image_url, session_id)
+    );
+
+    return c.json({
+      success: true,
+      video_id: videoId,
+      status: 'processing',
+      estimated_time_seconds: 90,
+      credits_charged: CREDITS.VIDEO_360,
+      remaining_credits: newCheaperCredits
+    });
+
+  } catch (error) {
+    console.error('360 video generation error:', error);
+    return c.json({ success: false, error: 'Failed to start video generation' }, 500);
+  }
+});
+
+// Poll video generation status
+app.get('/api/generate-360-video/:videoId', async (c) => {
+  const user = c.get('user');
+  if (!user) {
+    return c.json({ success: false, error: 'Authentication required' }, 401);
+  }
+
+  const db = c.env.TESCO_DB;
+  const videoId = c.req.param('videoId');
+
+  try {
+    const video = await db.prepare(
+      'SELECT * FROM generated_videos WHERE id = ? AND user_id = ?'
+    ).bind(videoId, user.id).first() as any;
+
+    if (!video) {
+      return c.json({ success: false, error: 'Video not found' }, 404);
+    }
+
+    if (video.status === 'completed') {
+      return c.json({
+        video_id: videoId,
+        status: 'completed',
+        video_url: video.video_url,
+        duration_seconds: video.duration_seconds,
+        completed_at: video.completed_at
+      });
+    }
+
+    if (video.status === 'failed') {
+      return c.json({
+        video_id: videoId,
+        status: 'failed',
+        error_message: video.error_message,
+        credits_refunded: video.credits_charged
+      });
+    }
+
+    // Still processing
+    return c.json({
+      video_id: videoId,
+      status: 'processing',
+      message: 'Generating 360° rotation...'
+    });
+
+  } catch (error) {
+    console.error('Video status check error:', error);
+    return c.json({ success: false, error: 'Failed to check video status' }, 500);
+  }
+});
+
+// Get all videos for a session
+app.get('/api/sessions/:sessionId/videos', async (c) => {
+  const user = c.get('user');
+  if (!user) {
+    return c.json({ success: false, error: 'Authentication required' }, 401);
+  }
+
+  const db = c.env.TESCO_DB;
+  const sessionId = c.req.param('sessionId');
+
+  try {
+    const videos = await db.prepare(
+      'SELECT * FROM generated_videos WHERE session_id = ? AND user_id = ? ORDER BY created_at DESC'
+    ).bind(sessionId, user.id).all();
+
+    return c.json({
+      success: true,
+      videos: videos.results || []
+    });
+
+  } catch (error) {
+    console.error('Get session videos error:', error);
+    return c.json({ success: false, error: 'Failed to get videos' }, 500);
+  }
+});
+
+// Async video generation processor
+async function processVideoGeneration(
+  env: any,
+  videoId: string,
+  userId: string,
+  imageUrl: string,
+  sessionId: string
+) {
+  const db = env.TESCO_DB;
+  
+  try {
+    console.log(`[360 Video] Starting generation for video ${videoId}`);
+    
+    // Extract base64 and mime type from image URL
+    let imageBase64: string;
+    let mimeType: string;
+    
+    if (imageUrl.startsWith('data:')) {
+      mimeType = imageUrl.split(';')[0].split(':')[1];
+      imageBase64 = imageUrl.split(',')[1];
+    } else {
+      // Fetch external image
+      const imageResponse = await fetch(imageUrl);
+      const imageBuffer = await imageResponse.arrayBuffer();
+      imageBase64 = btoa(String.fromCharCode(...new Uint8Array(imageBuffer)));
+      mimeType = imageResponse.headers.get('content-type') || 'image/jpeg';
+    }
+
+    // Vertex AI credentials
+    const projectId = env.VERTEX_PROJECT_ID;
+    const clientEmail = env.VERTEX_CLIENT_EMAIL;
+    const privateKey = env.VERTEX_PRIVATE_KEY;
+
+    if (!projectId || !clientEmail || !privateKey) {
+      throw new Error('AI service not configured');
+    }
+
+    // Step 1: Check if background removal is needed
+    console.log('[360 Video] Checking background...');
+    const hasWhiteBackground = await detectWhiteBackground(
+      projectId, clientEmail, privateKey, imageBase64, mimeType
+    );
+
+    let cleanImageBase64 = imageBase64;
+    let cleanImageUrl = imageUrl;
+
+    if (!hasWhiteBackground) {
+      console.log('[360 Video] Removing background...');
+      const bgResult = await removeBackgroundWithGemini(
+        projectId, clientEmail, privateKey, imageBase64, mimeType
+      );
+      
+      if (bgResult.success && bgResult.image) {
+        cleanImageUrl = bgResult.image;
+        cleanImageBase64 = bgResult.image.split(',')[1];
+        
+        // Update clean image URL in database
+        await db.prepare(
+          'UPDATE generated_videos SET clean_image_url = ? WHERE id = ?'
+        ).bind(cleanImageUrl, videoId).run();
+      }
+    }
+
+    // Step 2: Generate 360° video with Veo 3
+    console.log('[360 Video] Generating video with Veo 3...');
+    const videoResult = await generate360VideoWithVeo(
+      projectId, clientEmail, privateKey, cleanImageBase64, mimeType
+    );
+
+    if (videoResult.success && videoResult.videoUrl) {
+      // Success - update database
+      await db.prepare(`
+        UPDATE generated_videos 
+        SET status = 'completed', video_url = ?, completed_at = datetime('now')
+        WHERE id = ?
+      `).bind(videoResult.videoUrl, videoId).run();
+      
+      console.log(`[360 Video] Successfully generated video ${videoId}`);
+    } else {
+      throw new Error(videoResult.error || 'Video generation failed');
+    }
+
+  } catch (error) {
+    console.error(`[360 Video] Error generating video ${videoId}:`, error);
+    
+    // Update status to failed
+    await db.prepare(`
+      UPDATE generated_videos SET status = 'failed', error_message = ? WHERE id = ?
+    `).bind(error instanceof Error ? error.message : 'Unknown error', videoId).run();
+
+    // Refund credits
+    const user = await db.prepare('SELECT cheaper_credits FROM users WHERE id = ?')
+      .bind(userId).first() as any;
+    
+    if (user) {
+      const refundedCredits = user.cheaper_credits + CREDITS.VIDEO_360;
+      await db.prepare('UPDATE users SET cheaper_credits = ? WHERE id = ?')
+        .bind(refundedCredits, userId).run();
+      
+      // Log refund transaction
+      await db.prepare(`
+        INSERT INTO credit_transactions (id, user_id, amount, balance_after, credit_type, type, description, session_id)
+        VALUES (?, ?, ?, ?, 'cheaper', 'refund', '360° Video generation failed - refund', ?)
+      `).bind(
+        `txn_refund_${Date.now()}`,
+        userId,
+        CREDITS.VIDEO_360,
+        refundedCredits,
+        sessionId
+      ).run();
+      
+      console.log(`[360 Video] Refunded ${CREDITS.VIDEO_360} credits to user ${userId}`);
+    }
+  }
+}
 
 // API: Delete all sessions
 app.delete('/api/sessions', async (c) => {
@@ -6384,6 +6914,220 @@ function getHomePage(user?: User) {
       transition: width 0.3s;
     }
     
+    /* 360° Video Card - Double width */
+    .video-card-360 {
+      grid-column: span 2;
+      background: linear-gradient(135deg, #1E1E2F 0%, #2D2D44 100%);
+      border: 2px solid transparent;
+      border-radius: 12px;
+      padding: 16px;
+      position: relative;
+      overflow: hidden;
+    }
+    .video-card-360::before {
+      content: '';
+      position: absolute;
+      inset: -2px;
+      background: linear-gradient(135deg, #3B82F6, #8B5CF6, #EC4899);
+      border-radius: 14px;
+      z-index: -1;
+    }
+    .video-card-360-inner {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+    }
+    .video-preview-area {
+      width: 50%;
+      aspect-ratio: 16/9;
+      background: #111827;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .video-preview-area img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+    .video-preview-area video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+    .video-info-area {
+      flex: 1;
+      color: white;
+    }
+    .video-premium-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: linear-gradient(90deg, #F59E0B, #EF4444);
+      color: white;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 4px 8px;
+      border-radius: 4px;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+    }
+    .video-title-360 {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    .video-description-360 {
+      font-size: 12px;
+      color: #9CA3AF;
+      margin-bottom: 12px;
+      line-height: 1.4;
+    }
+    .video-cost-360 {
+      font-size: 14px;
+      color: #A78BFA;
+      font-weight: 600;
+      margin-bottom: 12px;
+    }
+    .video-generate-btn {
+      background: linear-gradient(90deg, #3B82F6, #8B5CF6);
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s;
+    }
+    .video-generate-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+    }
+    .video-generate-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+    .video-generate-btn.generating {
+      background: linear-gradient(90deg, #6B7280, #9CA3AF);
+    }
+    .video-status-360 {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px;
+      background: rgba(59, 130, 246, 0.1);
+      border-radius: 8px;
+      margin-top: 12px;
+    }
+    .video-status-spinner {
+      width: 20px;
+      height: 20px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #3B82F6;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .video-status-text {
+      font-size: 12px;
+      color: #93C5FD;
+    }
+    .video-actions-360 {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .video-play-btn, .video-download-btn {
+      flex: 1;
+      padding: 10px 16px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+    .video-play-btn {
+      background: #10B981;
+      color: white;
+      border: none;
+    }
+    .video-download-btn {
+      background: transparent;
+      color: #60A5FA;
+      border: 1px solid #60A5FA;
+    }
+    .video-play-btn:hover { background: #059669; }
+    .video-download-btn:hover { background: rgba(96, 165, 250, 0.1); }
+    
+    /* Video Player Modal */
+    .video-modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.9);
+      z-index: 1001;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .video-modal-content {
+      max-width: 900px;
+      width: 100%;
+      background: #1E1E2F;
+      border-radius: 16px;
+      overflow: hidden;
+    }
+    .video-modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 20px;
+      border-bottom: 1px solid #374151;
+    }
+    .video-modal-title {
+      color: white;
+      font-size: 16px;
+      font-weight: 600;
+    }
+    .video-modal-close {
+      background: none;
+      border: none;
+      color: #9CA3AF;
+      font-size: 24px;
+      cursor: pointer;
+      padding: 4px;
+    }
+    .video-modal-close:hover { color: white; }
+    .video-modal-player {
+      width: 100%;
+      aspect-ratio: 16/9;
+      background: black;
+    }
+    .video-modal-actions {
+      display: flex;
+      gap: 12px;
+      padding: 16px 20px;
+      border-top: 1px solid #374151;
+    }
+    @media (max-width: 600px) {
+      .video-card-360 { grid-column: span 2; }
+      .video-card-360-inner { flex-direction: column; }
+      .video-preview-area { width: 100%; }
+    }
+    
     /* Locked cards (anonymous preview) */
     .image-card.locked {
       cursor: pointer;
@@ -7550,7 +8294,7 @@ function getHomePage(user?: User) {
           '<div class="card-progress"><div class="card-progress-bar" id="progress-' + i + '" style="width:0%"></div></div>' +
           '<div class="card-label">' + v.label + '</div>' +
         '</div>';
-      }).join('');
+      }).join('') + get360VideoTileHTML();
 
       const startTime = Date.now();
       
@@ -7916,6 +8660,252 @@ function getHomePage(user?: User) {
       }
     }
 
+    // ============================================================================
+    // 360° VIDEO GENERATION FUNCTIONS
+    // ============================================================================
+    let current360VideoId = null;
+    let video360PollInterval = null;
+    
+    function get360VideoTileHTML() {
+      const creditCost = 40;
+      const hasEnoughCredits = currentUser && (window.currentCheaperCredits || currentUser.cheaper_credits || 0) >= creditCost;
+      
+      return \`
+        <div class="video-card-360" id="video-card-360">
+          <div class="video-card-360-inner">
+            <div class="video-preview-area" id="video-preview-360">
+              <img src="\${currentOriginalImage}" alt="Product preview" id="video-preview-image">
+            </div>
+            <div class="video-info-area">
+              <div class="video-premium-badge">✨ Premium</div>
+              <div class="video-title-360">360° Product Spin</div>
+              <div class="video-description-360">
+                Create an 8-second studio-quality rotation video. Perfect for e-commerce, social media & product showcases.
+              </div>
+              <div class="video-cost-360">
+                💎 \${creditCost} Standard Credits (~5.00)
+              </div>
+              <div id="video-generate-section">
+                <button class="video-generate-btn" id="generate-360-btn" onclick="generate360Video()" \${hasEnoughCredits ? '' : 'disabled'}>
+                  🎬 Generate 360° Video
+                </button>
+                \${!hasEnoughCredits ? '<p style="color:#F87171;font-size:11px;margin-top:8px;">Need ' + creditCost + ' Standard credits</p>' : ''}
+              </div>
+              <div id="video-status-section" style="display:none">
+                <div class="video-status-360">
+                  <div class="video-status-spinner"></div>
+                  <span class="video-status-text" id="video-status-text">Starting generation...</span>
+                </div>
+              </div>
+              <div id="video-complete-section" style="display:none">
+                <div class="video-actions-360">
+                  <button class="video-play-btn" onclick="play360Video()">▶️ Play Video</button>
+                  <button class="video-download-btn" onclick="download360Video()">⬇️ Download</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      \`;
+    }
+    
+    async function generate360Video() {
+      if (!currentSessionId || !currentOriginalImage) {
+        showError('Please generate images first');
+        return;
+      }
+      
+      const btn = document.getElementById('generate-360-btn');
+      const generateSection = document.getElementById('video-generate-section');
+      const statusSection = document.getElementById('video-status-section');
+      
+      btn.disabled = true;
+      btn.innerHTML = '⏳ Starting...';
+      
+      try {
+        const response = await fetch('/api/generate-360-video', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            session_id: currentSessionId,
+            image_url: currentOriginalImage
+          })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          current360VideoId = data.video_id;
+          generateSection.style.display = 'none';
+          statusSection.style.display = 'block';
+          document.getElementById('video-status-text').textContent = 'Generating 360° rotation (~90 seconds)...';
+          
+          // Update credits display
+          updateCreditsDisplay();
+          
+          // Start polling for completion
+          start360VideoPoll();
+        } else {
+          btn.disabled = false;
+          btn.innerHTML = '🎬 Generate 360° Video';
+          
+          if (data.error === 'insufficient_credits') {
+            showError('Not enough credits. Need ' + data.required_credits + ', have ' + data.current_credits);
+          } else {
+            showError(data.error || 'Failed to start video generation');
+          }
+        }
+      } catch (err) {
+        console.error('360 video error:', err);
+        btn.disabled = false;
+        btn.innerHTML = '🎬 Generate 360° Video';
+        showError('Failed to generate video');
+      }
+    }
+    
+    function start360VideoPoll() {
+      if (video360PollInterval) clearInterval(video360PollInterval);
+      
+      let pollCount = 0;
+      const maxPolls = 120; // 10 minutes max (5s intervals)
+      
+      video360PollInterval = setInterval(async () => {
+        pollCount++;
+        
+        if (pollCount > maxPolls) {
+          clearInterval(video360PollInterval);
+          document.getElementById('video-status-text').textContent = 'Generation timed out. Please try again.';
+          return;
+        }
+        
+        try {
+          const response = await fetch('/api/generate-360-video/' + current360VideoId);
+          const data = await response.json();
+          
+          if (data.status === 'completed') {
+            clearInterval(video360PollInterval);
+            show360VideoComplete(data.video_url);
+          } else if (data.status === 'failed') {
+            clearInterval(video360PollInterval);
+            document.getElementById('video-status-text').textContent = '❌ ' + (data.error_message || 'Generation failed');
+            document.getElementById('video-status-section').querySelector('.video-status-spinner').style.display = 'none';
+            // Refund notification
+            showSuccess('Credits refunded due to generation failure');
+            updateCreditsDisplay();
+          } else {
+            // Still processing - update status
+            const minutes = Math.floor(pollCount * 5 / 60);
+            const seconds = (pollCount * 5) % 60;
+            document.getElementById('video-status-text').textContent = 
+              'Generating 360° rotation... ' + (minutes > 0 ? minutes + 'm ' : '') + seconds + 's';
+          }
+        } catch (err) {
+          console.error('Poll error:', err);
+        }
+      }, 5000);
+    }
+    
+    function show360VideoComplete(videoUrl) {
+      const statusSection = document.getElementById('video-status-section');
+      const completeSection = document.getElementById('video-complete-section');
+      const previewArea = document.getElementById('video-preview-360');
+      
+      statusSection.style.display = 'none';
+      completeSection.style.display = 'block';
+      
+      // Replace preview image with video thumbnail or first frame
+      previewArea.innerHTML = \`
+        <video id="video-preview-player" src="\${videoUrl}" loop muted playsinline 
+               onmouseenter="this.play()" onmouseleave="this.pause()" poster="\${currentOriginalImage}">
+        </video>
+        <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;">
+          <div style="width:48px;height:48px;background:rgba(0,0,0,0.6);border-radius:50%;display:flex;align-items:center;justify-content:center;">
+            <span style="color:white;font-size:20px;margin-left:4px;">▶</span>
+          </div>
+        </div>
+      \`;
+      
+      // Store video URL for playback
+      window.current360VideoUrl = videoUrl;
+      
+      showSuccess('360° video generated successfully!');
+    }
+    
+    function play360Video() {
+      if (!window.current360VideoUrl) return;
+      
+      // Create video modal
+      const modal = document.createElement('div');
+      modal.id = 'video-modal-360';
+      modal.className = 'video-modal';
+      modal.innerHTML = \`
+        <div class="video-modal-content">
+          <div class="video-modal-header">
+            <span class="video-modal-title">360° Product Spin</span>
+            <button class="video-modal-close" onclick="close360VideoModal()">✕</button>
+          </div>
+          <video class="video-modal-player" src="\${window.current360VideoUrl}" controls autoplay loop></video>
+          <div class="video-modal-actions">
+            <button class="video-download-btn" onclick="download360Video()" style="flex:none;padding:12px 24px;">
+              ⬇️ Download MP4
+            </button>
+          </div>
+        </div>
+      \`;
+      
+      modal.onclick = (e) => {
+        if (e.target === modal) close360VideoModal();
+      };
+      
+      document.body.appendChild(modal);
+    }
+    
+    function close360VideoModal() {
+      const modal = document.getElementById('video-modal-360');
+      if (modal) modal.remove();
+    }
+    
+    function download360Video() {
+      if (!window.current360VideoUrl) return;
+      
+      const productName = document.getElementById('product-name-edit')?.value || 'product';
+      const filename = productName.replace(/[^a-z0-9]/gi, '_') + '_360_spin.mp4';
+      
+      // Create download link
+      const a = document.createElement('a');
+      a.href = window.current360VideoUrl;
+      a.download = filename;
+      a.target = '_blank';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+    
+    // Check for existing video when loading session
+    async function check360VideoStatus() {
+      if (!currentSessionId || !currentUser) return;
+      
+      try {
+        const response = await fetch('/api/sessions/' + currentSessionId + '/videos');
+        const data = await response.json();
+        
+        if (data.success && data.videos && data.videos.length > 0) {
+          const video = data.videos[0]; // Get most recent video
+          
+          if (video.status === 'completed' && video.video_url) {
+            show360VideoComplete(video.video_url);
+          } else if (video.status === 'processing') {
+            current360VideoId = video.id;
+            document.getElementById('video-generate-section').style.display = 'none';
+            document.getElementById('video-status-section').style.display = 'block';
+            start360VideoPoll();
+          }
+        }
+      } catch (err) {
+        console.error('Check 360 video status error:', err);
+      }
+    }
+    
     // Init
     document.addEventListener('DOMContentLoaded', () => {
       // Only load sessions and credits for logged-in users
