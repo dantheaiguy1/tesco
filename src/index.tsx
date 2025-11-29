@@ -359,7 +359,7 @@ async function generateImageWithVertex(
 }
 
 // ============================================================================
-// VEO 3 VIDEO GENERATION (360° Product Spin)
+// VEO 2 VIDEO GENERATION (360° Product Spin)
 // ============================================================================
 async function generate360VideoWithVeo(
   projectId: string,
@@ -370,8 +370,10 @@ async function generate360VideoWithVeo(
 ): Promise<{ success: boolean; videoUrl?: string; error?: string }> {
   const accessToken = await getAccessToken(clientEmail, privateKey);
   
-  // Veo 3 Fast endpoint for video generation
-  const endpoint = `https://${VERTEX_REGION}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${VERTEX_REGION}/publishers/google/models/veo-3.0-fast-generate-001:predictLongRunning`;
+  // Use us-central1 region for Imagen Video (Veo) - it's not available in global
+  const videoRegion = 'us-central1';
+  // Veo 2 endpoint for video generation (image-to-video)
+  const endpoint = `https://${videoRegion}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${videoRegion}/publishers/google/models/veo-001-preview:predictLongRunning`;
   
   const prompt = `Analyze the provided image and identify the main product. Create a smooth, professional 360-degree rotation video showcasing the product on a clean white studio background.
 
@@ -407,7 +409,7 @@ Output: 8 seconds, 1080p resolution, no audio, seamless loop-ready.`;
   });
 
   try {
-    console.log('[Veo 3] Starting 360° video generation...');
+    console.log('[Veo 2] Starting 360° video generation...');
     
     // Start the long-running operation
     const response = await fetch(endpoint, {
@@ -421,7 +423,7 @@ Output: 8 seconds, 1080p resolution, no audio, seamless loop-ready.`;
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('[Veo 3 ERROR] Status:', response.status, errorText);
+      console.error('[Veo 2 ERROR] Status:', response.status, errorText);
       let errorMsg = 'Video generation error';
       try {
         const errJson = JSON.parse(errorText);
@@ -440,10 +442,11 @@ Output: 8 seconds, 1080p resolution, no audio, seamless loop-ready.`;
       return { success: false, error: 'No operation name returned' };
     }
 
-    console.log('[Veo 3] Operation started:', operationName);
+    console.log('[Veo 2] Operation started:', operationName);
     
     // Poll for completion (max 5 minutes)
-    const pollEndpoint = `https://${VERTEX_REGION}-aiplatform.googleapis.com/v1/${operationName}`;
+    // The operation name already includes the full path, so we just need the base URL
+    const pollEndpoint = `https://us-central1-aiplatform.googleapis.com/v1/${operationName}`;
     const maxPollAttempts = 60; // 60 * 5 seconds = 5 minutes
     
     for (let i = 0; i < maxPollAttempts; i++) {
@@ -456,7 +459,7 @@ Output: 8 seconds, 1080p resolution, no audio, seamless loop-ready.`;
       });
       
       if (!pollResponse.ok) {
-        console.error('[Veo 3] Poll error:', pollResponse.status);
+        console.error('[Veo 2] Poll error:', pollResponse.status);
         continue;
       }
       
@@ -464,14 +467,14 @@ Output: 8 seconds, 1080p resolution, no audio, seamless loop-ready.`;
       
       if (pollData.done) {
         if (pollData.error) {
-          console.error('[Veo 3] Generation failed:', pollData.error);
+          console.error('[Veo 2] Generation failed:', pollData.error);
           return { success: false, error: pollData.error.message || 'Video generation failed' };
         }
         
         // Extract video URL from response
         const videoUri = pollData.response?.generatedSamples?.[0]?.video?.uri;
         if (videoUri) {
-          console.log('[Veo 3] Video generated successfully');
+          console.log('[Veo 2] Video generated successfully');
           return { success: true, videoUrl: videoUri };
         }
         
@@ -485,12 +488,12 @@ Output: 8 seconds, 1080p resolution, no audio, seamless loop-ready.`;
         return { success: false, error: 'No video in response' };
       }
       
-      console.log(`[Veo 3] Still processing... (${i + 1}/${maxPollAttempts})`);
+      console.log(`[Veo 2] Still processing... (${i + 1}/${maxPollAttempts})`);
     }
     
     return { success: false, error: 'Video generation timed out' };
   } catch (err) {
-    console.error('[Veo 3] Error:', err);
+    console.error('[Veo 2] Error:', err);
     return { success: false, error: err instanceof Error ? err.message : 'Video generation failed' };
   }
 }
@@ -4105,7 +4108,8 @@ app.post('/api/generate-360-video', async (c) => {
 
   } catch (error) {
     console.error('360 video generation error:', error);
-    return c.json({ success: false, error: 'Failed to start video generation' }, 500);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return c.json({ success: false, error: `Failed to start video generation: ${errorMessage}` }, 500);
   }
 });
 
@@ -4249,8 +4253,8 @@ async function processVideoGeneration(
       }
     }
 
-    // Step 2: Generate 360° video with Veo 3
-    console.log('[360 Video] Generating video with Veo 3...');
+    // Step 2: Generate 360° video with Veo 2
+    console.log('[360 Video] Generating video with Veo 2...');
     const videoResult = await generate360VideoWithVeo(
       projectId, clientEmail, privateKey, cleanImageBase64, mimeType
     );
