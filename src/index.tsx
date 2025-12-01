@@ -4713,8 +4713,8 @@ app.patch('/api/admin/feature-suggestions/:id', async (c) => {
 // ============================================================================
 
 // Platform-specific aspect ratios and character limits
+// Note: YouTube requires VIDEO content via Late API, so we exclude it from image-based posting
 const SOCIAL_PLATFORMS = {
-  youtube: { aspectRatio: '16:9', width: 1920, height: 1080, maxCaption: 5000, name: 'YouTube' },
   instagram: { aspectRatio: '1:1', width: 1080, height: 1080, maxCaption: 2200, name: 'Instagram' },
   twitter: { aspectRatio: '16:9', width: 1200, height: 675, maxCaption: 280, name: 'X/Twitter' }
 };
@@ -4747,7 +4747,7 @@ app.post('/api/admin/social/generate', async (c) => {
 
 Based on this prompt: "${prompt}"
 
-Generate 3 platform-specific social media posts. For each platform, create engaging captions that:
+Generate 2 platform-specific social media posts for Instagram and X/Twitter. For each platform, create engaging captions that:
 - Highlight ShopShot's value (AI-powered product photos, no studio needed, instant results)
 - Include relevant hashtags
 - Match the platform's tone and audience expectations
@@ -4755,17 +4755,13 @@ Generate 3 platform-specific social media posts. For each platform, create engag
 
 Respond ONLY with valid JSON in this exact format:
 {
-  "youtube": {
-    "caption": "Full YouTube description with hashtags (max 5000 chars)",
-    "imagePrompt": "Detailed prompt for generating a 16:9 YouTube thumbnail showing ShopShot in action"
-  },
   "instagram": {
     "caption": "Instagram caption with emojis and hashtags (max 2200 chars)",
-    "imagePrompt": "Detailed prompt for generating a 1:1 Instagram post image"
+    "imagePrompt": "Detailed prompt for generating a 1:1 square Instagram post image showing professional product photography"
   },
   "twitter": {
     "caption": "Concise X/Twitter post (max 280 chars including hashtags)",
-    "imagePrompt": "Detailed prompt for generating a 16:9 Twitter image"
+    "imagePrompt": "Detailed prompt for generating a 16:9 landscape Twitter image"
   }
 }`;
 
@@ -4927,6 +4923,7 @@ app.post('/api/admin/social/publish', async (c) => {
 
       try {
         let mediaUrl = null;
+        let uploadError = null;
 
         // Step 1: Upload image if exists (using multipart/form-data)
         if (imageBase64) {
@@ -4940,8 +4937,10 @@ app.post('/api/admin/social/publish', async (c) => {
             const blob = new Blob([bytes], { type: 'image/png' });
             
             const formData = new FormData();
-            formData.append('file', blob, `${platform}-image.png`);
+            // Late API expects 'files' field (plural), not 'file'
+            formData.append('files', blob, `${platform}-image.png`);
             
+            console.log(`[Late API] Uploading media for ${platform}...`);
             const mediaResponse = await fetch(`${lateBaseUrl}/media`, {
               method: 'POST',
               headers: {
@@ -4950,15 +4949,24 @@ app.post('/api/admin/social/publish', async (c) => {
               body: formData
             });
 
+            const mediaResponseText = await mediaResponse.text();
+            console.log(`[Late API] Media response for ${platform}:`, mediaResponse.status, mediaResponseText);
+            
             if (mediaResponse.ok) {
-              const mediaData = await mediaResponse.json() as any;
-              mediaUrl = mediaData.url || mediaData.fileUrl || mediaData.file?.url;
-              console.log(`[Late API] Media uploaded for ${platform}:`, mediaUrl);
+              try {
+                const mediaData = JSON.parse(mediaResponseText);
+                // Late API returns { files: [{ url: "..." }] }
+                mediaUrl = mediaData.files?.[0]?.url || mediaData.url || mediaData.fileUrl;
+                console.log(`[Late API] Media URL extracted for ${platform}:`, mediaUrl);
+              } catch (e) {
+                console.error(`[Late API] Failed to parse media response:`, e);
+              }
             } else {
-              const errText = await mediaResponse.text();
-              console.error(`[Late API] Media upload failed for ${platform}:`, errText);
+              uploadError = mediaResponseText;
+              console.error(`[Late API] Media upload failed for ${platform}:`, mediaResponseText);
             }
-          } catch (uploadErr) {
+          } catch (uploadErr: any) {
+            uploadError = uploadErr.message;
             console.error(`[Late API] Media upload error for ${platform}:`, uploadErr);
           }
         }
@@ -4970,12 +4978,19 @@ app.post('/api/admin/social/publish', async (c) => {
           publishNow: true
         };
 
-        // Add media if uploaded successfully
+        // Add media if uploaded successfully - try both formats
         if (mediaUrl) {
+          // Try media_urls format (shown in blog examples)
+          postPayload.media_urls = [mediaUrl];
+          // Also include mediaItems format (shown in docs)
           postPayload.mediaItems = [{
             type: 'image',
             url: mediaUrl
           }];
+          console.log(`[Late API] Added media to payload:`, mediaUrl);
+        } else if (imageBase64 && uploadError) {
+          // If media upload failed, include error in result but still try to post
+          console.log(`[Late API] Posting without media due to upload error: ${uploadError}`);
         }
 
         const postResponse = await fetch(`${lateBaseUrl}/posts`, {
@@ -4991,6 +5006,15 @@ app.post('/api/admin/social/publish', async (c) => {
           const errorText = await postResponse.text();
           console.error(`[Late API] Post failed for ${platform}:`, errorText);
           
+          // Parse error message for user-friendly display
+          let userError = 'Failed to publish post';
+          try {
+            const errJson = JSON.parse(errorText);
+            userError = errJson.message || errJson.error || errorText;
+          } catch { 
+            userError = errorText.substring(0, 200); 
+          }
+          
           // Save failed post to DB
           const postId = crypto.randomUUID();
           await db.prepare(`
@@ -4998,7 +5022,7 @@ app.post('/api/admin/social/publish', async (c) => {
             VALUES (?, ?, ?, ?, 'failed', ?, ?, ?)
           `).bind(postId, platform, caption, imageBase64 || null, prompt || null, errorText, user.id).run();
           
-          results.push({ platform, success: false, error: 'Failed to publish post' });
+          results.push({ platform, success: false, error: userError });
           continue;
         }
 
@@ -17063,7 +17087,7 @@ function getSocialStudioPage(user: any) {
         <span style="font-size: 32px;">📱</span>
         Social Studio
       </h1>
-      <p class="page-subtitle">Generate AI-powered social media content for YouTube, Instagram, and X/Twitter</p>
+      <p class="page-subtitle">Generate AI-powered social media content for Instagram and X/Twitter</p>
     </div>
     
     <!-- Prompt Section -->
@@ -17114,9 +17138,8 @@ function getSocialStudioPage(user: any) {
     let selectedPlatforms = new Set();
     let currentPrompt = '';
     
-    // Platform configs
+    // Platform configs (YouTube excluded - requires video content)
     const platformConfig = {
-      youtube: { icon: '▶️', name: 'YouTube', ratio: '16:9', maxChars: 5000, bgColor: '#FF000020', color: '#FF0000' },
       instagram: { icon: '📷', name: 'Instagram', ratio: '1:1', maxChars: 2200, bgColor: '#E1306C20', color: '#E1306C' },
       twitter: { icon: '𝕏', name: 'X/Twitter', ratio: '16:9', maxChars: 280, bgColor: '#1DA1F220', color: '#1DA1F2' }
     };
@@ -17317,11 +17340,13 @@ function getSocialStudioPage(user: any) {
           // Refresh history
           loadHistory();
         } else {
-          // Show partial success/failures
+          // Show partial success/failures with actual error messages
           if (data.results) {
             const failed = data.results.filter(r => !r.success);
             if (failed.length > 0) {
-              showToast('Some posts failed: ' + failed.map(f => f.platform).join(', '), 'error');
+              const errorDetails = failed.map(f => f.platform + ': ' + (f.error || 'unknown')).join('\\n');
+              console.error('Failed posts:', errorDetails);
+              showToast('Failed: ' + failed.map(f => f.error || f.platform).join(', '), 'error');
             }
           }
           throw new Error(data.error || 'Some posts failed to publish');
