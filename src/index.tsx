@@ -9178,7 +9178,7 @@ function getHomePage(user?: User) {
     }
 
     function resetToUpload() {
-      window.location.href = '/';
+      window.location.href = '/app';
     }
 
     // Model selection
