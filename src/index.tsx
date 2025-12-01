@@ -47,6 +47,8 @@ type Bindings = {
   // Google OAuth
   GOOGLE_CLIENT_ID: string;
   GOOGLE_CLIENT_SECRET: string;
+  // Late API for Social Studio
+  LATE_API_KEY: string;
 }
 
 // User type for authenticated requests
@@ -1470,6 +1472,29 @@ async function ensureDatabase(db: D1Database) {
     
     // Add brand_colors column to sessions for per-session overrides
     try { await db.prepare('ALTER TABLE sessions ADD COLUMN brand_colors TEXT').run() } catch (e) {}
+    
+    // Social Studio feature (2024-12-01)
+    // Social posts table - stores posts created and published via Late API
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS social_posts (
+        id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+        platform TEXT NOT NULL CHECK(platform IN ('youtube', 'instagram', 'twitter')),
+        caption TEXT NOT NULL,
+        image_url TEXT,
+        image_base64 TEXT,
+        post_id TEXT,
+        post_url TEXT,
+        status TEXT DEFAULT 'draft' CHECK(status IN ('published', 'failed', 'draft')),
+        posted_at DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        created_by TEXT REFERENCES users(id),
+        prompt TEXT,
+        error_message TEXT
+      )
+    `).run()
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_social_posts_platform ON social_posts(platform)').run()
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_social_posts_posted_at ON social_posts(posted_at DESC)').run()
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_social_posts_status ON social_posts(status)').run()
   } catch (err) {
     console.log('Database already initialized or error:', err)
   }
@@ -1877,6 +1902,14 @@ app.get('/admin', (c) => {
   if (!user) return c.redirect('/login?redirect=/admin')
   if (user.role !== 'admin') return c.redirect('/?error=unauthorized')
   return c.html(getAdminDashboardPage(user))
+})
+
+// Social Studio admin page
+app.get('/admin/social-studio', (c) => {
+  const user = c.get('user') as any
+  if (!user) return c.redirect('/login?redirect=/admin/social-studio')
+  if (user.role !== 'admin') return c.redirect('/?error=unauthorized')
+  return c.html(getSocialStudioPage(user))
 })
 
 // Admin API: Get dashboard data
@@ -4672,6 +4705,354 @@ app.patch('/api/admin/feature-suggestions/:id', async (c) => {
   } catch (error) {
     console.error('Update suggestion error:', error);
     return c.json({ success: false, error: 'Failed to update suggestion' }, 500);
+  }
+});
+
+// ============================================================================
+// SOCIAL STUDIO API ENDPOINTS
+// ============================================================================
+
+// Platform-specific aspect ratios and character limits
+const SOCIAL_PLATFORMS = {
+  youtube: { aspectRatio: '16:9', width: 1920, height: 1080, maxCaption: 5000, name: 'YouTube' },
+  instagram: { aspectRatio: '1:1', width: 1080, height: 1080, maxCaption: 2200, name: 'Instagram' },
+  twitter: { aspectRatio: '16:9', width: 1200, height: 675, maxCaption: 280, name: 'X/Twitter' }
+};
+
+// Generate social content with Gemini AI (admin only)
+app.post('/api/admin/social/generate', async (c) => {
+  const user = c.get('user') as any;
+  if (!user || user.role !== 'admin') {
+    return c.json({ success: false, error: 'Admin access required' }, 403);
+  }
+
+  try {
+    const { prompt } = await c.req.json();
+    if (!prompt || prompt.length < 5) {
+      return c.json({ success: false, error: 'Please provide a prompt (minimum 5 characters)' }, 400);
+    }
+
+    const projectId = c.env.VERTEX_PROJECT_ID;
+    const clientEmail = c.env.VERTEX_CLIENT_EMAIL;
+    const privateKey = c.env.VERTEX_PRIVATE_KEY;
+
+    if (!projectId || !clientEmail || !privateKey) {
+      return c.json({ success: false, error: 'Vertex AI not configured' }, 500);
+    }
+
+    // Step 1: Generate captions using Gemini 2.0 Flash (text model)
+    const accessToken = await getAccessToken(clientEmail, privateKey);
+    
+    const captionPrompt = `You are a social media expert for ShopShot (shopshot.co.uk), an AI product photography SaaS.
+
+Based on this prompt: "${prompt}"
+
+Generate 3 platform-specific social media posts. For each platform, create engaging captions that:
+- Highlight ShopShot's value (AI-powered product photos, no studio needed, instant results)
+- Include relevant hashtags
+- Match the platform's tone and audience expectations
+- Include a call-to-action directing to shopshot.co.uk
+
+Respond ONLY with valid JSON in this exact format:
+{
+  "youtube": {
+    "caption": "Full YouTube description with hashtags (max 5000 chars)",
+    "imagePrompt": "Detailed prompt for generating a 16:9 YouTube thumbnail showing ShopShot in action"
+  },
+  "instagram": {
+    "caption": "Instagram caption with emojis and hashtags (max 2200 chars)",
+    "imagePrompt": "Detailed prompt for generating a 1:1 Instagram post image"
+  },
+  "twitter": {
+    "caption": "Concise X/Twitter post (max 280 chars including hashtags)",
+    "imagePrompt": "Detailed prompt for generating a 16:9 Twitter image"
+  }
+}`;
+
+    const textEndpoint = `https://aiplatform.googleapis.com/v1/projects/${projectId}/locations/global/publishers/google/models/gemini-2.0-flash:generateContent`;
+    
+    const textResponse = await fetch(textEndpoint, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: captionPrompt }] }],
+        generationConfig: { temperature: 0.7, maxOutputTokens: 2048 }
+      })
+    });
+
+    if (!textResponse.ok) {
+      const errorText = await textResponse.text();
+      console.error('[Social Studio] Gemini text error:', errorText);
+      return c.json({ success: false, error: 'Failed to generate captions. Please try again.' }, 500);
+    }
+
+    const textData = await textResponse.json() as any;
+    const rawText = textData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    
+    // Parse JSON from response (handle markdown code blocks)
+    let captions;
+    try {
+      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('No JSON found');
+      captions = JSON.parse(jsonMatch[0]);
+    } catch (e) {
+      console.error('[Social Studio] JSON parse error:', rawText);
+      return c.json({ success: false, error: 'AI returned invalid format. Please try again.' }, 500);
+    }
+
+    // Step 2: Generate images for each platform using Gemini Image model
+    const posts: any[] = [];
+    const imageModel = 'gemini-2.5-flash-image'; // Use stable image model
+    
+    for (const [platform, config] of Object.entries(SOCIAL_PLATFORMS)) {
+      const platformData = captions[platform];
+      if (!platformData) continue;
+
+      // Generate platform-specific image
+      const imagePrompt = `Create a professional marketing image for ShopShot (AI product photography SaaS).
+        
+Context: ${platformData.imagePrompt}
+
+Requirements:
+- Dimensions: ${config.aspectRatio} aspect ratio (${config.width}x${config.height})
+- Brand color: Use #5B8DEE as accent color
+- Style: Modern, clean, professional SaaS marketing aesthetic
+- Include visual elements showing AI/tech theme
+- Make it eye-catching for ${config.name}
+- DO NOT include any text or logos in the image`;
+
+      try {
+        const imageEndpoint = `https://aiplatform.googleapis.com/v1/projects/${projectId}/locations/global/publishers/google/models/${imageModel}:generateContent`;
+        
+        const imageResponse = await fetch(imageEndpoint, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: imagePrompt }] }],
+            generationConfig: {
+              responseModalities: ['IMAGE'],
+              temperature: 0.8
+            }
+          })
+        });
+
+        let imageBase64 = null;
+        if (imageResponse.ok) {
+          const imageData = await imageResponse.json() as any;
+          // Extract base64 image from response
+          const parts = imageData.candidates?.[0]?.content?.parts || [];
+          for (const part of parts) {
+            if (part.inlineData?.data) {
+              imageBase64 = part.inlineData.data;
+              break;
+            }
+          }
+        }
+
+        posts.push({
+          platform,
+          caption: platformData.caption,
+          imageBase64,
+          aspectRatio: config.aspectRatio,
+          maxCaption: config.maxCaption,
+          platformName: config.name
+        });
+      } catch (err) {
+        console.error(`[Social Studio] Image gen error for ${platform}:`, err);
+        posts.push({
+          platform,
+          caption: platformData.caption,
+          imageBase64: null,
+          aspectRatio: config.aspectRatio,
+          maxCaption: config.maxCaption,
+          platformName: config.name,
+          error: 'Image generation failed'
+        });
+      }
+    }
+
+    return c.json({ 
+      success: true, 
+      posts,
+      prompt 
+    });
+
+  } catch (error: any) {
+    console.error('[Social Studio] Generate error:', error);
+    return c.json({ success: false, error: error.message || 'Failed to generate content' }, 500);
+  }
+});
+
+// Publish posts to platforms via Late API (admin only)
+app.post('/api/admin/social/publish', async (c) => {
+  const user = c.get('user') as any;
+  if (!user || user.role !== 'admin') {
+    return c.json({ success: false, error: 'Admin access required' }, 403);
+  }
+
+  const lateApiKey = c.env.LATE_API_KEY;
+  if (!lateApiKey) {
+    return c.json({ success: false, error: 'Late API not configured' }, 500);
+  }
+
+  const db = c.env.TESCO_DB;
+  
+  try {
+    const { posts, prompt } = await c.req.json();
+    if (!posts || !Array.isArray(posts) || posts.length === 0) {
+      return c.json({ success: false, error: 'No posts to publish' }, 400);
+    }
+
+    const results: any[] = [];
+    const lateBaseUrl = 'https://getlate.dev/api/v1';
+
+    for (const post of posts) {
+      const { platform, caption, imageBase64 } = post;
+      
+      if (!platform || !caption) {
+        results.push({ platform, success: false, error: 'Missing platform or caption' });
+        continue;
+      }
+
+      try {
+        let mediaId = null;
+
+        // Step 1: Upload image if exists
+        if (imageBase64) {
+          const mediaResponse = await fetch(`${lateBaseUrl}/media/upload`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${lateApiKey}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              file: `data:image/png;base64,${imageBase64}`,
+              platform
+            })
+          });
+
+          if (mediaResponse.ok) {
+            const mediaData = await mediaResponse.json() as any;
+            mediaId = mediaData.id || mediaData.mediaId;
+          } else {
+            console.error(`[Late API] Media upload failed for ${platform}:`, await mediaResponse.text());
+          }
+        }
+
+        // Step 2: Create post
+        const postPayload: any = {
+          platform,
+          text: caption,
+          scheduledAt: new Date().toISOString() // Post immediately
+        };
+
+        if (mediaId) {
+          postPayload.mediaIds = [mediaId];
+        }
+
+        const postResponse = await fetch(`${lateBaseUrl}/posts`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${lateApiKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(postPayload)
+        });
+
+        if (!postResponse.ok) {
+          const errorText = await postResponse.text();
+          console.error(`[Late API] Post failed for ${platform}:`, errorText);
+          
+          // Save failed post to DB
+          const postId = crypto.randomUUID();
+          await db.prepare(`
+            INSERT INTO social_posts (id, platform, caption, image_base64, status, prompt, error_message, created_by)
+            VALUES (?, ?, ?, ?, 'failed', ?, ?, ?)
+          `).bind(postId, platform, caption, imageBase64 || null, prompt || null, errorText, user.id).run();
+          
+          results.push({ platform, success: false, error: 'Failed to publish post' });
+          continue;
+        }
+
+        const postData = await postResponse.json() as any;
+        
+        // Save successful post to DB
+        const postId = crypto.randomUUID();
+        await db.prepare(`
+          INSERT INTO social_posts (id, platform, caption, image_base64, post_id, post_url, status, posted_at, prompt, created_by)
+          VALUES (?, ?, ?, ?, ?, ?, 'published', datetime('now'), ?, ?)
+        `).bind(
+          postId, 
+          platform, 
+          caption, 
+          imageBase64 || null,
+          postData.id || null,
+          postData.url || null,
+          prompt || null,
+          user.id
+        ).run();
+
+        results.push({ 
+          platform, 
+          success: true, 
+          postId: postData.id,
+          postUrl: postData.url 
+        });
+
+      } catch (err: any) {
+        console.error(`[Late API] Error for ${platform}:`, err);
+        
+        // Save error to DB
+        const postId = crypto.randomUUID();
+        await db.prepare(`
+          INSERT INTO social_posts (id, platform, caption, image_base64, status, prompt, error_message, created_by)
+          VALUES (?, ?, ?, ?, 'failed', ?, ?, ?)
+        `).bind(postId, platform, caption, imageBase64 || null, prompt || null, err.message, user.id).run();
+        
+        results.push({ platform, success: false, error: err.message });
+      }
+    }
+
+    const successCount = results.filter(r => r.success).length;
+    return c.json({ 
+      success: successCount > 0, 
+      results,
+      message: `Published ${successCount}/${results.length} posts`
+    });
+
+  } catch (error: any) {
+    console.error('[Social Studio] Publish error:', error);
+    return c.json({ success: false, error: error.message || 'Failed to publish' }, 500);
+  }
+});
+
+// Get post history (admin only)
+app.get('/api/admin/social/history', async (c) => {
+  const user = c.get('user') as any;
+  if (!user || user.role !== 'admin') {
+    return c.json({ success: false, error: 'Admin access required' }, 403);
+  }
+
+  const db = c.env.TESCO_DB;
+
+  try {
+    const posts = await db.prepare(`
+      SELECT id, platform, caption, post_url, status, posted_at, created_at, prompt, error_message
+      FROM social_posts
+      ORDER BY created_at DESC
+      LIMIT 30
+    `).all();
+
+    return c.json({ success: true, posts: posts.results || [] });
+  } catch (error: any) {
+    console.error('[Social Studio] History error:', error);
+    return c.json({ success: false, error: 'Failed to fetch history' }, 500);
   }
 });
 
@@ -14924,6 +15305,9 @@ function getAdminDashboardPage(user: any) {
       <span>ShopShot</span> Admin Dashboard
     </div>
     <div class="header-actions">
+      <a href="/admin/social-studio" style="padding: 8px 16px; background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%); color: white; border-radius: 8px; font-size: 13px; font-weight: 500; text-decoration: none; display: flex; align-items: center; gap: 6px;">
+        📱 Social Studio
+      </a>
       <span class="last-updated" id="last-updated">Loading...</span>
       <button class="refresh-btn" onclick="refreshDashboard()" id="refresh-btn">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -16174,6 +16558,803 @@ function getAdminDashboardPage(user: any) {
     .spin { animation: spin 1s linear infinite; }
     @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
   </style>
+</body>
+</html>`;
+}
+
+// ============================================================================
+// SOCIAL STUDIO PAGE
+// ============================================================================
+function getSocialStudioPage(user: any) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Social Studio - ShopShot Admin</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'><stop offset='0%25' style='stop-color:%233B82F6'/><stop offset='100%25' style='stop-color:%238B5CF6'/></linearGradient></defs><rect width='100' height='100' rx='22' fill='url(%23g)'/><circle cx='50' cy='50' r='28' fill='none' stroke='white' stroke-width='6'/><circle cx='50' cy='50' r='12' fill='white'/></svg>">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { font-family: 'Inter', system-ui, sans-serif; box-sizing: border-box; }
+    body { background: #09090B; color: white; min-height: 100vh; }
+    
+    /* Header */
+    .admin-header {
+      background: linear-gradient(180deg, #18181B 0%, #09090B 100%);
+      border-bottom: 1px solid #27272A;
+      padding: 16px 24px;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+    .header-content {
+      max-width: 1600px;
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .header-logo {
+      font-size: 20px;
+      font-weight: 800;
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      text-decoration: none;
+    }
+    .header-nav {
+      display: flex;
+      gap: 8px;
+    }
+    .header-nav a {
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      color: #A1A1AA;
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+    .header-nav a:hover, .header-nav a.active {
+      background: #27272A;
+      color: white;
+    }
+    .header-nav a.active {
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+    }
+    
+    /* Container */
+    .studio-container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 32px 24px;
+    }
+    
+    /* Page Header */
+    .page-header {
+      margin-bottom: 32px;
+    }
+    .page-title {
+      font-size: 28px;
+      font-weight: 800;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .page-subtitle {
+      color: #71717A;
+      font-size: 14px;
+    }
+    
+    /* Prompt Input */
+    .prompt-section {
+      background: #18181B;
+      border: 1px solid #27272A;
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 32px;
+    }
+    .prompt-label {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: #A1A1AA;
+    }
+    .prompt-input {
+      width: 100%;
+      padding: 16px;
+      background: #09090B;
+      border: 1px solid #27272A;
+      border-radius: 12px;
+      color: white;
+      font-size: 15px;
+      resize: none;
+      min-height: 100px;
+      transition: border-color 0.2s;
+    }
+    .prompt-input:focus {
+      outline: none;
+      border-color: #3B82F6;
+    }
+    .prompt-input::placeholder {
+      color: #52525B;
+    }
+    .prompt-actions {
+      margin-top: 16px;
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+    }
+    
+    /* Buttons */
+    .btn {
+      padding: 12px 24px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      border: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      color: white;
+    }
+    .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+    .btn-secondary {
+      background: #27272A;
+      color: white;
+    }
+    .btn-secondary:hover { background: #3F3F46; }
+    .btn-success {
+      background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+      color: white;
+    }
+    .btn-success:hover { opacity: 0.9; }
+    .btn-success:disabled { opacity: 0.5; cursor: not-allowed; }
+    
+    /* Generated Posts */
+    .posts-section {
+      display: none;
+    }
+    .posts-section.visible {
+      display: block;
+    }
+    .posts-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+    }
+    .posts-title {
+      font-size: 18px;
+      font-weight: 700;
+    }
+    
+    .posts-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+    }
+    @media (max-width: 1024px) { .posts-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 640px) { .posts-grid { grid-template-columns: 1fr; } }
+    
+    .post-card {
+      background: #18181B;
+      border: 1px solid #27272A;
+      border-radius: 16px;
+      overflow: hidden;
+      transition: all 0.2s;
+    }
+    .post-card:hover {
+      border-color: #3F3F46;
+    }
+    .post-card.selected {
+      border-color: #3B82F6;
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+    }
+    
+    .post-image {
+      width: 100%;
+      aspect-ratio: 16/9;
+      background: #27272A;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #52525B;
+      font-size: 13px;
+      position: relative;
+      overflow: hidden;
+    }
+    .post-image.square { aspect-ratio: 1/1; }
+    .post-image img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .post-image .placeholder {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .post-content {
+      padding: 16px;
+    }
+    .post-platform {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .post-platform-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+    }
+    .post-platform-icon.youtube { background: #FF000020; color: #FF0000; }
+    .post-platform-icon.instagram { background: #E1306C20; color: #E1306C; }
+    .post-platform-icon.twitter { background: #1DA1F220; color: #1DA1F2; }
+    .post-platform-name {
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .post-platform-ratio {
+      font-size: 11px;
+      color: #71717A;
+      margin-left: auto;
+    }
+    
+    .post-caption {
+      width: 100%;
+      min-height: 120px;
+      padding: 12px;
+      background: #09090B;
+      border: 1px solid #27272A;
+      border-radius: 8px;
+      color: white;
+      font-size: 13px;
+      line-height: 1.6;
+      resize: vertical;
+    }
+    .post-caption:focus {
+      outline: none;
+      border-color: #3B82F6;
+    }
+    
+    .post-char-count {
+      font-size: 11px;
+      color: #52525B;
+      text-align: right;
+      margin-top: 8px;
+    }
+    .post-char-count.warning { color: #F59E0B; }
+    .post-char-count.error { color: #EF4444; }
+    
+    .post-actions {
+      margin-top: 12px;
+      display: flex;
+      gap: 8px;
+    }
+    .post-select {
+      flex: 1;
+      padding: 10px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      border: 1px solid #27272A;
+      background: transparent;
+      color: #A1A1AA;
+    }
+    .post-select:hover { background: #27272A; color: white; }
+    .post-select.selected {
+      background: #3B82F6;
+      border-color: #3B82F6;
+      color: white;
+    }
+    
+    /* History Section */
+    .history-section {
+      margin-top: 48px;
+      padding-top: 32px;
+      border-top: 1px solid #27272A;
+    }
+    .history-title {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 24px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .history-list {
+      background: #18181B;
+      border: 1px solid #27272A;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .history-item {
+      display: flex;
+      align-items: center;
+      padding: 16px;
+      border-bottom: 1px solid #27272A;
+      gap: 16px;
+    }
+    .history-item:last-child { border-bottom: none; }
+    .history-platform {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+    .history-details {
+      flex: 1;
+      min-width: 0;
+    }
+    .history-caption {
+      font-size: 13px;
+      color: #E4E4E7;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .history-meta {
+      font-size: 11px;
+      color: #71717A;
+      margin-top: 4px;
+    }
+    .history-status {
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .history-status.published { background: #22C55E20; color: #22C55E; }
+    .history-status.failed { background: #EF444420; color: #EF4444; }
+    .history-status.draft { background: #71717A20; color: #71717A; }
+    .history-link {
+      color: #3B82F6;
+      text-decoration: none;
+      font-size: 12px;
+    }
+    .history-link:hover { text-decoration: underline; }
+    .history-empty {
+      padding: 48px;
+      text-align: center;
+      color: #52525B;
+    }
+    
+    /* Toast Notifications */
+    .toast-container {
+      position: fixed;
+      top: 24px;
+      right: 24px;
+      z-index: 100;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .toast {
+      padding: 16px 20px;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      animation: slideIn 0.3s ease;
+      max-width: 400px;
+    }
+    @keyframes slideIn {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    .toast.success { background: #22C55E; color: white; }
+    .toast.error { background: #EF4444; color: white; }
+    .toast.info { background: #3B82F6; color: white; }
+    
+    /* Loading Spinner */
+    .spinner {
+      width: 20px;
+      height: 20px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    
+    .loading-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.8);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 200;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .loading-overlay.visible { display: flex; }
+    .loading-text {
+      color: white;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <!-- Header -->
+  <header class="admin-header">
+    <div class="header-content">
+      <div class="header-left">
+        <a href="/" class="header-logo">ShopShot</a>
+        <nav class="header-nav">
+          <a href="/admin">Dashboard</a>
+          <a href="/admin/social-studio" class="active">Social Studio</a>
+        </nav>
+      </div>
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <span style="font-size: 13px; color: #71717A;">${user.email}</span>
+        <a href="/dashboard" style="padding: 8px 16px; background: #27272A; border-radius: 8px; font-size: 13px; color: white; text-decoration: none;">Back to App</a>
+      </div>
+    </div>
+  </header>
+  
+  <!-- Toast Container -->
+  <div id="toastContainer" class="toast-container"></div>
+  
+  <!-- Loading Overlay -->
+  <div id="loadingOverlay" class="loading-overlay">
+    <div class="spinner" style="width: 40px; height: 40px; border-width: 3px;"></div>
+    <div class="loading-text" id="loadingText">Generating posts with AI...</div>
+  </div>
+  
+  <main class="studio-container">
+    <!-- Page Header -->
+    <div class="page-header">
+      <h1 class="page-title">
+        <span style="font-size: 32px;">📱</span>
+        Social Studio
+      </h1>
+      <p class="page-subtitle">Generate AI-powered social media content for YouTube, Instagram, and X/Twitter</p>
+    </div>
+    
+    <!-- Prompt Section -->
+    <div class="prompt-section">
+      <label class="prompt-label">What would you like to promote?</label>
+      <textarea 
+        id="promptInput" 
+        class="prompt-input" 
+        placeholder="e.g., Promote blog: bulk product images for Shopify sellers&#10;e.g., Announce new feature: brand color palette for lifestyle shots&#10;e.g., Share customer success story about 3x engagement"
+      ></textarea>
+      <div class="prompt-actions">
+        <button class="btn btn-primary" onclick="generatePosts()" id="generateBtn">
+          <span>✨</span>
+          Generate Posts
+        </button>
+      </div>
+    </div>
+    
+    <!-- Generated Posts -->
+    <div class="posts-section" id="postsSection">
+      <div class="posts-header">
+        <h2 class="posts-title">Generated Posts</h2>
+        <button class="btn btn-success" onclick="publishSelected()" id="publishBtn" disabled>
+          <span>🚀</span>
+          Publish Selected (<span id="selectedCount">0</span>)
+        </button>
+      </div>
+      <div class="posts-grid" id="postsGrid">
+        <!-- Posts will be inserted here -->
+      </div>
+    </div>
+    
+    <!-- History Section -->
+    <div class="history-section">
+      <h2 class="history-title">
+        <span>📊</span>
+        Recent Posts
+      </h2>
+      <div class="history-list" id="historyList">
+        <div class="history-empty">Loading history...</div>
+      </div>
+    </div>
+  </main>
+  
+  <script>
+    // State
+    let generatedPosts = [];
+    let selectedPlatforms = new Set();
+    let currentPrompt = '';
+    
+    // Platform configs
+    const platformConfig = {
+      youtube: { icon: '▶️', name: 'YouTube', ratio: '16:9', maxChars: 5000, bgColor: '#FF000020', color: '#FF0000' },
+      instagram: { icon: '📷', name: 'Instagram', ratio: '1:1', maxChars: 2200, bgColor: '#E1306C20', color: '#E1306C' },
+      twitter: { icon: '𝕏', name: 'X/Twitter', ratio: '16:9', maxChars: 280, bgColor: '#1DA1F220', color: '#1DA1F2' }
+    };
+    
+    // Toast notification
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      toast.className = 'toast ' + type;
+      toast.innerHTML = '<span>' + (type === 'success' ? '✓' : type === 'error' ? '✕' : 'ℹ') + '</span><span>' + message + '</span>';
+      container.appendChild(toast);
+      setTimeout(() => toast.remove(), 5000);
+    }
+    
+    // Show/hide loading
+    function setLoading(show, text = 'Generating posts with AI...') {
+      const overlay = document.getElementById('loadingOverlay');
+      const loadingText = document.getElementById('loadingText');
+      loadingText.textContent = text;
+      overlay.classList.toggle('visible', show);
+    }
+    
+    // Generate posts
+    async function generatePosts() {
+      const prompt = document.getElementById('promptInput').value.trim();
+      if (!prompt || prompt.length < 5) {
+        showToast('Please enter a prompt (minimum 5 characters)', 'error');
+        return;
+      }
+      
+      currentPrompt = prompt;
+      const btn = document.getElementById('generateBtn');
+      btn.disabled = true;
+      setLoading(true, 'Generating captions and images with AI...');
+      
+      try {
+        const res = await fetch('/api/admin/social/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt })
+        });
+        
+        const data = await res.json();
+        
+        if (!data.success) {
+          throw new Error(data.error || 'Failed to generate posts');
+        }
+        
+        generatedPosts = data.posts;
+        selectedPlatforms = new Set(data.posts.map(p => p.platform)); // Select all by default
+        renderPosts();
+        document.getElementById('postsSection').classList.add('visible');
+        showToast('Posts generated successfully!', 'success');
+        
+      } catch (err) {
+        console.error('Generate error:', err);
+        showToast(err.message || 'Failed to generate posts', 'error');
+      } finally {
+        btn.disabled = false;
+        setLoading(false);
+      }
+    }
+    
+    // Render posts
+    function renderPosts() {
+      const grid = document.getElementById('postsGrid');
+      grid.innerHTML = '';
+      
+      generatedPosts.forEach((post, idx) => {
+        const config = platformConfig[post.platform];
+        const isSelected = selectedPlatforms.has(post.platform);
+        const charCount = post.caption.length;
+        const charClass = charCount > config.maxChars ? 'error' : charCount > config.maxChars * 0.9 ? 'warning' : '';
+        
+        const card = document.createElement('div');
+        card.className = 'post-card' + (isSelected ? ' selected' : '');
+        card.innerHTML = \`
+          <div class="post-image\${post.platform === 'instagram' ? ' square' : ''}">
+            \${post.imageBase64 
+              ? '<img src="data:image/png;base64,' + post.imageBase64 + '" alt="' + config.name + ' image">'
+              : '<div class="placeholder"><span style="font-size: 24px;">🖼️</span><span>Image generation failed</span></div>'
+            }
+          </div>
+          <div class="post-content">
+            <div class="post-platform">
+              <div class="post-platform-icon \${post.platform}" style="background: \${config.bgColor}; color: \${config.color};">
+                \${config.icon}
+              </div>
+              <span class="post-platform-name">\${config.name}</span>
+              <span class="post-platform-ratio">\${config.ratio}</span>
+            </div>
+            <textarea 
+              class="post-caption" 
+              id="caption-\${post.platform}"
+              onchange="updateCaption('\${post.platform}', this.value)"
+              oninput="updateCharCount('\${post.platform}', this.value)"
+            >\${escapeHtml(post.caption)}</textarea>
+            <div class="post-char-count \${charClass}" id="charCount-\${post.platform}">
+              \${charCount} / \${config.maxChars}
+            </div>
+            <div class="post-actions">
+              <button 
+                class="post-select\${isSelected ? ' selected' : ''}" 
+                onclick="toggleSelect('\${post.platform}')"
+                id="selectBtn-\${post.platform}"
+              >
+                \${isSelected ? '✓ Selected' : 'Select'}
+              </button>
+            </div>
+          </div>
+        \`;
+        grid.appendChild(card);
+      });
+      
+      updatePublishButton();
+    }
+    
+    // Escape HTML
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+    
+    // Update caption
+    function updateCaption(platform, value) {
+      const post = generatedPosts.find(p => p.platform === platform);
+      if (post) post.caption = value;
+    }
+    
+    // Update char count
+    function updateCharCount(platform, value) {
+      const config = platformConfig[platform];
+      const count = value.length;
+      const el = document.getElementById('charCount-' + platform);
+      el.textContent = count + ' / ' + config.maxChars;
+      el.className = 'post-char-count ' + (count > config.maxChars ? 'error' : count > config.maxChars * 0.9 ? 'warning' : '');
+    }
+    
+    // Toggle platform selection
+    function toggleSelect(platform) {
+      if (selectedPlatforms.has(platform)) {
+        selectedPlatforms.delete(platform);
+      } else {
+        selectedPlatforms.add(platform);
+      }
+      
+      // Update card UI
+      const cards = document.querySelectorAll('.post-card');
+      cards.forEach((card, idx) => {
+        const post = generatedPosts[idx];
+        card.classList.toggle('selected', selectedPlatforms.has(post.platform));
+        const btn = card.querySelector('.post-select');
+        btn.classList.toggle('selected', selectedPlatforms.has(post.platform));
+        btn.textContent = selectedPlatforms.has(post.platform) ? '✓ Selected' : 'Select';
+      });
+      
+      updatePublishButton();
+    }
+    
+    // Update publish button
+    function updatePublishButton() {
+      const btn = document.getElementById('publishBtn');
+      const count = document.getElementById('selectedCount');
+      count.textContent = selectedPlatforms.size;
+      btn.disabled = selectedPlatforms.size === 0;
+    }
+    
+    // Publish selected posts
+    async function publishSelected() {
+      if (selectedPlatforms.size === 0) {
+        showToast('Please select at least one platform', 'error');
+        return;
+      }
+      
+      const postsToPublish = generatedPosts.filter(p => selectedPlatforms.has(p.platform));
+      
+      const btn = document.getElementById('publishBtn');
+      btn.disabled = true;
+      setLoading(true, 'Publishing to ' + selectedPlatforms.size + ' platform(s)...');
+      
+      try {
+        const res = await fetch('/api/admin/social/publish', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ posts: postsToPublish, prompt: currentPrompt })
+        });
+        
+        const data = await res.json();
+        
+        if (data.success) {
+          showToast(data.message || 'Posts published!', 'success');
+          // Reset state
+          generatedPosts = [];
+          selectedPlatforms.clear();
+          document.getElementById('postsSection').classList.remove('visible');
+          document.getElementById('promptInput').value = '';
+          // Refresh history
+          loadHistory();
+        } else {
+          // Show partial success/failures
+          if (data.results) {
+            const failed = data.results.filter(r => !r.success);
+            if (failed.length > 0) {
+              showToast('Some posts failed: ' + failed.map(f => f.platform).join(', '), 'error');
+            }
+          }
+          throw new Error(data.error || 'Some posts failed to publish');
+        }
+        
+      } catch (err) {
+        console.error('Publish error:', err);
+        showToast(err.message || 'Failed to publish posts', 'error');
+      } finally {
+        btn.disabled = false;
+        setLoading(false);
+      }
+    }
+    
+    // Load history
+    async function loadHistory() {
+      const container = document.getElementById('historyList');
+      
+      try {
+        const res = await fetch('/api/admin/social/history');
+        const data = await res.json();
+        
+        if (!data.success || !data.posts || data.posts.length === 0) {
+          container.innerHTML = '<div class="history-empty">No posts yet. Generate your first social media content above!</div>';
+          return;
+        }
+        
+        container.innerHTML = data.posts.map(post => {
+          const config = platformConfig[post.platform] || { icon: '📝', name: post.platform, bgColor: '#71717A20', color: '#71717A' };
+          const date = post.posted_at ? new Date(post.posted_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : new Date(post.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+          
+          return \`
+            <div class="history-item">
+              <div class="history-platform" style="background: \${config.bgColor}; color: \${config.color};">
+                \${config.icon}
+              </div>
+              <div class="history-details">
+                <div class="history-caption">\${escapeHtml(post.caption.substring(0, 100))}\${post.caption.length > 100 ? '...' : ''}</div>
+                <div class="history-meta">\${date} · \${config.name}</div>
+              </div>
+              <span class="history-status \${post.status}">\${post.status}</span>
+              \${post.post_url ? '<a href="' + post.post_url + '" target="_blank" class="history-link">View ↗</a>' : ''}
+            </div>
+          \`;
+        }).join('');
+        
+      } catch (err) {
+        console.error('History error:', err);
+        container.innerHTML = '<div class="history-empty">Failed to load history</div>';
+      }
+    }
+    
+    // Init
+    loadHistory();
+  </script>
 </body>
 </html>`;
 }
