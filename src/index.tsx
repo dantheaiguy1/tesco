@@ -1486,7 +1486,8 @@ async function ensureDatabase(db: D1Database) {
         image_base64 TEXT,
         post_id TEXT,
         post_url TEXT,
-        status TEXT DEFAULT 'draft' CHECK(status IN ('published', 'failed', 'draft')),
+        status TEXT DEFAULT 'draft' CHECK(status IN ('published', 'failed', 'draft', 'scheduled')),
+        scheduled_for DATETIME,
         posted_at DATETIME,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         created_by TEXT REFERENCES users(id),
@@ -1497,6 +1498,14 @@ async function ensureDatabase(db: D1Database) {
     await db.prepare('CREATE INDEX IF NOT EXISTS idx_social_posts_platform ON social_posts(platform)').run()
     await db.prepare('CREATE INDEX IF NOT EXISTS idx_social_posts_posted_at ON social_posts(posted_at DESC)').run()
     await db.prepare('CREATE INDEX IF NOT EXISTS idx_social_posts_status ON social_posts(status)').run()
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_social_posts_scheduled_for ON social_posts(scheduled_for)').run()
+    
+    // Migration: Add scheduled_for column if it doesn't exist (for existing databases)
+    try {
+      await db.prepare('ALTER TABLE social_posts ADD COLUMN scheduled_for DATETIME').run()
+    } catch (e) {
+      // Column already exists, ignore error
+    }
   } catch (err) {
     console.log('Database already initialized or error:', err)
   }
@@ -5520,8 +5529,8 @@ app.post('/api/admin/social/publish', async (c) => {
         const successPostId = crypto.randomUUID();
         const postStatus = scheduledFor ? 'scheduled' : 'published';
         await db.prepare(`
-          INSERT INTO social_posts (id, platform, caption, image_base64, post_id, post_url, status, posted_at, prompt, created_by)
-          VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?)
+          INSERT INTO social_posts (id, platform, caption, image_base64, post_id, post_url, status, scheduled_for, posted_at, prompt, created_by)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?)
         `).bind(
           successPostId, 
           platform, 
@@ -5530,6 +5539,7 @@ app.post('/api/admin/social/publish', async (c) => {
           postId ? String(postId) : null,
           postUrl ? String(postUrl) : null,
           postStatus,
+          scheduledFor || null,
           String(prompt || ''),
           user.id
         ).run();
@@ -5589,6 +5599,43 @@ app.get('/api/admin/social/history', async (c) => {
   } catch (error: any) {
     console.error('[Social Studio] History error:', error);
     return c.json({ success: false, error: 'Failed to fetch history' }, 500);
+  }
+});
+
+// Get scheduled posts for calendar view (admin only)
+app.get('/api/admin/social/scheduled', async (c) => {
+  const user = c.get('user') as any;
+  if (!user || user.role !== 'admin') {
+    return c.json({ success: false, error: 'Admin access required' }, 403);
+  }
+
+  const db = c.env.TESCO_DB;
+  const start = c.req.query('start');
+  const end = c.req.query('end');
+
+  try {
+    // Fetch posts within date range, including scheduled_for field
+    let query = `
+      SELECT id, platform, caption, post_url, status, posted_at, created_at, scheduled_for, prompt, error_message
+      FROM social_posts
+    `;
+    
+    const params: string[] = [];
+    if (start && end) {
+      query += ` WHERE (scheduled_for BETWEEN ? AND ?) OR (scheduled_for IS NULL AND created_at BETWEEN ? AND ?)`;
+      params.push(start, end, start, end);
+    }
+    
+    query += ` ORDER BY COALESCE(scheduled_for, created_at) ASC LIMIT 200`;
+    
+    const posts = params.length > 0 
+      ? await db.prepare(query).bind(...params).all()
+      : await db.prepare(query).all();
+
+    return c.json({ success: true, posts: posts.results || [] });
+  } catch (error: any) {
+    console.error('[Social Studio] Scheduled posts error:', error);
+    return c.json({ success: false, error: 'Failed to fetch scheduled posts' }, 500);
   }
 });
 
@@ -17688,6 +17735,186 @@ function getSocialStudioPage(user: any) {
     }
     .scheduler-custom input:focus { outline: none; border-color: #3B82F6; }
     
+    /* Calendar View */
+    .calendar-toggle {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .calendar-toggle-btn {
+      padding: 8px 16px;
+      background: transparent;
+      border: 1px solid #27272A;
+      border-radius: 8px;
+      color: #A1A1AA;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .calendar-toggle-btn:hover { border-color: #3F3F46; color: white; }
+    .calendar-toggle-btn.active {
+      background: #3B82F6;
+      border-color: #3B82F6;
+      color: white;
+    }
+    .calendar-container {
+      background: #18181B;
+      border: 1px solid #27272A;
+      border-radius: 12px;
+      padding: 16px;
+      margin-top: 16px;
+    }
+    .calendar-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    .calendar-nav {
+      display: flex;
+      gap: 8px;
+    }
+    .calendar-nav-btn {
+      width: 32px;
+      height: 32px;
+      background: #27272A;
+      border: none;
+      border-radius: 6px;
+      color: white;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s;
+    }
+    .calendar-nav-btn:hover { background: #3F3F46; }
+    .calendar-month {
+      font-size: 16px;
+      font-weight: 600;
+      color: white;
+    }
+    .calendar-weekdays {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 4px;
+      margin-bottom: 8px;
+    }
+    .calendar-weekday {
+      text-align: center;
+      font-size: 11px;
+      color: #71717A;
+      padding: 8px 0;
+      font-weight: 500;
+    }
+    .calendar-days {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 4px;
+    }
+    .calendar-day {
+      aspect-ratio: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: #09090B;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+      position: relative;
+      min-height: 48px;
+    }
+    .calendar-day:hover { border-color: #3F3F46; }
+    .calendar-day.other-month { opacity: 0.3; }
+    .calendar-day.today { border-color: #3B82F6; }
+    .calendar-day.selected { 
+      background: #3B82F6; 
+      border-color: #3B82F6;
+    }
+    .calendar-day.has-posts::after {
+      content: '';
+      position: absolute;
+      bottom: 6px;
+      width: 6px;
+      height: 6px;
+      background: #22C55E;
+      border-radius: 50%;
+    }
+    .calendar-day.has-scheduled::after {
+      background: #F59E0B;
+    }
+    .calendar-day-number {
+      font-size: 14px;
+      color: white;
+      font-weight: 500;
+    }
+    .calendar-day.selected .calendar-day-number { color: white; }
+    .calendar-day-posts {
+      font-size: 10px;
+      color: #A1A1AA;
+      margin-top: 2px;
+    }
+    .calendar-scheduled-list {
+      margin-top: 16px;
+      border-top: 1px solid #27272A;
+      padding-top: 16px;
+    }
+    .calendar-scheduled-title {
+      font-size: 14px;
+      color: #A1A1AA;
+      margin-bottom: 12px;
+    }
+    .calendar-scheduled-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px;
+      background: #09090B;
+      border-radius: 8px;
+      margin-bottom: 8px;
+    }
+    .calendar-scheduled-platform {
+      width: 32px;
+      height: 32px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+    }
+    .calendar-scheduled-details {
+      flex: 1;
+      min-width: 0;
+    }
+    .calendar-scheduled-caption {
+      font-size: 13px;
+      color: white;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .calendar-scheduled-time {
+      font-size: 12px;
+      color: #71717A;
+      margin-top: 2px;
+    }
+    .calendar-scheduled-status {
+      font-size: 11px;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-weight: 500;
+    }
+    .calendar-scheduled-status.scheduled { background: #F59E0B20; color: #F59E0B; }
+    .calendar-scheduled-status.published { background: #22C55E20; color: #22C55E; }
+    .calendar-scheduled-status.failed { background: #EF444420; color: #EF4444; }
+    .calendar-empty {
+      text-align: center;
+      padding: 24px;
+      color: #71717A;
+      font-size: 13px;
+    }
+    
     /* Strategy Badge */
     .strategy-badge {
       display: inline-flex;
@@ -17793,15 +18020,64 @@ function getSocialStudioPage(user: any) {
       
       <!-- Scheduler Section -->
       <div class="scheduler-section" id="schedulerSection">
-        <div class="scheduler-label">Schedule for optimal engagement times:</div>
-        <div class="scheduler-times">
-          <button class="scheduler-time" onclick="setSchedule('now')">Publish Now</button>
-          <button class="scheduler-time" onclick="setSchedule('prime-ig')">Instagram Prime (11am)</button>
-          <button class="scheduler-time" onclick="setSchedule('prime-x')">X/Twitter Peak (9am)</button>
-          <button class="scheduler-time" onclick="setSchedule('prime-yt')">YouTube Shorts (6pm)</button>
+        <!-- View Toggle -->
+        <div class="calendar-toggle">
+          <button class="calendar-toggle-btn active" onclick="setSchedulerView('quick')" id="quickViewBtn">Quick Schedule</button>
+          <button class="calendar-toggle-btn" onclick="setSchedulerView('calendar')" id="calendarViewBtn">Calendar View</button>
         </div>
-        <div class="scheduler-custom">
-          <input type="datetime-local" id="customSchedule" onchange="setSchedule('custom')">
+        
+        <!-- Quick Schedule View -->
+        <div id="quickScheduleView">
+          <div class="scheduler-label">Schedule for optimal engagement times:</div>
+          <div class="scheduler-times">
+            <button class="scheduler-time" onclick="setSchedule('now')">Publish Now</button>
+            <button class="scheduler-time" onclick="setSchedule('prime-ig')">Instagram Prime (11am)</button>
+            <button class="scheduler-time" onclick="setSchedule('prime-x')">X/Twitter Peak (9am)</button>
+            <button class="scheduler-time" onclick="setSchedule('prime-yt')">YouTube Shorts (6pm)</button>
+          </div>
+          <div class="scheduler-custom">
+            <input type="datetime-local" id="customSchedule" onchange="setSchedule('custom')">
+          </div>
+        </div>
+        
+        <!-- Calendar View -->
+        <div id="calendarView" style="display: none;">
+          <div class="calendar-container">
+            <div class="calendar-header">
+              <div class="calendar-nav">
+                <button class="calendar-nav-btn" onclick="navigateCalendar(-1)">&#8249;</button>
+              </div>
+              <div class="calendar-month" id="calendarMonth">December 2025</div>
+              <div class="calendar-nav">
+                <button class="calendar-nav-btn" onclick="navigateCalendar(1)">&#8250;</button>
+              </div>
+            </div>
+            <div class="calendar-weekdays">
+              <div class="calendar-weekday">Mon</div>
+              <div class="calendar-weekday">Tue</div>
+              <div class="calendar-weekday">Wed</div>
+              <div class="calendar-weekday">Thu</div>
+              <div class="calendar-weekday">Fri</div>
+              <div class="calendar-weekday">Sat</div>
+              <div class="calendar-weekday">Sun</div>
+            </div>
+            <div class="calendar-days" id="calendarDays">
+              <!-- Days will be rendered by JS -->
+            </div>
+            
+            <!-- Time picker for selected date -->
+            <div class="scheduler-custom" style="margin-top: 16px;">
+              <input type="time" id="calendarTime" value="12:00" onchange="updateCalendarSchedule()">
+            </div>
+            
+            <!-- Scheduled posts for selected date -->
+            <div class="calendar-scheduled-list" id="calendarScheduledList">
+              <div class="calendar-scheduled-title">Scheduled for <span id="selectedDateLabel">today</span></div>
+              <div id="scheduledPostsContainer">
+                <div class="calendar-empty">No posts scheduled for this date</div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
       
@@ -18010,6 +18286,205 @@ function getSocialStudioPage(user: any) {
       target.setUTCHours(hour, minute, 0, 0);
       if (target <= now) target.setDate(target.getDate() + 1);
       return target.toISOString();
+    }
+    
+    // ========== Calendar View ==========
+    let calendarDate = new Date();
+    let selectedCalendarDate = new Date();
+    let scheduledPostsCache = {};
+    
+    function setSchedulerView(view) {
+      const quickView = document.getElementById('quickScheduleView');
+      const calendarViewEl = document.getElementById('calendarView');
+      const quickBtn = document.getElementById('quickViewBtn');
+      const calendarBtn = document.getElementById('calendarViewBtn');
+      
+      if (view === 'calendar') {
+        quickView.style.display = 'none';
+        calendarViewEl.style.display = 'block';
+        quickBtn.classList.remove('active');
+        calendarBtn.classList.add('active');
+        renderCalendar();
+        loadScheduledPosts();
+      } else {
+        quickView.style.display = 'block';
+        calendarViewEl.style.display = 'none';
+        quickBtn.classList.add('active');
+        calendarBtn.classList.remove('active');
+      }
+    }
+    
+    function navigateCalendar(direction) {
+      calendarDate.setMonth(calendarDate.getMonth() + direction);
+      renderCalendar();
+      loadScheduledPosts();
+    }
+    
+    function renderCalendar() {
+      const year = calendarDate.getFullYear();
+      const month = calendarDate.getMonth();
+      
+      // Update month label
+      const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
+                          'July', 'August', 'September', 'October', 'November', 'December'];
+      document.getElementById('calendarMonth').textContent = monthNames[month] + ' ' + year;
+      
+      // Get first day of month and total days
+      const firstDay = new Date(year, month, 1);
+      const lastDay = new Date(year, month + 1, 0);
+      const totalDays = lastDay.getDate();
+      
+      // Get day of week for first day (Monday = 0)
+      let startDay = firstDay.getDay() - 1;
+      if (startDay < 0) startDay = 6;
+      
+      // Build calendar grid
+      const container = document.getElementById('calendarDays');
+      container.innerHTML = '';
+      
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      // Previous month days
+      const prevMonth = new Date(year, month, 0);
+      const prevMonthDays = prevMonth.getDate();
+      for (let i = startDay - 1; i >= 0; i--) {
+        const day = prevMonthDays - i;
+        const dateStr = formatDateKey(new Date(year, month - 1, day));
+        const postsCount = scheduledPostsCache[dateStr]?.length || 0;
+        container.innerHTML += createDayHTML(day, true, false, false, postsCount, dateStr);
+      }
+      
+      // Current month days
+      for (let day = 1; day <= totalDays; day++) {
+        const date = new Date(year, month, day);
+        date.setHours(0, 0, 0, 0);
+        const isToday = date.getTime() === today.getTime();
+        const isSelected = date.getTime() === new Date(selectedCalendarDate.getFullYear(), selectedCalendarDate.getMonth(), selectedCalendarDate.getDate()).getTime();
+        const dateStr = formatDateKey(date);
+        const postsCount = scheduledPostsCache[dateStr]?.length || 0;
+        const hasScheduled = postsCount > 0 && scheduledPostsCache[dateStr]?.some(p => p.status === 'scheduled');
+        container.innerHTML += createDayHTML(day, false, isToday, isSelected, postsCount, dateStr, hasScheduled);
+      }
+      
+      // Next month days to fill grid
+      const totalCells = container.children.length;
+      const remainingCells = 42 - totalCells; // 6 rows x 7 days
+      for (let day = 1; day <= remainingCells; day++) {
+        const dateStr = formatDateKey(new Date(year, month + 1, day));
+        const postsCount = scheduledPostsCache[dateStr]?.length || 0;
+        container.innerHTML += createDayHTML(day, true, false, false, postsCount, dateStr);
+      }
+    }
+    
+    function createDayHTML(day, isOtherMonth, isToday, isSelected, postsCount, dateStr, hasScheduled = false) {
+      let classes = 'calendar-day';
+      if (isOtherMonth) classes += ' other-month';
+      if (isToday) classes += ' today';
+      if (isSelected) classes += ' selected';
+      if (postsCount > 0) classes += hasScheduled ? ' has-scheduled' : ' has-posts';
+      
+      return \`
+        <div class="\${classes}" onclick="selectCalendarDate('\${dateStr}')">
+          <span class="calendar-day-number">\${day}</span>
+          \${postsCount > 0 ? '<span class="calendar-day-posts">' + postsCount + '</span>' : ''}
+        </div>
+      \`;
+    }
+    
+    function formatDateKey(date) {
+      return date.toISOString().split('T')[0];
+    }
+    
+    function selectCalendarDate(dateStr) {
+      selectedCalendarDate = new Date(dateStr + 'T12:00:00');
+      renderCalendar();
+      updateSelectedDateLabel();
+      renderScheduledPosts();
+      updateCalendarSchedule();
+    }
+    
+    function updateSelectedDateLabel() {
+      const options = { weekday: 'long', day: 'numeric', month: 'short' };
+      document.getElementById('selectedDateLabel').textContent = selectedCalendarDate.toLocaleDateString('en-GB', options);
+    }
+    
+    function updateCalendarSchedule() {
+      const time = document.getElementById('calendarTime').value || '12:00';
+      const [hours, minutes] = time.split(':');
+      const scheduleDate = new Date(selectedCalendarDate);
+      scheduleDate.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+      
+      // Don't allow scheduling in the past
+      if (scheduleDate <= new Date()) {
+        showToast('Cannot schedule in the past', 'error');
+        scheduledFor = null;
+        return;
+      }
+      
+      scheduledFor = scheduleDate.toISOString();
+      showToast('Scheduled for ' + scheduleDate.toLocaleString('en-GB', { 
+        weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' 
+      }), 'info');
+    }
+    
+    async function loadScheduledPosts() {
+      try {
+        // Get first and last day of displayed month (plus buffer for other month days)
+        const year = calendarDate.getFullYear();
+        const month = calendarDate.getMonth();
+        const startDate = new Date(year, month - 1, 1).toISOString();
+        const endDate = new Date(year, month + 2, 0).toISOString();
+        
+        const res = await fetch('/api/admin/social/scheduled?start=' + encodeURIComponent(startDate) + '&end=' + encodeURIComponent(endDate));
+        const data = await res.json();
+        
+        if (data.success && data.posts) {
+          // Group posts by date
+          scheduledPostsCache = {};
+          data.posts.forEach(post => {
+            const dateStr = post.scheduled_for ? post.scheduled_for.split('T')[0] : (post.posted_at || post.created_at).split('T')[0];
+            if (!scheduledPostsCache[dateStr]) scheduledPostsCache[dateStr] = [];
+            scheduledPostsCache[dateStr].push(post);
+          });
+          
+          renderCalendar();
+          renderScheduledPosts();
+        }
+      } catch (err) {
+        console.error('Failed to load scheduled posts:', err);
+      }
+    }
+    
+    function renderScheduledPosts() {
+      const dateStr = formatDateKey(selectedCalendarDate);
+      const posts = scheduledPostsCache[dateStr] || [];
+      const container = document.getElementById('scheduledPostsContainer');
+      
+      if (posts.length === 0) {
+        container.innerHTML = '<div class="calendar-empty">No posts scheduled for this date</div>';
+        return;
+      }
+      
+      container.innerHTML = posts.map(post => {
+        const config = platformConfig[post.platform] || { icon: '📝', name: post.platform, bgColor: '#71717A20', color: '#71717A' };
+        const time = post.scheduled_for 
+          ? new Date(post.scheduled_for).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+          : new Date(post.posted_at || post.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+        
+        return \`
+          <div class="calendar-scheduled-item">
+            <div class="calendar-scheduled-platform" style="background: \${config.bgColor}; color: \${config.color};">
+              \${config.icon}
+            </div>
+            <div class="calendar-scheduled-details">
+              <div class="calendar-scheduled-caption">\${escapeHtml(post.caption.substring(0, 60))}\${post.caption.length > 60 ? '...' : ''}</div>
+              <div class="calendar-scheduled-time">\${time} - \${config.name}</div>
+            </div>
+            <span class="calendar-scheduled-status \${post.status}">\${post.status}</span>
+          </div>
+        \`;
+      }).join('');
     }
     
     // Toast notification
