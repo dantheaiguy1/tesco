@@ -4972,22 +4972,37 @@ app.post('/api/admin/social/publish', async (c) => {
         }
 
         // Step 2: Create post using correct Late API format
-        // publishNow: true to publish immediately to all connected accounts
+        // Must specify platforms array to avoid posting to YouTube (which requires video)
+        // Account IDs from Late API /accounts endpoint
+        const LATE_ACCOUNT_IDS: Record<string, string> = {
+          instagram: '692dc17af43160a0bc999b2f',
+          twitter: '692dc345f43160a0bc999b35'
+        };
+        
+        const accountId = LATE_ACCOUNT_IDS[platform];
+        if (!accountId) {
+          results.push({ platform, success: false, error: `No account configured for ${platform}` });
+          continue;
+        }
+        
         const postPayload: any = {
           content: caption,
-          publishNow: true
+          publishNow: true,
+          // Specify exact platform to avoid posting to all (including YouTube)
+          platforms: [{
+            platform: platform,
+            accountId: accountId
+          }]
         };
 
-        // Add media if uploaded successfully - try both formats
+        // Add media if uploaded successfully
         if (mediaUrl) {
-          // Try media_urls format (shown in blog examples)
           postPayload.media_urls = [mediaUrl];
-          // Also include mediaItems format (shown in docs)
           postPayload.mediaItems = [{
             type: 'image',
             url: mediaUrl
           }];
-          console.log(`[Late API] Added media to payload:`, mediaUrl);
+          console.log(`[Late API] Added media to payload for ${platform}:`, mediaUrl);
         } else if (imageBase64 && uploadError) {
           // If media upload failed, include error in result but still try to post
           console.log(`[Late API] Posting without media due to upload error: ${uploadError}`);
