@@ -3129,8 +3129,10 @@ app.post('/api/billing/create-checkout', async (c) => {
   if (authResult instanceof Response) return authResult;
   const user = authResult;
   
-  const { type, creditType, amount } = await c.req.json(); // 'subscription', 'topup', or 'pack'
+  const { type, creditType, amount, plan } = await c.req.json(); // 'subscription', 'topup', or 'pack'
   const db = c.env.TESCO_DB;
+  
+  console.log('[Checkout] Request:', { type, creditType, amount, plan, userId: user.id });
   
   if (!['subscription', 'topup', 'pack'].includes(type)) {
     return c.json({ success: false, error: 'Invalid checkout type' }, 400);
@@ -3204,7 +3206,16 @@ app.post('/api/billing/create-checkout', async (c) => {
     sessionParams['metadata[pack_amount]'] = String(amount);
   }
   
+  console.log('[Checkout] Creating Stripe session with params:', JSON.stringify(sessionParams));
+  
   const session = await stripeRequest(c.env.STRIPE_SECRET_KEY, '/checkout/sessions', 'POST', sessionParams);
+  
+  console.log('[Checkout] Stripe response:', JSON.stringify(session));
+  
+  if (!session || !session.url) {
+    console.error('[Checkout] No URL in Stripe response:', session);
+    return c.json({ success: false, error: 'Failed to create checkout session', details: session }, 500);
+  }
   
   return c.json({ success: true, url: session.url, sessionId: session.id });
 });
@@ -13167,13 +13178,34 @@ function getPricingPage(user?: User) {
     
     async function confirmCheckout() {
       if (!pendingCheckout) return;
-      closeCheckoutModal();
       
-      if (pendingCheckout.type === 'subscription') {
-        await doStartCheckout(pendingCheckout.plan);
-      } else {
-        await doStartPackCheckout(pendingCheckout.creditType, pendingCheckout.amount);
+      // Show loading state on button
+      const btn = document.getElementById('confirm-checkout-btn');
+      const originalText = btn.textContent;
+      btn.textContent = 'Processing...';
+      btn.disabled = true;
+      btn.style.opacity = '0.7';
+      
+      const checkout = pendingCheckout;
+      
+      try {
+        if (checkout.type === 'subscription') {
+          await doStartCheckout(checkout.plan);
+        } else {
+          await doStartPackCheckout(checkout.creditType, checkout.amount);
+        }
+      } catch (err) {
+        // If error, restore button and keep modal open
+        btn.textContent = originalText;
+        btn.disabled = false;
+        btn.style.opacity = '1';
+        console.error('[Checkout] Error:', err);
+        alert('Checkout failed: ' + (err.message || 'Unknown error'));
+        return;
       }
+      
+      // Only close modal after successful redirect is initiated
+      closeCheckoutModal();
     }
     
     function switchPackTab(type) {
@@ -13189,22 +13221,24 @@ function getPricingPage(user?: User) {
     }
     
     async function doStartCheckout(plan) {
-      try {
-        const res = await fetch('/api/billing/create-checkout', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: 'subscription', plan })
-        });
-        
-        const data = await res.json();
-        if (data.success && data.url) {
-          window.location.href = data.url;
-        } else {
-          alert(data.error || 'Failed to start checkout');
-        }
-      } catch (err) {
-        alert('Something went wrong');
-        location.reload();
+      console.log('[Checkout] Starting subscription checkout:', { plan });
+      
+      const res = await fetch('/api/billing/create-checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'subscription', plan })
+      });
+      
+      console.log('[Checkout] Response status:', res.status);
+      const data = await res.json();
+      console.log('[Checkout] Response data:', data);
+      
+      if (data.success && data.url) {
+        console.log('[Checkout] Redirecting to:', data.url);
+        window.location.href = data.url;
+      } else {
+        console.error('[Checkout] Error response:', data);
+        throw new Error(data.error || 'Failed to create checkout session');
       }
     }
     
@@ -13214,21 +13248,24 @@ function getPricingPage(user?: User) {
     }
     
     async function doStartPackCheckout(creditType, amount) {
-      try {
-        const res = await fetch('/api/billing/create-checkout', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: 'pack', creditType, amount })
-        });
-        
-        const data = await res.json();
-        if (data.success && data.url) {
-          window.location.href = data.url;
-        } else {
-          alert(data.error || 'Failed to start checkout');
-        }
-      } catch (err) {
-        alert('Something went wrong');
+      console.log('[Checkout] Starting pack checkout:', { creditType, amount });
+      
+      const res = await fetch('/api/billing/create-checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'pack', creditType, amount })
+      });
+      
+      console.log('[Checkout] Response status:', res.status);
+      const data = await res.json();
+      console.log('[Checkout] Response data:', data);
+      
+      if (data.success && data.url) {
+        console.log('[Checkout] Redirecting to:', data.url);
+        window.location.href = data.url;
+      } else {
+        console.error('[Checkout] Error response:', data);
+        throw new Error(data.error || 'Failed to create checkout session');
       }
     }
   </script>
