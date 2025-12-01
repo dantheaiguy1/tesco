@@ -4712,12 +4712,94 @@ app.patch('/api/admin/feature-suggestions/:id', async (c) => {
 // SOCIAL STUDIO API ENDPOINTS
 // ============================================================================
 
-// Platform-specific aspect ratios and character limits
-// Note: YouTube requires VIDEO content via Late API, so we exclude it from image-based posting
+// ============================================================================
+// SOCIAL STUDIO 2.0 - CONFIGURATION
+// ============================================================================
+
+// Platform configurations (YouTube enabled for video mode only)
 const SOCIAL_PLATFORMS = {
-  instagram: { aspectRatio: '1:1', width: 1080, height: 1080, maxCaption: 2200, name: 'Instagram' },
-  twitter: { aspectRatio: '16:9', width: 1200, height: 675, maxCaption: 280, name: 'X/Twitter' }
+  instagram: { aspectRatio: '1:1', width: 1080, height: 1080, maxCaption: 2200, name: 'Instagram', supportsVideo: true, supportsImage: true },
+  twitter: { aspectRatio: '16:9', width: 1200, height: 675, maxCaption: 280, name: 'X/Twitter', supportsVideo: true, supportsImage: true },
+  youtube: { aspectRatio: '9:16', width: 1080, height: 1920, maxCaption: 5000, name: 'YouTube Shorts', supportsVideo: true, supportsImage: false }
 };
+
+// Late API Account IDs
+const LATE_ACCOUNT_IDS: Record<string, string> = {
+  instagram: '692dc17af43160a0bc999b2f',
+  twitter: '692dc345f43160a0bc999b35',
+  youtube: '692dc20df43160a0bc999b32'
+};
+
+// 7-Day Content Strategy (auto-selects based on current day)
+const CONTENT_STRATEGY: Record<number, {
+  type: string;
+  hookFormula: string;
+  visualFocus: string;
+  example: string;
+}> = {
+  1: { // Monday
+    type: 'problem_agitation',
+    hookFormula: 'Why is [pain_point] still costing you [£££]?',
+    visualFocus: 'side_by_side_comparison',
+    example: 'Why are you still paying £2,500 for 10 product photos?'
+  },
+  2: { // Tuesday
+    type: 'feature_spotlight',
+    hookFormula: '[Feature] just saved [user] [time/money]',
+    visualFocus: 'feature_in_action',
+    example: '360 product spins just saved Jake 8 hours of turntable filming.'
+  },
+  3: { // Wednesday
+    type: 'customer_win',
+    hookFormula: '[Name] did [result] in [time]. Here is how.',
+    visualFocus: 'before_after',
+    example: 'Sarah uploaded 200 Shopify images in 2 hours. No photographer needed.'
+  },
+  4: { // Thursday
+    type: 'industry_contrarian',
+    hookFormula: 'Everyone says [myth]. They are completely wrong.',
+    visualFocus: 'data_visual',
+    example: 'Everyone says AI images look fake. Our 40% conversion lift says otherwise.'
+  },
+  5: { // Friday
+    type: 'speed_demo',
+    hookFormula: 'This took [X seconds]. Your photographer quoted [weeks].',
+    visualFocus: 'transformation_sequence',
+    example: 'This took 25 seconds. Your photographer quoted 2 weeks and £800.'
+  },
+  6: { // Saturday
+    type: 'behind_the_scenes',
+    hookFormula: 'How we built [feature] in rural Sussex',
+    visualFocus: 'workshop_process',
+    example: 'How we trained Gemini to remove backgrounds in 0.3 seconds.'
+  },
+  0: { // Sunday
+    type: 'founder_insight',
+    hookFormula: '[X years], [Y failures], [Z breakthrough]',
+    visualFocus: 'founder_story',
+    example: '3 years, 2 bankruptcies, 1 breakthrough: ShopShot hit 1,200 users.'
+  }
+};
+
+// Get today's content strategy
+function getTodayStrategy() {
+  const dayOfWeek = new Date().getDay(); // 0=Sun, 1=Mon, etc.
+  return CONTENT_STRATEGY[dayOfWeek];
+}
+
+// Visual focus instructions for image generation
+function getVisualFocusInstructions(focus: string): string {
+  const instructions: Record<string, string> = {
+    'side_by_side_comparison': 'Show expensive DSLR camera with lighting setup on left side, simple smartphone on right side. Both photographing the same product. Emphasize the contrast between complex expensive setup vs simple affordable solution.',
+    'feature_in_action': 'Close-up shot of a product being photographed with visible AI processing effect - subtle motion blur lines or focus shift indicating intelligent processing happening.',
+    'before_after': 'Split composition: Left side shows product in dull, poorly-lit amateur setting. Right side shows same product in professional lifestyle environment with perfect lighting.',
+    'data_visual': 'Physical objects representing cost/time data: Stack of cash (£2500) on left vs small coins (£40) on right. Or analog clock showing weeks vs digital timer showing seconds.',
+    'transformation_sequence': 'Three-stage horizontal sequence: Raw product upload on left, AI processing glow effect in center, final polished professional result on right.',
+    'workshop_process': 'Laptop screen showing dashboard interface, coffee mug beside it, rural English countryside visible through window in background. Documentary style.',
+    'founder_story': 'Entrepreneur portrait in workshop setting surrounded by products and tech equipment. Natural lighting, documentary photography style. Authentic, not corporate.'
+  };
+  return instructions[focus] || 'Professional product photography in clean studio setting with dramatic lighting.';
+}
 
 // Generate social content with Gemini AI (admin only)
 app.post('/api/admin/social/generate', async (c) => {
@@ -4727,7 +4809,7 @@ app.post('/api/admin/social/generate', async (c) => {
   }
 
   try {
-    const { prompt } = await c.req.json();
+    const { prompt, mediaType = 'image', videoUrl } = await c.req.json();
     if (!prompt || prompt.length < 5) {
       return c.json({ success: false, error: 'Please provide a prompt (minimum 5 characters)' }, 400);
     }
@@ -4742,26 +4824,88 @@ app.post('/api/admin/social/generate', async (c) => {
 
     // Step 1: Generate captions using Gemini 2.0 Flash (text model)
     const accessToken = await getAccessToken(clientEmail, privateKey);
+    const todayStrategy = getTodayStrategy();
     
-    const captionPrompt = `You are a social media expert for ShopShot (shopshot.co.uk), an AI product photography SaaS.
+    // Different prompts for video vs image mode
+    const isVideoMode = mediaType === 'video';
+    
+    const captionPrompt = isVideoMode ? `You are writing social media captions for ShopShot (shopshot.co.uk), an AI product photography SaaS.
+The user is uploading a VIDEO. Generate captions for Instagram Reels, X/Twitter Video, and YouTube Shorts.
 
-Based on this prompt: "${prompt}"
+TODAY'S CONTENT STRATEGY: ${todayStrategy.type}
+HOOK FORMULA: ${todayStrategy.hookFormula}
+EXAMPLE: ${todayStrategy.example}
 
-Generate 2 platform-specific social media posts for Instagram and X/Twitter. For each platform, create engaging captions that:
-- Highlight ShopShot's value (AI-powered product photos, no studio needed, instant results)
-- Include relevant hashtags
-- Match the platform's tone and audience expectations
-- Include a call-to-action directing to shopshot.co.uk
+USER'S VIDEO DESCRIPTION: "${prompt}"
 
-Respond ONLY with valid JSON in this exact format:
+TONE RULES - CRITICAL:
+- Contrarian, punchy, data-driven voice
+- Lead with a provocative question OR a sharp statistic
+- ZERO emojis. Never use emojis.
+- Short sentences only: 8-15 words maximum per sentence
+- End every caption with a question to the audience
+- Include 3-5 relevant hashtags at the end
+
+BANNED WORDS (never use these):
+- "game-changer", "revolutionize", "unlock", "transform", "level up"
+- "amazing", "incredible", "exciting", "awesome"
+- "journey", "passionate", "thrilled"
+
+Generate 3 platform-specific video captions:
+
+Respond ONLY with valid JSON:
 {
   "instagram": {
-    "caption": "Instagram caption with emojis and hashtags (max 2200 chars)",
-    "imagePrompt": "Detailed prompt for generating a 1:1 square Instagram post image showing professional product photography"
+    "caption": "Instagram Reel caption (120-200 chars, punchy, ends with question, 3-5 hashtags)"
   },
   "twitter": {
-    "caption": "Concise X/Twitter post (max 280 chars including hashtags)",
-    "imagePrompt": "Detailed prompt for generating a 16:9 landscape Twitter image"
+    "caption": "X/Twitter video post (max 280 chars, sharp hook, ends with question, hashtags)"
+  },
+  "youtube": {
+    "caption": "YouTube Shorts title + description. Start with hook question. What viewers will see. CTA to shopshot.co.uk. Include #Shorts #ProductPhotography #Ecommerce"
+  }
+}` : `You are writing social media captions for ShopShot (shopshot.co.uk), an AI product photography SaaS.
+
+TODAY'S CONTENT STRATEGY: ${todayStrategy.type}
+HOOK FORMULA: ${todayStrategy.hookFormula}
+EXAMPLE: ${todayStrategy.example}
+
+USER'S CONTENT: "${prompt}"
+
+TONE RULES - CRITICAL:
+- Contrarian, punchy, data-driven voice
+- Lead with a provocative question OR a sharp statistic
+- ZERO emojis. Never use emojis.
+- Short sentences only: 8-15 words maximum per sentence
+- End every caption with a question to the audience
+- Include 3-5 relevant hashtags at the end
+
+BANNED WORDS (never use these):
+- "game-changer", "revolutionize", "unlock", "transform", "level up"
+- "amazing", "incredible", "exciting", "awesome"
+- "journey", "passionate", "thrilled"
+
+GOOD EXAMPLES:
+- "Why are you still paying £2,500 for 10 product photos?"
+- "Your competitor just uploaded 50 lifestyle shots in 25 seconds. How?"
+- "Amazon rejected your images again. Here's the actual fix."
+
+BAD EXAMPLES (never write like this):
+- "Transform your product photos with AI magic!"
+- "Unlock professional results in seconds!"
+- "Ready to level up your e-commerce game?"
+
+Generate 2 platform-specific captions following today's ${todayStrategy.type} strategy:
+
+Respond ONLY with valid JSON:
+{
+  "instagram": {
+    "caption": "Instagram caption (120-200 chars, punchy, ends with question, hashtags at end)",
+    "imagePrompt": "One sentence describing ideal 1:1 square image"
+  },
+  "twitter": {
+    "caption": "X/Twitter post (max 280 chars, sharp hook, ends with question, hashtags)",
+    "imagePrompt": "One sentence describing ideal 16:9 landscape image"
   }
 }`;
 
@@ -4799,26 +4943,69 @@ Respond ONLY with valid JSON in this exact format:
       return c.json({ success: false, error: 'AI returned invalid format. Please try again.' }, 500);
     }
 
-    // Step 2: Generate images for each platform using Gemini Image model
+    // Step 2: Generate images for each platform (skip for video mode)
     const posts: any[] = [];
     const imageModel = 'gemini-2.5-flash-image'; // Use stable image model
     
-    for (const [platform, config] of Object.entries(SOCIAL_PLATFORMS)) {
+    // Determine which platforms to generate for
+    const platformsToGenerate = isVideoMode 
+      ? ['instagram', 'twitter', 'youtube'] // Video mode includes YouTube
+      : ['instagram', 'twitter']; // Image mode excludes YouTube
+    
+    for (const platform of platformsToGenerate) {
+      const config = SOCIAL_PLATFORMS[platform as keyof typeof SOCIAL_PLATFORMS];
       const platformData = captions[platform];
-      if (!platformData) continue;
+      if (!platformData || !config) continue;
+      
+      // For video mode, skip image generation - use the uploaded video
+      if (isVideoMode) {
+        posts.push({
+          platform,
+          caption: platformData.caption,
+          videoUrl: videoUrl,
+          imageBase64: null,
+          aspectRatio: config.aspectRatio,
+          maxCaption: config.maxCaption,
+          platformName: config.name,
+          mediaType: 'video'
+        });
+        continue;
+      }
 
-      // Generate platform-specific image
-      const imagePrompt = `Create a professional marketing image for ShopShot (AI product photography SaaS).
-        
-Context: ${platformData.imagePrompt}
+      // Generate platform-specific image with NO TEXT rules
+      const imagePrompt = `Create a striking product photography scene for ShopShot (AI product photo generator).
 
-Requirements:
+ABSOLUTE RULES - NO TEXT:
+- Zero text, words, letters, numbers, or typography anywhere in the image
+- No logos, watermarks, or brand names visible
+- No UI elements, buttons, price tags, or overlays
+- No speech bubbles, annotations, or captions
+- No social media mockups or phone screen UIs
+
+COMPOSITION:
+- Product in sharp focus occupying 60% of frame
+- Professional studio lighting with 45-degree key light and soft shadows
+- Shallow depth of field with f/2.8 style background blur
+- Rule of thirds placement for main subject
+
+TODAY'S VISUAL FOCUS: ${todayStrategy.visualFocus}
+${getVisualFocusInstructions(todayStrategy.visualFocus)}
+
+CONTEXT FROM USER: ${platformData.imagePrompt}
+
+STYLE REQUIREMENTS:
+- Photorealistic photography, NOT illustration or cartoon
+- Clean, modern, Apple-esque aesthetic
+- High contrast with vibrant but not oversaturated colors
+- Professional commercial photography look
 - Dimensions: ${config.aspectRatio} aspect ratio (${config.width}x${config.height})
-- Brand color: Use #5B8DEE as accent color
-- Style: Modern, clean, professional SaaS marketing aesthetic
-- Include visual elements showing AI/tech theme
-- Make it eye-catching for ${config.name}
-- DO NOT include any text or logos in the image`;
+
+BANNED ELEMENTS:
+- Any form of text or typography
+- Discount badges or price tags
+- Cartoon or illustration style
+- Stock photo watermarks
+- Generic corporate imagery`;
 
       // Retry logic for image generation (up to 2 attempts)
       let imageBase64 = null;
@@ -4890,6 +5077,88 @@ Requirements:
   }
 });
 
+// Upload video for social posts (admin only)
+app.post('/api/admin/social/upload-video', async (c) => {
+  const user = c.get('user') as any;
+  if (!user || user.role !== 'admin') {
+    return c.json({ success: false, error: 'Admin access required' }, 403);
+  }
+
+  const lateApiKey = c.env.LATE_API_KEY;
+  if (!lateApiKey) {
+    return c.json({ success: false, error: 'Late API not configured' }, 500);
+  }
+
+  try {
+    const formData = await c.req.formData();
+    const video = formData.get('video') as File;
+    const prompt = formData.get('prompt') as string;
+
+    if (!video) {
+      return c.json({ success: false, error: 'No video file provided' }, 400);
+    }
+
+    // Validate file size (100MB max)
+    if (video.size > 100 * 1024 * 1024) {
+      return c.json({ success: false, error: 'Video must be under 100MB' }, 400);
+    }
+
+    // Validate file type
+    const validTypes = ['video/mp4', 'video/quicktime', 'video/webm'];
+    if (!validTypes.includes(video.type)) {
+      return c.json({ success: false, error: 'Please upload MP4, MOV, or WebM video' }, 400);
+    }
+
+    console.log('[Social Studio] Uploading video:', video.name, video.size, video.type);
+
+    // Upload to Late API
+    const lateBaseUrl = 'https://getlate.dev/api/v1';
+    const uploadFormData = new FormData();
+    uploadFormData.append('files', video, video.name);
+
+    const uploadResponse = await fetch(`${lateBaseUrl}/media`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${lateApiKey}`
+      },
+      body: uploadFormData
+    });
+
+    const uploadText = await uploadResponse.text();
+    console.log('[Social Studio] Video upload response:', uploadResponse.status, uploadText);
+
+    if (!uploadResponse.ok) {
+      return c.json({ success: false, error: 'Failed to upload video: ' + uploadText }, 500);
+    }
+
+    let videoUrl = null;
+    try {
+      const uploadData = JSON.parse(uploadText);
+      videoUrl = uploadData.files?.[0]?.url || uploadData.url || uploadData.fileUrl;
+    } catch (e) {
+      console.error('[Social Studio] Failed to parse upload response:', e);
+      return c.json({ success: false, error: 'Invalid upload response' }, 500);
+    }
+
+    if (!videoUrl) {
+      return c.json({ success: false, error: 'No video URL in response' }, 500);
+    }
+
+    console.log('[Social Studio] Video uploaded successfully:', videoUrl);
+
+    return c.json({ 
+      success: true, 
+      videoUrl,
+      fileName: video.name,
+      fileSize: video.size
+    });
+
+  } catch (error: any) {
+    console.error('[Social Studio] Video upload error:', error);
+    return c.json({ success: false, error: error.message || 'Failed to upload video' }, 500);
+  }
+});
+
 // Publish posts to platforms via Late API (admin only)
 app.post('/api/admin/social/publish', async (c) => {
   const user = c.get('user') as any;
@@ -4905,16 +5174,17 @@ app.post('/api/admin/social/publish', async (c) => {
   const db = c.env.TESCO_DB;
   
   try {
-    const { posts, prompt } = await c.req.json();
+    const { posts, prompt, mediaType = 'image', videoUrl: requestVideoUrl, scheduledFor } = await c.req.json();
     if (!posts || !Array.isArray(posts) || posts.length === 0) {
       return c.json({ success: false, error: 'No posts to publish' }, 400);
     }
 
     const results: any[] = [];
     const lateBaseUrl = 'https://getlate.dev/api/v1';
+    const isVideoMode = mediaType === 'video';
 
     for (const post of posts) {
-      const { platform, caption, imageBase64 } = post;
+      const { platform, caption, imageBase64, videoUrl: postVideoUrl } = post;
       
       if (!platform || !caption) {
         results.push({ platform, success: false, error: 'Missing platform or caption' });
@@ -4924,9 +5194,15 @@ app.post('/api/admin/social/publish', async (c) => {
       try {
         let mediaUrl = null;
         let uploadError = null;
+        const videoUrlToUse = postVideoUrl || requestVideoUrl;
 
+        // For video mode, use the already-uploaded video URL
+        if (isVideoMode && videoUrlToUse) {
+          mediaUrl = videoUrlToUse;
+          console.log(`[Late API] Using video URL for ${platform}:`, mediaUrl);
+        }
         // Step 1: Upload image if exists (using multipart/form-data)
-        if (imageBase64) {
+        else if (imageBase64) {
           try {
             // Convert base64 to blob for multipart upload
             const binaryStr = atob(imageBase64);
@@ -4972,13 +5248,7 @@ app.post('/api/admin/social/publish', async (c) => {
         }
 
         // Step 2: Create post using correct Late API format
-        // Must specify platforms array to avoid posting to YouTube (which requires video)
-        // Account IDs from Late API /accounts endpoint
-        const LATE_ACCOUNT_IDS: Record<string, string> = {
-          instagram: '692dc17af43160a0bc999b2f',
-          twitter: '692dc345f43160a0bc999b35'
-        };
-        
+        // Use global LATE_ACCOUNT_IDS defined at top of Social Studio section
         const accountId = LATE_ACCOUNT_IDS[platform];
         if (!accountId) {
           results.push({ platform, success: false, error: `No account configured for ${platform}` });
@@ -4987,25 +5257,36 @@ app.post('/api/admin/social/publish', async (c) => {
         
         const postPayload: any = {
           content: caption,
-          publishNow: true,
           // Specify exact platform to avoid posting to all (including YouTube)
           platforms: [{
             platform: platform,
             accountId: accountId
           }]
         };
+        
+        // Handle scheduling vs immediate publish
+        if (scheduledFor) {
+          postPayload.scheduledFor = scheduledFor;
+          postPayload.timezone = 'Europe/London'; // GMT/BST
+        } else {
+          postPayload.publishNow = true;
+        }
 
         // Add media if uploaded successfully
         if (mediaUrl) {
           postPayload.media_urls = [mediaUrl];
           postPayload.mediaItems = [{
-            type: 'image',
+            type: isVideoMode ? 'video' : 'image',
             url: mediaUrl
           }];
-          console.log(`[Late API] Added media to payload for ${platform}:`, mediaUrl);
+          console.log(`[Late API] Added ${isVideoMode ? 'video' : 'image'} to payload for ${platform}:`, mediaUrl);
         } else if (imageBase64 && uploadError) {
           // If media upload failed, include error in result but still try to post
           console.log(`[Late API] Posting without media due to upload error: ${uploadError}`);
+        } else if (isVideoMode && !mediaUrl) {
+          // Video mode requires media
+          results.push({ platform, success: false, error: 'Video upload required but not found' });
+          continue;
         }
 
         const postResponse = await fetch(`${lateBaseUrl}/posts`, {
@@ -5031,11 +5312,11 @@ app.post('/api/admin/social/publish', async (c) => {
           }
           
           // Save failed post to DB
-          const postId = crypto.randomUUID();
+          const failedPostId = crypto.randomUUID();
           await db.prepare(`
             INSERT INTO social_posts (id, platform, caption, image_base64, status, prompt, error_message, created_by)
             VALUES (?, ?, ?, ?, 'failed', ?, ?, ?)
-          `).bind(postId, platform, caption, imageBase64 || null, prompt || null, errorText, user.id).run();
+          `).bind(failedPostId, platform, caption, imageBase64 || null, prompt || null, errorText, user.id).run();
           
           results.push({ platform, success: false, error: userError });
           continue;
@@ -5044,17 +5325,19 @@ app.post('/api/admin/social/publish', async (c) => {
         const postData = await postResponse.json() as any;
         
         // Save successful post to DB
-        const postId = crypto.randomUUID();
+        const successPostId = crypto.randomUUID();
+        const postStatus = scheduledFor ? 'scheduled' : 'published';
         await db.prepare(`
           INSERT INTO social_posts (id, platform, caption, image_base64, post_id, post_url, status, posted_at, prompt, created_by)
-          VALUES (?, ?, ?, ?, ?, ?, 'published', datetime('now'), ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?)
         `).bind(
-          postId, 
+          successPostId, 
           platform, 
           caption, 
           imageBase64 || null,
           postData.id || null,
           postData.url || null,
+          postStatus,
           prompt || null,
           user.id
         ).run();
@@ -16995,6 +17278,7 @@ function getSocialStudioPage(user: any) {
     .history-status.published { background: #22C55E20; color: #22C55E; }
     .history-status.failed { background: #EF444420; color: #EF4444; }
     .history-status.draft { background: #71717A20; color: #71717A; }
+    .history-status.scheduled { background: #3B82F620; color: #3B82F6; }
     .history-link {
       color: #3B82F6;
       text-decoration: none;
@@ -17066,6 +17350,165 @@ function getSocialStudioPage(user: any) {
       color: white;
       font-size: 14px;
     }
+    
+    /* Media Type Toggle */
+    .media-toggle {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+    .media-toggle-btn {
+      flex: 1;
+      padding: 14px 20px;
+      border-radius: 12px;
+      border: 2px solid #27272A;
+      background: transparent;
+      color: #A1A1AA;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    .media-toggle-btn:hover { border-color: #3F3F46; color: white; }
+    .media-toggle-btn.active {
+      border-color: #3B82F6;
+      background: rgba(59, 130, 246, 0.1);
+      color: white;
+    }
+    
+    /* Video Upload */
+    .video-upload-area {
+      display: none;
+      border: 2px dashed #27272A;
+      border-radius: 12px;
+      padding: 32px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-bottom: 20px;
+    }
+    .video-upload-area:hover { border-color: #3B82F6; }
+    .video-upload-area.visible { display: block; }
+    .video-upload-area.dragover { border-color: #3B82F6; background: rgba(59, 130, 246, 0.05); }
+    .video-upload-icon { font-size: 48px; margin-bottom: 12px; }
+    .video-upload-text { color: #A1A1AA; font-size: 14px; margin-bottom: 8px; }
+    .video-upload-hint { color: #52525B; font-size: 12px; }
+    
+    .video-preview {
+      display: none;
+      margin-bottom: 20px;
+      background: #18181B;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .video-preview.visible { display: block; }
+    .video-preview video {
+      width: 100%;
+      max-height: 300px;
+      object-fit: contain;
+      background: #09090B;
+    }
+    .video-preview-info {
+      padding: 12px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-top: 1px solid #27272A;
+    }
+    .video-preview-name { font-size: 13px; color: #E4E4E7; }
+    .video-preview-remove {
+      padding: 6px 12px;
+      background: #EF444420;
+      color: #EF4444;
+      border: none;
+      border-radius: 6px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .video-preview-remove:hover { background: #EF444440; }
+    
+    /* Prompt Templates */
+    .prompt-templates {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+    .template-btn {
+      padding: 8px 14px;
+      background: #27272A;
+      border: 1px solid #3F3F46;
+      border-radius: 20px;
+      color: #A1A1AA;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .template-btn:hover { background: #3F3F46; color: white; }
+    
+    /* Scheduler */
+    .scheduler-section {
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid #27272A;
+      display: none;
+    }
+    .scheduler-section.visible { display: block; }
+    .scheduler-label { font-size: 13px; color: #A1A1AA; margin-bottom: 12px; }
+    .scheduler-times {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .scheduler-time {
+      padding: 10px 16px;
+      background: transparent;
+      border: 1px solid #27272A;
+      border-radius: 8px;
+      color: #A1A1AA;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .scheduler-time:hover { border-color: #3F3F46; color: white; }
+    .scheduler-time.selected {
+      background: #3B82F6;
+      border-color: #3B82F6;
+      color: white;
+    }
+    .scheduler-custom {
+      display: flex;
+      gap: 12px;
+      margin-top: 12px;
+    }
+    .scheduler-custom input {
+      flex: 1;
+      padding: 10px 14px;
+      background: #09090B;
+      border: 1px solid #27272A;
+      border-radius: 8px;
+      color: white;
+      font-size: 13px;
+    }
+    .scheduler-custom input:focus { outline: none; border-color: #3B82F6; }
+    
+    /* Strategy Badge */
+    .strategy-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 14px;
+      background: linear-gradient(135deg, #3B82F620 0%, #8B5CF620 100%);
+      border: 1px solid #3B82F640;
+      border-radius: 8px;
+      font-size: 12px;
+      color: #A5B4FC;
+      margin-bottom: 16px;
+    }
   </style>
 </head>
 <body>
@@ -17102,18 +17545,79 @@ function getSocialStudioPage(user: any) {
         <span style="font-size: 32px;">📱</span>
         Social Studio
       </h1>
-      <p class="page-subtitle">Generate AI-powered social media content for Instagram and X/Twitter</p>
+      <p class="page-subtitle">Generate AI-powered social media content for Instagram, X/Twitter, and YouTube Shorts</p>
     </div>
     
     <!-- Prompt Section -->
     <div class="prompt-section">
-      <label class="prompt-label">What would you like to promote?</label>
+      <!-- Media Type Toggle -->
+      <div class="media-toggle">
+        <button class="media-toggle-btn active" onclick="setMediaType('image')" id="toggleImage">
+          <span>🖼️</span> AI-Generated Images
+        </button>
+        <button class="media-toggle-btn" onclick="setMediaType('video')" id="toggleVideo">
+          <span>🎬</span> Upload Video
+        </button>
+      </div>
+      
+      <!-- Video Upload Area (hidden by default) -->
+      <div class="video-upload-area" id="videoUploadArea" onclick="document.getElementById('videoInput').click()">
+        <div class="video-upload-icon">📹</div>
+        <div class="video-upload-text">Click or drag to upload portrait video</div>
+        <div class="video-upload-hint">MP4, MOV, WebM - Max 100MB - Portrait (9:16) recommended</div>
+        <input type="file" id="videoInput" accept="video/mp4,video/quicktime,video/webm" style="display: none" onchange="handleVideoSelect(event)">
+      </div>
+      
+      <!-- Video Preview -->
+      <div class="video-preview" id="videoPreview">
+        <video id="videoPlayer" controls></video>
+        <div class="video-preview-info">
+          <span class="video-preview-name" id="videoFileName">video.mp4</span>
+          <button class="video-preview-remove" onclick="removeVideo()">Remove</button>
+        </div>
+      </div>
+      
+      <!-- Today's Strategy Badge -->
+      <div class="strategy-badge" id="strategyBadge">
+        <span>📅</span>
+        <span id="strategyText">Loading today's strategy...</span>
+      </div>
+      
+      <!-- Prompt Templates -->
+      <div class="prompt-templates">
+        <button class="template-btn" onclick="useTemplate('blog')">📝 New Blog Launch</button>
+        <button class="template-btn" onclick="useTemplate('feature')">🚀 Feature Demo</button>
+        <button class="template-btn" onclick="useTemplate('customer')">⭐ Customer Win</button>
+        <button class="template-btn" onclick="useTemplate('comparison')">⚡ Speed vs Competitors</button>
+        <button class="template-btn" onclick="useTemplate('stats')">📊 Stats & Results</button>
+      </div>
+      
+      <label class="prompt-label">Describe your content (AI will adapt to today's strategy)</label>
       <textarea 
         id="promptInput" 
         class="prompt-input" 
         placeholder="e.g., Promote blog: bulk product images for Shopify sellers&#10;e.g., Announce new feature: brand color palette for lifestyle shots&#10;e.g., Share customer success story about 3x engagement"
       ></textarea>
+      
+      <!-- Scheduler Section -->
+      <div class="scheduler-section" id="schedulerSection">
+        <div class="scheduler-label">Schedule for optimal engagement times:</div>
+        <div class="scheduler-times">
+          <button class="scheduler-time" onclick="setSchedule('now')">Publish Now</button>
+          <button class="scheduler-time" onclick="setSchedule('prime-ig')">Instagram Prime (11am)</button>
+          <button class="scheduler-time" onclick="setSchedule('prime-x')">X/Twitter Peak (9am)</button>
+          <button class="scheduler-time" onclick="setSchedule('prime-yt')">YouTube Shorts (6pm)</button>
+        </div>
+        <div class="scheduler-custom">
+          <input type="datetime-local" id="customSchedule" onchange="setSchedule('custom')">
+        </div>
+      </div>
+      
       <div class="prompt-actions">
+        <button class="btn btn-secondary" onclick="toggleScheduler()" id="scheduleToggle">
+          <span>🕐</span>
+          Schedule
+        </button>
         <button class="btn btn-primary" onclick="generatePosts()" id="generateBtn">
           <span>✨</span>
           Generate Posts
@@ -17152,12 +17656,169 @@ function getSocialStudioPage(user: any) {
     let generatedPosts = [];
     let selectedPlatforms = new Set();
     let currentPrompt = '';
+    let mediaType = 'image'; // 'image' or 'video'
+    let uploadedVideoFile = null;
+    let uploadedVideoUrl = null;
+    let scheduledFor = null; // null = publish now
     
-    // Platform configs (YouTube excluded - requires video content)
+    // Platform configs (YouTube available for video mode only)
     const platformConfig = {
       instagram: { icon: '📷', name: 'Instagram', ratio: '1:1', maxChars: 2200, bgColor: '#E1306C20', color: '#E1306C' },
-      twitter: { icon: '𝕏', name: 'X/Twitter', ratio: '16:9', maxChars: 280, bgColor: '#1DA1F220', color: '#1DA1F2' }
+      twitter: { icon: '𝕏', name: 'X/Twitter', ratio: '16:9', maxChars: 280, bgColor: '#1DA1F220', color: '#1DA1F2' },
+      youtube: { icon: '▶️', name: 'YouTube Shorts', ratio: '9:16', maxChars: 5000, bgColor: '#FF000020', color: '#FF0000' }
     };
+    
+    // 7-Day Content Strategy
+    const CONTENT_STRATEGY = {
+      1: { type: 'problem_agitation', label: 'Problem Agitation', emoji: '🔥', hint: 'Lead with a pain point question' },
+      2: { type: 'feature_spotlight', label: 'Feature Spotlight', emoji: '✨', hint: 'Highlight a specific feature' },
+      3: { type: 'customer_win', label: 'Customer Win', emoji: '🏆', hint: 'Share a customer success story' },
+      4: { type: 'industry_contrarian', label: 'Industry Contrarian', emoji: '💡', hint: 'Challenge a common myth' },
+      5: { type: 'speed_demo', label: 'Speed Demo', emoji: '⚡', hint: 'Show time/cost savings' },
+      6: { type: 'behind_the_scenes', label: 'Behind the Scenes', emoji: '🎬', hint: 'Show how it works' },
+      0: { type: 'founder_insight', label: 'Founder Insight', emoji: '💭', hint: 'Personal/team perspective' }
+    };
+    
+    // Prompt Templates
+    const PROMPT_TEMPLATES = {
+      blog: 'New blog post launch: [TOPIC]. Key takeaway: [INSIGHT]. Target: e-commerce sellers struggling with [PROBLEM].',
+      feature: 'Feature spotlight: [FEATURE NAME]. What it does: [BENEFIT]. Before vs after: [TRANSFORMATION].',
+      customer: 'Customer success: [NAME/BUSINESS] achieved [RESULT] using ShopShot. Key metric: [STAT].',
+      comparison: 'Speed comparison: Traditional method takes [OLD TIME/COST]. ShopShot does it in [NEW TIME/COST].',
+      stats: 'Data point: [STAT]. What it means: [INSIGHT]. Why it matters for sellers: [BENEFIT].'
+    };
+    
+    // Initialize - set today's strategy
+    function initStrategy() {
+      const day = new Date().getDay();
+      const strategy = CONTENT_STRATEGY[day];
+      document.getElementById('strategyText').textContent = strategy.emoji + ' ' + strategy.label + ' Day - ' + strategy.hint;
+    }
+    initStrategy();
+    
+    // Media Type Toggle
+    function setMediaType(type) {
+      mediaType = type;
+      document.getElementById('toggleImage').classList.toggle('active', type === 'image');
+      document.getElementById('toggleVideo').classList.toggle('active', type === 'video');
+      document.getElementById('videoUploadArea').classList.toggle('visible', type === 'video' && !uploadedVideoFile);
+      document.getElementById('videoPreview').classList.toggle('visible', type === 'video' && uploadedVideoFile);
+      
+      // Update generate button text
+      const btn = document.getElementById('generateBtn');
+      btn.innerHTML = type === 'video' 
+        ? '<span>🎬</span> Generate Captions'
+        : '<span>✨</span> Generate Posts';
+    }
+    
+    // Video Upload Handling
+    function handleVideoSelect(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      
+      // Validate file
+      if (file.size > 100 * 1024 * 1024) {
+        showToast('Video must be under 100MB', 'error');
+        return;
+      }
+      
+      const validTypes = ['video/mp4', 'video/quicktime', 'video/webm'];
+      if (!validTypes.includes(file.type)) {
+        showToast('Please upload MP4, MOV, or WebM video', 'error');
+        return;
+      }
+      
+      uploadedVideoFile = file;
+      
+      // Show preview
+      const url = URL.createObjectURL(file);
+      document.getElementById('videoPlayer').src = url;
+      document.getElementById('videoFileName').textContent = file.name + ' (' + (file.size / (1024*1024)).toFixed(1) + 'MB)';
+      document.getElementById('videoUploadArea').classList.remove('visible');
+      document.getElementById('videoPreview').classList.add('visible');
+    }
+    
+    function removeVideo() {
+      uploadedVideoFile = null;
+      uploadedVideoUrl = null;
+      document.getElementById('videoPlayer').src = '';
+      document.getElementById('videoInput').value = '';
+      document.getElementById('videoPreview').classList.remove('visible');
+      document.getElementById('videoUploadArea').classList.add('visible');
+    }
+    
+    // Drag and drop for video
+    const dropArea = document.getElementById('videoUploadArea');
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+      dropArea.addEventListener(eventName, e => { e.preventDefault(); e.stopPropagation(); });
+    });
+    ['dragenter', 'dragover'].forEach(eventName => {
+      dropArea.addEventListener(eventName, () => dropArea.classList.add('dragover'));
+    });
+    ['dragleave', 'drop'].forEach(eventName => {
+      dropArea.addEventListener(eventName, () => dropArea.classList.remove('dragover'));
+    });
+    dropArea.addEventListener('drop', e => {
+      const file = e.dataTransfer.files[0];
+      if (file) {
+        document.getElementById('videoInput').files = e.dataTransfer.files;
+        handleVideoSelect({ target: { files: [file] } });
+      }
+    });
+    
+    // Prompt Templates
+    function useTemplate(key) {
+      const template = PROMPT_TEMPLATES[key];
+      document.getElementById('promptInput').value = template;
+      document.getElementById('promptInput').focus();
+    }
+    
+    // Scheduler
+    function toggleScheduler() {
+      const section = document.getElementById('schedulerSection');
+      section.classList.toggle('visible');
+    }
+    
+    function setSchedule(type) {
+      // Clear all selections
+      document.querySelectorAll('.scheduler-time').forEach(btn => btn.classList.remove('selected'));
+      
+      const now = new Date();
+      let scheduled = null;
+      
+      if (type === 'now') {
+        scheduled = null;
+      } else if (type === 'prime-ig') {
+        // Instagram: 11am GMT
+        scheduled = getNextTime(11, 0);
+      } else if (type === 'prime-x') {
+        // X/Twitter: 9am GMT
+        scheduled = getNextTime(9, 0);
+      } else if (type === 'prime-yt') {
+        // YouTube: 6pm GMT
+        scheduled = getNextTime(18, 0);
+      } else if (type === 'custom') {
+        const input = document.getElementById('customSchedule').value;
+        if (input) scheduled = new Date(input).toISOString();
+      }
+      
+      scheduledFor = scheduled;
+      
+      // Highlight selected
+      if (type !== 'custom') {
+        event.target.classList.add('selected');
+      }
+      
+      showToast(scheduled ? 'Scheduled for ' + new Date(scheduled).toLocaleString() : 'Will publish immediately', 'info');
+    }
+    
+    function getNextTime(hour, minute) {
+      const now = new Date();
+      const target = new Date();
+      target.setUTCHours(hour, minute, 0, 0);
+      if (target <= now) target.setDate(target.getDate() + 1);
+      return target.toISOString();
+    }
     
     // Toast notification
     function showToast(message, type = 'info') {
@@ -17185,29 +17846,77 @@ function getSocialStudioPage(user: any) {
         return;
       }
       
+      // Video mode validation
+      if (mediaType === 'video' && !uploadedVideoFile) {
+        showToast('Please upload a video first', 'error');
+        return;
+      }
+      
       currentPrompt = prompt;
       const btn = document.getElementById('generateBtn');
       btn.disabled = true;
-      setLoading(true, 'Generating captions and images with AI...');
       
       try {
-        const res = await fetch('/api/admin/social/generate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt })
-        });
-        
-        const data = await res.json();
-        
-        if (!data.success) {
-          throw new Error(data.error || 'Failed to generate posts');
+        if (mediaType === 'video') {
+          // Video mode: Upload video first, then generate captions
+          setLoading(true, 'Uploading video...');
+          
+          const formData = new FormData();
+          formData.append('video', uploadedVideoFile);
+          formData.append('prompt', prompt);
+          
+          const uploadRes = await fetch('/api/admin/social/upload-video', {
+            method: 'POST',
+            body: formData
+          });
+          
+          const uploadData = await uploadRes.json();
+          if (!uploadData.success) {
+            throw new Error(uploadData.error || 'Failed to upload video');
+          }
+          
+          uploadedVideoUrl = uploadData.videoUrl;
+          
+          setLoading(true, 'Generating captions with AI...');
+          
+          // Generate captions for video (includes YouTube)
+          const res = await fetch('/api/admin/social/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt, mediaType: 'video', videoUrl: uploadedVideoUrl })
+          });
+          
+          const data = await res.json();
+          if (!data.success) throw new Error(data.error || 'Failed to generate captions');
+          
+          generatedPosts = data.posts;
+          selectedPlatforms = new Set(data.posts.map(p => p.platform));
+          renderPosts();
+          document.getElementById('postsSection').classList.add('visible');
+          showToast('Video captions generated!', 'success');
+          
+        } else {
+          // Image mode: Generate captions + images
+          setLoading(true, 'Generating captions and images with AI...');
+          
+          const res = await fetch('/api/admin/social/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt, mediaType: 'image' })
+          });
+          
+          const data = await res.json();
+          
+          if (!data.success) {
+            throw new Error(data.error || 'Failed to generate posts');
+          }
+          
+          generatedPosts = data.posts;
+          selectedPlatforms = new Set(data.posts.map(p => p.platform)); // Select all by default
+          renderPosts();
+          document.getElementById('postsSection').classList.add('visible');
+          showToast('Posts generated successfully!', 'success');
         }
-        
-        generatedPosts = data.posts;
-        selectedPlatforms = new Set(data.posts.map(p => p.platform)); // Select all by default
-        renderPosts();
-        document.getElementById('postsSection').classList.add('visible');
-        showToast('Posts generated successfully!', 'success');
         
       } catch (err) {
         console.error('Generate error:', err);
@@ -17225,17 +17934,27 @@ function getSocialStudioPage(user: any) {
       
       generatedPosts.forEach((post, idx) => {
         const config = platformConfig[post.platform];
+        if (!config) return; // Skip unknown platforms
+        
         const isSelected = selectedPlatforms.has(post.platform);
         const charCount = post.caption.length;
         const charClass = charCount > config.maxChars ? 'error' : charCount > config.maxChars * 0.9 ? 'warning' : '';
+        const isVideo = mediaType === 'video' && uploadedVideoUrl;
+        
+        // Determine aspect ratio class
+        let aspectClass = '';
+        if (post.platform === 'instagram') aspectClass = ' square';
+        if (post.platform === 'youtube') aspectClass = ' portrait';
         
         const card = document.createElement('div');
         card.className = 'post-card' + (isSelected ? ' selected' : '');
         card.innerHTML = \`
-          <div class="post-image\${post.platform === 'instagram' ? ' square' : ''}">
-            \${post.imageBase64 
-              ? '<img src="data:image/png;base64,' + post.imageBase64 + '" alt="' + config.name + ' image">'
-              : '<div class="placeholder"><span style="font-size: 24px;">🖼️</span><span>Image generation failed</span></div>'
+          <div class="post-image\${aspectClass}" style="\${post.platform === 'youtube' ? 'aspect-ratio: 9/16;' : ''}">
+            \${isVideo 
+              ? '<video src="' + uploadedVideoUrl + '" style="width:100%;height:100%;object-fit:cover;" muted></video><div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:40px;opacity:0.8;">🎬</div>'
+              : post.imageBase64 
+                ? '<img src="data:image/png;base64,' + post.imageBase64 + '" alt="' + config.name + ' image">'
+                : '<div class="placeholder"><span style="font-size: 24px;">🖼️</span><span>Image generation failed</span></div>'
             }
           </div>
           <div class="post-content">
@@ -17334,24 +18053,38 @@ function getSocialStudioPage(user: any) {
       
       const btn = document.getElementById('publishBtn');
       btn.disabled = true;
-      setLoading(true, 'Publishing to ' + selectedPlatforms.size + ' platform(s)...');
+      
+      const action = scheduledFor ? 'Scheduling' : 'Publishing';
+      setLoading(true, action + ' to ' + selectedPlatforms.size + ' platform(s)...');
       
       try {
         const res = await fetch('/api/admin/social/publish', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ posts: postsToPublish, prompt: currentPrompt })
+          body: JSON.stringify({ 
+            posts: postsToPublish, 
+            prompt: currentPrompt,
+            mediaType: mediaType,
+            videoUrl: uploadedVideoUrl,
+            scheduledFor: scheduledFor
+          })
         });
         
         const data = await res.json();
         
         if (data.success) {
-          showToast(data.message || 'Posts published!', 'success');
+          const msg = scheduledFor ? 'Posts scheduled!' : 'Posts published!';
+          showToast(data.message || msg, 'success');
           // Reset state
           generatedPosts = [];
           selectedPlatforms.clear();
+          uploadedVideoFile = null;
+          uploadedVideoUrl = null;
+          scheduledFor = null;
           document.getElementById('postsSection').classList.remove('visible');
           document.getElementById('promptInput').value = '';
+          document.getElementById('videoPreview').classList.remove('visible');
+          setMediaType('image');
           // Refresh history
           loadHistory();
         } else {
