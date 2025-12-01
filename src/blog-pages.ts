@@ -1864,8 +1864,10 @@ export function getCategories(): string[] {
 
 // Blog Index Page
 export function getBlogIndexPage(): string {
-  const featuredPost = blogPosts.find(p => p.featured) || blogPosts[0];
-  const allPosts = blogPosts;
+  // Sort posts by date (newest first) and get featured post
+  const sortedPosts = [...blogPosts].sort((a, b) => new Date(b.publishDate).getTime() - new Date(a.publishDate).getTime());
+  const featuredPost = sortedPosts.find(p => p.featured) || sortedPosts[0];
+  const allPosts = sortedPosts;
   const popularPosts = getPopularPosts();
   const categories = getCategories();
 
