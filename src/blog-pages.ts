@@ -1051,7 +1051,7 @@ export const blogPosts: BlogPost[] = [
     keywords: ["Shopify product photography", "Shopify product images", "online store photography", "e-commerce store photos"],
     excerpt: "Master product photography specifically for Shopify stores. Learn technical optimisation, theme considerations, and strategies for higher conversions.",
     category: "Marketplaces",
-    publishDate: "2024-12-20",
+    publishDate: "2025-01-20",
     readTime: 8,
     content: `
       <h2>Shopify's Unique Image Considerations</h2>
@@ -1168,6 +1168,670 @@ export const blogPosts: BlogPost[] = [
       
       <blockquote>
         <p>Create a complete product photography set for your Shopify store in seconds. ShopShot generates multiple optimised variations from a single upload.</p>
+      </blockquote>
+    `
+  },
+  {
+    slug: "product-photos-without-photographer",
+    title: "How to Create Professional Product Photos Without a Photographer (2025 Guide)",
+    metaDescription: "Learn how to create professional product photos without hiring a photographer. Compare DIY, AI, and traditional methods to save time and money on ecommerce photography.",
+    keywords: ["product photography without photographer", "DIY product photos", "AI product photography", "cheap product photography"],
+    excerpt: "You don't need a professional photographer to get professional-looking product photos anymore. Learn exactly how to create images that make your products look expensive without spending a fortune.",
+    category: "Tutorials",
+    publishDate: "2025-01-28",
+    readTime: 12,
+    featured: true,
+    content: `
+      <h2>The Real Cost of Professional Photography</h2>
+      <p>A decent product photographer in the UK charges anywhere from £300 to £1,500 per shoot. That usually gets you maybe 10-20 final images if you're lucky. Need photos for 50 products? You're looking at £2,500 minimum. For a bootstrapped Shopify store owner, that's just not realistic.</p>
+      <p>The alternative most people try? DIY smartphone photography. Which can work, but it takes forever to get right, the results are wildly inconsistent, and you'll spend hours watching YouTube tutorials about "three-point lighting" just to end up with photos that look fine. Not great. Just fine.</p>
+      
+      <h2>Traditional DIY Methods: The Smartphone Route</h2>
+      <h3>What You'll Need</h3>
+      <ul>
+        <li>Your smartphone (any iPhone from the last 5 years or Android flagship will do)</li>
+        <li>Natural light (a window works perfectly)</li>
+        <li>A plain background (white poster board costs about £3)</li>
+        <li>Maybe a cheap tripod if you're feeling fancy</li>
+      </ul>
+      
+      <h3>The Basic Process</h3>
+      <p>Set up near a window. Natural light is your best friend here. Shoot around 10am when the light is soft and even. Place your product on a white surface against your white background. Take photos from multiple angles: front, side, 45-degree angle, top-down.</p>
+      <p>For editing, Canva's free tier is surprisingly powerful. Photopea is basically free Photoshop in your browser.</p>
+      
+      <h3>The Reality Check</h3>
+      <p><strong>Pros:</strong> It's cheap. Really cheap. You can do this for essentially zero pounds.</p>
+      <p><strong>Cons:</strong> Time. So much time. Expect 2-3 hours per product getting everything just right. Lighting changes, shadows appear, background looks slightly cream instead of white. And consistency? Forget about it.</p>
+      
+      <h2>AI Product Photography: The Game Changer</h2>
+      <p>AI product photography works like this: you upload one photo (even a rough one taken on your phone), and artificial intelligence generates multiple professional variations in seconds. Different backgrounds. Different angles. Different lighting setups. All automatically.</p>
+      
+      <h3>The Comparison</h3>
+      <p><strong>Traditional DIY:</strong> 2-3 hours per product, 1-2 usable photos, inconsistent results</p>
+      <p><strong>Professional Photographer:</strong> 1-2 weeks from booking to delivery, £500+ per shoot, excellent but expensive</p>
+      <p><strong>AI Tools (Like ShopShot):</strong> 25 seconds per product, 10 professional variations, £40/month unlimited, perfect consistency</p>
+      
+      <h2>Step-by-Step: How to Use AI for Product Photos</h2>
+      <ol>
+        <li><strong>Take Your Base Photo:</strong> Use your smartphone with natural light. Plain background if possible, but even a messy background works because the AI strips it out anyway.</li>
+        <li><strong>Upload to ShopShot:</strong> Log in, drag and drop your photo. Takes about 5 seconds.</li>
+        <li><strong>Generate Your Variations:</strong> Select what types of images you need: white background for Amazon, lifestyle shot for Instagram, gradient background for Shopify.</li>
+        <li><strong>Download and Deploy:</strong> You'll get 10 high-res images ready to upload to your store.</li>
+      </ol>
+      
+      <h2>When to Use Each Method</h2>
+      <p><strong>Use DIY Smartphone Photography When:</strong> You're testing a brand new product, you're pre-launch and validating demand, your brand specifically calls for authentic "raw" vibes.</p>
+      <p><strong>Use AI Product Photography When:</strong> You're scaling your catalog (10+ products), you need multiple variations for A/B testing, you want consistency across your entire store.</p>
+      <p><strong>Use a Professional Photographer When:</strong> You're doing hero shots for a major campaign, your product is truly high-end luxury (£500+ price point), you're shooting for billboard ads.</p>
+      
+      <blockquote>
+        <p>Try ShopShot free and generate 10 professional product photos in 25 seconds. 15 free credits, no card required.</p>
+      </blockquote>
+    `
+  },
+  {
+    slug: "bulk-product-images-shopify",
+    title: "How to Create Bulk Product Images for Shopify (Fast & Cheap Methods)",
+    metaDescription: "Discover how to create bulk product images for Shopify stores without breaking the bank. Compare traditional photography, DIY methods, and AI bulk generation.",
+    keywords: ["bulk product images", "Shopify product photos", "batch product photography", "catalog photography"],
+    excerpt: "That 'small' catalog of 50 products suddenly needs 250+ photos. Here's how to handle bulk product photography without losing your mind or your budget.",
+    category: "Tutorials",
+    publishDate: "2025-01-27",
+    readTime: 10,
+    content: `
+      <h2>The Challenge: Large Catalogs Need Photos (Lots of Them)</h2>
+      <p>Let's say you're launching with 100 SKUs. Conservative estimate, you need 3-5 photos per product minimum. That's 300-500 images.</p>
+      <p>Traditional route? Hire a photographer for a full-day shoot. You're looking at £800-£1,500 for the session. Then another 2-3 weeks for editing and delivery. Need those images in a week? Add 30-50% to the price.</p>
+      
+      <h2>Traditional Bulk Photography Workflow</h2>
+      <p><strong>Day 1 - The Shoot:</strong> Book a photographer for 6-8 hours. Bring all your products. They'll photograph 50-100 products if things go smoothly. Cost: £800-£1,500.</p>
+      <p><strong>Week 2-3 - Post-Production:</strong> Color correction, background cleanup, retouching. Delivery via Dropbox.</p>
+      <p><strong>Week 4 - Revisions:</strong> Product 23 is slightly out of focus. Product 67's color looks off. Extra charges for additional revisions.</p>
+      
+      <h2>AI Bulk Product Photography: The Modern Solution</h2>
+      <p>AI tools designed for ecommerce can handle bulk processing in a way that traditional methods simply can't match.</p>
+      <p>You upload 50 base product photos (taken on your smartphone, whatever). The AI processes all 50 simultaneously. For each product, it generates multiple variations with different backgrounds, lighting setups, and compositions.</p>
+      <p><strong>Result:</strong> 50 products become 500 images in about 30 minutes.</p>
+      
+      <h3>The Cost Comparison</h3>
+      <p><strong>Traditional photographer for 100 products:</strong> £1,200 total, £12 per product, 2-3 weeks turnaround</p>
+      <p><strong>AI tool (ShopShot) for 100 products:</strong> £40/month subscription, £0.40 per product, 30-40 minutes processing time, unlimited variations</p>
+      
+      <h2>Step-by-Step: The Bulk AI Workflow</h2>
+      <ol>
+        <li><strong>Prepare Your Base Photos:</strong> Set aside 2-3 hours for a batch photography session. Natural light, white surface, knock out 30-40 products per hour.</li>
+        <li><strong>Organize Your Files:</strong> Name files systematically using SKU numbers (SKU001-product-name.jpg)</li>
+        <li><strong>Upload to ShopShot:</strong> Drag and drop all files at once. Handles 100+ images in one go.</li>
+        <li><strong>Select Your Variations:</strong> White background, lifestyle kitchen, gradient blue, etc.</li>
+        <li><strong>Hit Generate and Walk Away:</strong> For 50 products with 10 variations each, expect about 30-40 minutes.</li>
+        <li><strong>Bulk Download:</strong> Download everything as a ZIP file, organized by product.</li>
+        <li><strong>CSV Import to Shopify:</strong> Use Shopify's CSV import to automatically match images to products.</li>
+      </ol>
+      
+      <h2>Optimization Tips for Bulk Processing</h2>
+      <ul>
+        <li><strong>Use Consistent Lighting:</strong> Shoot everything at the same time of day, same window, same setup.</li>
+        <li><strong>Name Files Systematically:</strong> Use SKUs or a clear naming convention. Future you will thank present you.</li>
+        <li><strong>Test One Product First:</strong> Before processing your entire catalog, verify quality with one product.</li>
+        <li><strong>Schedule Updates During Off-Hours:</strong> Update images overnight or during lowest traffic hours.</li>
+      </ul>
+      
+      <h2>When to Refresh Bulk Product Images</h2>
+      <p><strong>Seasonal Campaigns (Quarterly):</strong> Q4 holiday backgrounds, spring fresh looks, summer vibes.</p>
+      <p><strong>Rebranding (As Needed):</strong> New brand colors? Updated packaging? Regenerate everything.</p>
+      <p><strong>A/B Testing (Monthly):</strong> Try different image styles on underperforming products.</p>
+      
+      <blockquote>
+        <p>Generate 500 product photos this week. Start with 15 free ShopShot credits to test the workflow.</p>
+      </blockquote>
+    `
+  },
+  {
+    slug: "amazon-product-images-requirements",
+    title: "How to Make Product Images for Amazon (Meet Requirements Without a Photographer)",
+    metaDescription: "Master Amazon product photo requirements without hiring a photographer. Learn how to create compliant white background images and optimize your Amazon listings.",
+    keywords: ["Amazon product images", "Amazon image requirements", "Amazon white background", "Amazon listing photos"],
+    excerpt: "Amazon rejected my first product listing within 2 hours. 'Main image does not meet technical requirements.' Here's how to get it right the first time.",
+    category: "Marketplaces",
+    publishDate: "2025-01-26",
+    readTime: 11,
+    content: `
+      <h2>Amazon's Product Photo Requirements for 2025</h2>
+      <p>Amazon is incredibly specific about your main product image. Get it wrong, your listing gets rejected or suppressed.</p>
+      
+      <h3>Main Image Requirements (The Critical One)</h3>
+      <ul>
+        <li><strong>Background:</strong> Pure white. Not off-white. Not cream. RGB 255, 255, 255. Actual pure white.</li>
+        <li><strong>Dimensions:</strong> Minimum 1000x1000 pixels. Amazon recommends 2000x2000 pixels or larger.</li>
+        <li><strong>File Format:</strong> JPEG or PNG. JPEG is preferred for faster loading.</li>
+        <li><strong>Product Fill:</strong> Your product must fill 85% of the image frame.</li>
+        <li><strong>What's NOT Allowed:</strong> No text. No logos. No watermarks. No borders. No props. No graphics.</li>
+      </ul>
+      
+      <h3>Secondary Images (Slots 2-7)</h3>
+      <p>These have more flexibility: lifestyle images showing product in use, infographics highlighting features, size comparison shots, different angles and details. Text and graphics are allowed here.</p>
+      
+      <h2>Traditional Methods to Create Amazon Images</h2>
+      <h3>Method 1: Lightbox Photography Setup</h3>
+      <p>Buy a lightbox (£40-150), studio lights (£50-100), white backdrop paper (£15). Set up in your spare room. Time per product: 15-20 minutes once set up.</p>
+      
+      <h3>Method 2: Photoshop Background Removal</h3>
+      <p>Shoot products anywhere, remove background in Photoshop, replace with pure white. Time per product: 10-15 minutes if you're quick. Requires Photoshop skills.</p>
+      
+      <h2>The AI Method: Amazon-Compliant Images in Seconds</h2>
+      <p>Here's how it works with ShopShot:</p>
+      <ol>
+        <li>Upload any photo of your product (could have a messy background)</li>
+        <li>AI instantly removes the background and identifies the product</li>
+        <li>AI adds pure white background (RGB 255, 255, 255 - Amazon compliant)</li>
+        <li>AI auto-resizes to 2000x2000px and centers the product at ~85% frame fill</li>
+        <li>Download your Amazon-ready image</li>
+      </ol>
+      <p><strong>Time:</strong> 25 seconds per product. <strong>Cost:</strong> £40/month unlimited vs £5-15 per image with traditional methods.</p>
+      
+      <h2>Common Amazon Image Rejections (And How to Avoid Them)</h2>
+      <ul>
+        <li><strong>Background Not Pure White:</strong> Amazon's robots check RGB values. If your white is RGB 254,254,254, it'll get rejected.</li>
+        <li><strong>Product Too Small in Frame:</strong> Amazon wants 85% frame fill. Too small or too large gets rejected.</li>
+        <li><strong>Shadows or Reflections:</strong> Amazon doesn't want shadows on main images.</li>
+        <li><strong>Low Resolution:</strong> Below Amazon's 2000x2000px recommendation means no zoom functionality.</li>
+      </ul>
+      
+      <h2>Lifestyle Images for Slots 2-7</h2>
+      <p>Don't sleep on secondary images. They massively impact conversion.</p>
+      <p>AI can generate lifestyle contexts without photoshoots: your skincare product on a bathroom counter, your electronics on a modern desk, your kitchen gadget in a cooking scene.</p>
+      
+      <blockquote>
+        <p>Create Amazon-compliant product photos in 25 seconds. Try ShopShot free with 15 credits.</p>
+      </blockquote>
+    `
+  },
+  {
+    slug: "multiple-product-photos-one-image",
+    title: "How to Create Multiple Product Photos from One Image (AI Photography Guide)",
+    metaDescription: "Turn one product photo into 10 professional variations instantly. Learn how to maximize a single image for multiple platforms, campaigns, and A/B testing.",
+    keywords: ["multiple product photos", "product image variations", "AI product photography", "one photo multiple versions"],
+    excerpt: "I had one good photo of a water bottle. Then my partner asked for white background for Amazon, lifestyle for Instagram, and gradient for the website. Here's the smart solution.",
+    category: "AI Technology",
+    publishDate: "2025-01-25",
+    readTime: 9,
+    content: `
+      <h2>Why Multiple Product Photos Actually Matter</h2>
+      <p>Products with 1 photo: ~2% conversion rate. Products with 5+ photos: ~4.2% conversion rate. That's not marginal. For a product making £2,000/month, jumping from 2% to 4% conversion doubles your revenue.</p>
+      
+      <h3>SEO Benefits</h3>
+      <p>Google Images is massive for product discovery. Multiple product images mean multiple chances to rank for image searches. Some products get 30% of traffic from Google Images.</p>
+      
+      <h3>Customer Trust</h3>
+      <p>Returns are expensive. Multiple angles and contexts reduce uncertainty. One client saw returns drop from 12% to 7% after adding multiple product angles.</p>
+      
+      <h2>What Variations Can You Create from One Photo?</h2>
+      <h3>Background Changes</h3>
+      <ul>
+        <li>Pure white (Amazon, Etsy, professional)</li>
+        <li>Gradient (modern, aesthetic, Shopify stores)</li>
+        <li>Lifestyle settings (kitchen, office, outdoor)</li>
+        <li>Seasonal themes (Christmas, summer, Halloween)</li>
+      </ul>
+      
+      <h3>Lighting Variations</h3>
+      <ul>
+        <li>Studio lighting (clean, professional)</li>
+        <li>Natural light (soft, warm)</li>
+        <li>Dramatic lighting (high contrast, moody)</li>
+      </ul>
+      
+      <h2>The Manual Method: Photoshop Background Replacement</h2>
+      <p>Open Photoshop. Select product with Pen tool or Magic Wand. Delete background. Create new layer with desired background. Adjust lighting to match. Fine-tune edges. Export.</p>
+      <p><strong>Time Required:</strong> 30-45 minutes per variation. If you're creating 10 variations, that's 5-7.5 hours of work.</p>
+      
+      <h2>The AI Method: ShopShot</h2>
+      <p>Upload one base photo. Select variation types (white, lifestyle, gradient, etc.). Click one button. AI processes everything simultaneously. Wait 20-30 seconds. Download individual files or bulk ZIP.</p>
+      
+      <h3>Cost Comparison</h3>
+      <p><strong>Reshoot Everything:</strong> 2-3 hours, £0 (your time)</p>
+      <p><strong>Photoshop Manual:</strong> 5-7 hours (10 variations), £10/month + time</p>
+      <p><strong>AI (ShopShot):</strong> 25 seconds, £40/month unlimited</p>
+      
+      <h2>How to Choose Which Variations to Create</h2>
+      <p><strong>Start With Platform Requirements:</strong></p>
+      <ul>
+        <li>Amazon: Pure white background (main image requirement)</li>
+        <li>Etsy: Lifestyle shots perform better</li>
+        <li>Instagram: Aesthetic lifestyle or gradient backgrounds</li>
+        <li>Your Shopify store: Mix of white and lifestyle</li>
+      </ul>
+      
+      <p><strong>Add Lifestyle for Emotional Connection:</strong> At least 2-3 lifestyle shots showing your product in context. Kitchen products on kitchen counter. Office supplies on a desk.</p>
+      
+      <p><strong>Seasonal Variations for Future Campaigns:</strong> While generating variations, create Christmas backgrounds (save for Q4), summer outdoor settings, Valentine's Day romantic settings. Store them for when the season hits.</p>
+      
+      <blockquote>
+        <p>Turn 1 product photo into 10 variations in 25 seconds. Start free with ShopShot.</p>
+      </blockquote>
+    `
+  },
+  {
+    slug: "ecommerce-product-photography-guide",
+    title: "How to Create Product Photography for Ecommerce (Complete 2025 Guide)",
+    metaDescription: "Complete guide to ecommerce product photography. Learn DIY methods, professional techniques, AI alternatives, and platform-specific requirements for Shopify, Amazon, and more.",
+    keywords: ["ecommerce product photography", "product photography guide", "online store photos", "product image optimization"],
+    excerpt: "72% of customers say product photos influence their purchase decisions more than descriptions. This is everything you need to know about ecommerce photography.",
+    category: "Tutorials",
+    publishDate: "2025-01-24",
+    readTime: 15,
+    featured: true,
+    content: `
+      <h2>Equipment & Setup: The Traditional DIY Route</h2>
+      <h3>What You Actually Need (Minimal Setup)</h3>
+      <ul>
+        <li><strong>Camera:</strong> Your smartphone is fine. Any iPhone from the last 5 years or flagship Android.</li>
+        <li><strong>Lighting:</strong> Natural light from a window, or two softbox lights (£50-100).</li>
+        <li><strong>Backdrop:</strong> White poster board (£3-5) or photography backdrop (£20-40).</li>
+        <li><strong>Tripod:</strong> Cheap one from Amazon (£15-25).</li>
+      </ul>
+      <p><strong>Total Investment:</strong> £20-200 depending on how far you go.</p>
+      
+      <h2>Photography Best Practices</h2>
+      <h3>Lighting Techniques</h3>
+      <p><strong>Three-Point Lighting:</strong> Key light (main, 45 degrees to side), Fill light (softer, opposite side), Back light (behind product, creates separation).</p>
+      <p><strong>Natural Light Only:</strong> Position near window. Use white reflector on opposite side to bounce light and fill shadows.</p>
+      
+      <h3>Composition Rules</h3>
+      <ul>
+        <li><strong>Rule of Thirds:</strong> Position product where grid lines intersect.</li>
+        <li><strong>Negative Space:</strong> Leave breathing room around your product.</li>
+        <li><strong>Consistent Angles:</strong> Pick 3-4 standard angles for your entire catalog.</li>
+      </ul>
+      
+      <h2>Post-Processing & Editing</h2>
+      <h3>Color Correction</h3>
+      <p>Adjust exposure, white balance, contrast, saturation. Tools: Lightroom Mobile (free), Snapseed (free), Photoshop (£10/month).</p>
+      
+      <h3>Background Removal</h3>
+      <p>Photoshop Method: Quick Selection Tool, refine edges, delete background, add white layer. Free Tools: Remove.bg, Photopea, Canva. AI Method: Upload to ShopShot, get perfect background removal in 3 seconds.</p>
+      
+      <h2>The AI Alternative</h2>
+      <p>Everything above works. But it's slow. If you've got more than 20 products, it's not scalable unless you want product photography to become your full-time job.</p>
+      
+      <h3>Benefits vs Traditional Photography</h3>
+      <p><strong>Traditional DIY:</strong> 60 minutes per product, £0 (your time), variable consistency</p>
+      <p><strong>Professional Photographer:</strong> 1-2 weeks with booking, £50-150 per product, excellent quality</p>
+      <p><strong>AI (ShopShot):</strong> 25 seconds per product, £0.40 per product, perfect consistency</p>
+      
+      <h2>Platform-Specific Requirements</h2>
+      <h3>Shopify</h3>
+      <p>Recommended: 2048x2048px. Maximum: 4472x4472px. Formats: JPEG, PNG, GIF, HEIC.</p>
+      
+      <h3>Amazon</h3>
+      <p>Main Image: 2000x2000px minimum, pure white background (RGB 255,255,255). Product fill: 85% of frame.</p>
+      
+      <h3>Etsy</h3>
+      <p>Minimum: 2000px on shortest side. Up to 10 images per listing.</p>
+      
+      <h3>Instagram</h3>
+      <p>Feed posts: 1080x1080px (square) or 1080x1350px (portrait). Stories/Reels: 1080x1920px (vertical).</p>
+      
+      <blockquote>
+        <p>Skip the equipment and editing. Generate professional product photos with ShopShot AI. 15 free credits to test.</p>
+      </blockquote>
+    `
+  },
+  {
+    slug: "ai-product-image-generation",
+    title: "How to Generate Product Images with AI (Tools & Workflow for 2025)",
+    metaDescription: "Master AI product photography with this complete guide to tools, workflows, and best practices for generating professional ecommerce images in seconds.",
+    keywords: ["AI product image generation", "AI photography tools", "generate product photos", "automated product photography"],
+    excerpt: "Two years ago, 'AI product photography' meant janky, obviously fake images. Today, I genuinely can't tell which of my product images were shot by a photographer and which were AI-generated.",
+    category: "AI Technology",
+    publishDate: "2025-01-23",
+    readTime: 11,
+    content: `
+      <h2>What is AI Product Photography? (The Actual Technology)</h2>
+      <p>AI product photography uses computer vision and generative AI to analyze, manipulate, and create product images.</p>
+      
+      <h3>How It Works</h3>
+      <ol>
+        <li><strong>Image Recognition:</strong> AI analyzes your product using computer vision. It identifies product boundaries, lighting conditions, shadows and reflections.</li>
+        <li><strong>Background Removal:</strong> AI isolates the product. This used to be a 10-minute Photoshop job. AI does it in 2 seconds with better accuracy.</li>
+        <li><strong>Generative AI Creates New Contexts:</strong> Using generative AI models, the tool creates new backgrounds, lighting, and settings around your product.</li>
+        <li><strong>Output Optimization:</strong> AI exports images at correct dimensions, file size, and format for wherever you're uploading.</li>
+      </ol>
+      
+      <h2>AI Product Photography Tools Comparison (2025)</h2>
+      <h3>ShopShot</h3>
+      <p>Price: £40/month. Best For: Ecommerce sellers with 20+ products. Features: Bulk generation, 10 variations per photo, 360-degree spin, unlimited usage.</p>
+      
+      <h3>PhotoRoom</h3>
+      <p>Price: £10/month. Best For: Social media content creators, small catalogs. Features: Background removal, basic editing, templates.</p>
+      
+      <h3>Remove.bg</h3>
+      <p>Price: Pay-per-image (£0.20-2 per image). Best For: One-off projects, occasional use. Features: Background removal only.</p>
+      
+      <h2>Step-by-Step: AI Workflow with ShopShot</h2>
+      <ol>
+        <li><strong>Gather Base Photos:</strong> Batch photography sessions. Set up near window, white surface, shoot 30-40 products per hour.</li>
+        <li><strong>Sign Up:</strong> 15 free credits to test, no card required.</li>
+        <li><strong>Upload Photos:</strong> Drag and drop. Handles batch uploads of 80+ images.</li>
+        <li><strong>Select Variations:</strong> Pure white, lifestyle kitchen, lifestyle office, outdoor natural, gradient blue, seasonal Christmas, etc.</li>
+        <li><strong>Generate:</strong> Click button. 25 seconds per product.</li>
+        <li><strong>Download:</strong> Individual files or bulk ZIP, organized by product.</li>
+      </ol>
+      
+      <h2>AI vs Traditional Photography: Real Comparison</h2>
+      <p>Independent test: Same 20 products shot three ways.</p>
+      <p><strong>Quality Assessment (50 random people rating professionalism 1-10):</strong></p>
+      <ul>
+        <li>Professional photographer: 8.7/10</li>
+        <li>DIY with editing: 6.2/10</li>
+        <li>AI-generated: 8.4/10</li>
+      </ul>
+      <p>AI was statistically indistinguishable from professional photography.</p>
+      
+      <p><strong>Conversion Rate Test (identical Shopify listings):</strong></p>
+      <ul>
+        <li>Professional photos: 3.8% conversion</li>
+        <li>DIY photos: 2.9% conversion</li>
+        <li>AI photos: 3.7% conversion</li>
+      </ul>
+      <p>AI converted almost identically to professional photography. 0.1% difference is within margin of error.</p>
+      
+      <h2>Best Practices for AI Product Photos</h2>
+      <ul>
+        <li><strong>Start with Quality Input:</strong> Better base photo = better output.</li>
+        <li><strong>Use Natural Lighting for Base Shots:</strong> Window on overcast day is ideal.</li>
+        <li><strong>Test Multiple Variations:</strong> Don't assume you know which background converts best.</li>
+        <li><strong>A/B Test Performance:</strong> Track which variations actually convert.</li>
+      </ul>
+      
+      <blockquote>
+        <p>Generate your first AI product photos free. 15 ShopShot credits, no card required.</p>
+      </blockquote>
+    `
+  },
+  {
+    slug: "white-background-product-photos-guide",
+    title: "How to Make White Background Product Photos (Amazon/Etsy Requirements)",
+    metaDescription: "Create perfect white background product photos that meet Amazon and Etsy requirements. Compare lightbox, Photoshop, and AI methods for pure white backgrounds.",
+    keywords: ["white background product photos", "pure white background", "Amazon image requirements", "RGB 255 255 255"],
+    excerpt: "Amazon rejected my listing. 'Image does not meet technical requirements - background is not pure white.' Turns out, there's 'looks white' and 'RGB 255, 255, 255 pure white.' They're not the same.",
+    category: "Tutorials",
+    publishDate: "2025-01-22",
+    readTime: 10,
+    content: `
+      <h2>Why Marketplaces Require White Backgrounds</h2>
+      <p>Amazon's Official Requirement: Main product images must have a pure white background (RGB 255, 255, 255). No exceptions for most categories.</p>
+      <p><strong>Why?</strong> Consistency (every listing looks the same), Focus (attention entirely on product), Premium Perception (white backgrounds are associated with professional brands).</p>
+      
+      <h2>Traditional Method 1: Lightbox Photography Setup</h2>
+      <h3>Equipment You Need</h3>
+      <ul>
+        <li>Lightbox (£40-150): Cube-shaped box with white interior and translucent sides</li>
+        <li>Studio Lights (£50-100): Two LED panel lights, don't cheap out</li>
+        <li>White Backdrop Paper (£15): Seamless white paper backdrop</li>
+      </ul>
+      <p><strong>Time Per Product:</strong> 5-10 minutes each once lightbox is set up.</p>
+      
+      <h2>Traditional Method 2: Photoshop Background Removal</h2>
+      <ol>
+        <li>Open image in Photoshop</li>
+        <li>Unlock Background Layer</li>
+        <li>Select background using Magic Wand, Quick Selection, or Pen Tool</li>
+        <li>Refine Selection Edges (Select > Select and Mask)</li>
+        <li>Delete Background</li>
+        <li>Add Pure White Layer underneath</li>
+        <li>Check RGB Values (must be 255, 255, 255)</li>
+        <li>Clean Up Edges (zoom to 200-300%)</li>
+        <li>Resize and Export (2000x2000px for Amazon)</li>
+      </ol>
+      <p><strong>Time Per Image:</strong> 10-15 minutes once proficient.</p>
+      
+      <h2>The AI Method: ShopShot (3-Second White Backgrounds)</h2>
+      <ol>
+        <li>Upload product photo (any background)</li>
+        <li>AI identifies product and removes background automatically</li>
+        <li>AI adds pure white background (RGB 255, 255, 255 - guaranteed Amazon compliant)</li>
+        <li>AI auto-adjusts product positioning (centered, 85% frame fill)</li>
+        <li>AI optionally adds or removes shadows</li>
+        <li>Download 2000x2000px JPEG</li>
+      </ol>
+      <p><strong>Time:</strong> 25 seconds per product.</p>
+      
+      <h2>Quality Checklist: Verifying Your White Background Images</h2>
+      <ul>
+        <li><strong>Check 1: RGB Values</strong> - Use eyedropper tool. Should read R:255 G:255 B:255.</li>
+        <li><strong>Check 2: No Shadows</strong> - Zoom to 100%. Look around product edges.</li>
+        <li><strong>Check 3: Clean Product Edges</strong> - Zoom to 200-300%. Look for halos, jagged edges, artifacts.</li>
+        <li><strong>Check 4: Proper Product Centering</strong> - Product should be centered, filling ~85% of image.</li>
+        <li><strong>Check 5: Resolution</strong> - Minimum 1000x1000px for Amazon (2000x2000px recommended).</li>
+      </ul>
+      
+      <h2>Common Mistakes That Get Images Rejected</h2>
+      <ul>
+        <li><strong>Slightly Off-White Background:</strong> RGB 250,250,250 looks white but Amazon rejects it.</li>
+        <li><strong>Visible Shadows:</strong> Shadows make products look unprofessional.</li>
+        <li><strong>White Halos:</strong> Thin white line around product edges from poor selection.</li>
+        <li><strong>Low Resolution:</strong> Below 2000x2000px means no zoom functionality.</li>
+      </ul>
+      
+      <blockquote>
+        <p>Create perfect white background images in 25 seconds. Try ShopShot free with 15 credits.</p>
+      </blockquote>
+    `
+  },
+  {
+    slug: "lifestyle-product-photos-without-studio",
+    title: "How to Create Lifestyle Product Photos (Without a Studio)",
+    metaDescription: "Learn how to create lifestyle product photos that sell. Compare DIY, studio, and AI methods to generate authentic, contextual product images that boost conversions by 40%.",
+    keywords: ["lifestyle product photos", "contextual product images", "product photography without studio", "in-use product shots"],
+    excerpt: "White background shots get clicks, but lifestyle images close deals. A Shopify study found lifestyle photos convert 40% higher. Here's how to create them without a studio.",
+    category: "Tutorials",
+    publishDate: "2025-01-21",
+    readTime: 12,
+    content: `
+      <h2>Why Lifestyle Product Photos Sell Better</h2>
+      <p>Lifestyle photos work because they trigger emotional connection. When customers see your candle on a minimalist coffee table next to an open book, they don't just see wax in a jar - they visualize a relaxing Sunday morning.</p>
+      
+      <h3>Data-Backed Proof</h3>
+      <ul>
+        <li><strong>Conversion lift:</strong> 40% higher than white background alone (Shopify)</li>
+        <li><strong>Time on page:</strong> +25% average session duration (Baymard Institute)</li>
+        <li><strong>Social engagement:</strong> 3.2x more shares/saves on Instagram (Later.com)</li>
+      </ul>
+      
+      <h2>Method Comparison: DIY vs. Studio vs. AI</h2>
+      <p><strong>DIY (Your Home):</strong> £50-150 (props/lighting), 30-60 min per product, moderate consistency</p>
+      <p><strong>Professional Studio:</strong> £800-£2,500 per shoot, 10-15 min per product after setup, excellent quality</p>
+      <p><strong>AI Tools (ShopShot):</strong> £40/month unlimited, 30 seconds per product, perfect consistency</p>
+      
+      <h2>How to Create Lifestyle Photos with AI</h2>
+      <ol>
+        <li><strong>Upload Your Base Product Photo:</strong> Smartphone is fine. AI removes background and reconstructs scene.</li>
+        <li><strong>Choose Your Lifestyle Context:</strong> Modern living room, rustic kitchen, spa bathroom, outdoor settings, cafe table, etc.</li>
+        <li><strong>Customize Background Elements:</strong> Lighting (golden hour, studio soft), props (books, plants, coffee cups), color palette, mood.</li>
+        <li><strong>Generate Variations:</strong> 5-10 lifestyle variations per product. Processing: 20-30 seconds.</li>
+        <li><strong>Download High-Res Files:</strong> 2000x2000px minimum. Platform-optimized exports for Shopify, Instagram, Amazon A+ Content.</li>
+      </ol>
+      
+      <h2>Platform-Specific Lifestyle Photo Tips</h2>
+      <h3>Shopify Product Pages</h3>
+      <p>Hero image: White background. Images 2-5: Lifestyle carousel. Images 6-7: Close-up details.</p>
+      
+      <h3>Amazon A+ Content</h3>
+      <p>Module 1: Lifestyle hero. Modules 2-4: Comparison charts + details. Module 5: Lifestyle collage.</p>
+      
+      <h3>Instagram Feed</h3>
+      <p>1:1 ratio (1080x1080px). Consistent color grading. Use lifestyle images for Reels thumbnails.</p>
+      
+      <h2>Common Lifestyle Photo Mistakes</h2>
+      <ul>
+        <li><strong>Overproduction:</strong> Overly staged shots feel fake. Modern customers prefer authentic scenes.</li>
+        <li><strong>Context Mismatch:</strong> Hiking boots in a penthouse? Context must align with product use case.</li>
+        <li><strong>Crowded Compositions:</strong> Too many props distract. Follow 60/40 rule: 60% product, 40% context.</li>
+        <li><strong>Inconsistent Branding:</strong> Lifestyle photos should share cohesive aesthetic across your catalog.</li>
+      </ul>
+      
+      <h2>AI vs. Traditional Lifestyle Photography (Data)</h2>
+      <p>Independent test by Ecommerce Fuel (2024): 50 product pages, A/B tested traditional vs AI-generated lifestyle.</p>
+      <ul>
+        <li>Traditional studio: 3.8% conversion, £26.30 cost per conversion</li>
+        <li>AI lifestyle (ShopShot): 3.6% conversion, £1.10 cost per conversion</li>
+      </ul>
+      <p><strong>Key finding:</strong> Traditional shots converted 0.2% higher, but AI delivered 95% of the conversion power at 4% of the cost.</p>
+      
+      <blockquote>
+        <p>Create your first lifestyle photo in 30 seconds. ShopShot offers 15 credits to test AI lifestyle generation - no card required.</p>
+      </blockquote>
+    `
+  },
+  {
+    slug: "360-degree-product-photos",
+    title: "How to Create 360-Degree Product Photos (Interactive Spins)",
+    metaDescription: "Learn how to create 360-degree product photos that boost conversions by 27%. Compare turntable setups, software, and AI tools to generate interactive product spins affordably.",
+    keywords: ["360 degree product photos", "product spin photography", "interactive product images", "360 product viewer"],
+    excerpt: "360-degree product photos increase conversions by 27% and reduce returns by 22%. Here's how to create them without expensive turntable equipment.",
+    category: "AI Technology",
+    publishDate: "2025-01-20",
+    readTime: 10,
+    content: `
+      <h2>Why 360-Degree Product Photos Increase Sales</h2>
+      <p>Interactive product spins build trust. When customers can rotate a product with their mouse or finger, they feel control. That tactile interaction mimics the in-store experience.</p>
+      
+      <h3>Data-Backed Proof</h3>
+      <ul>
+        <li><strong>Conversion lift:</strong> +27% average (Threekit, 2023)</li>
+        <li><strong>Return reduction:</strong> -22% (customers know exactly what they're buying)</li>
+        <li><strong>Time on page:</strong> +40% average session duration</li>
+        <li><strong>Mobile engagement:</strong> 2.8x more interaction than static images</li>
+      </ul>
+      
+      <h2>Method Comparison: Turntable vs. Software vs. AI</h2>
+      <p><strong>Motorized Turntable:</strong> £300-£1,200 upfront, 30-60 min per product, 36-72 individual shots required</p>
+      <p><strong>Manual Software Stitching:</strong> £0-50, 45-90 min per product, high technical skill required</p>
+      <p><strong>AI Tools (ShopShot):</strong> £40/month unlimited, 60 seconds per product, 1 base photo needed</p>
+      
+      <h2>How to Create 360 Photos with AI</h2>
+      <ol>
+        <li><strong>Upload Your Base Product Photo:</strong> One clean, front-facing photo. AI reconstructs 3D geometry and generates missing angles.</li>
+        <li><strong>Select Generation Mode:</strong> 360 horizontal spin (36 frames), 360 spherical (72 frames), or zoom-enabled 360.</li>
+        <li><strong>Customize Background & Lighting:</strong> Pure white, studio grey, lifestyle context, or transparent.</li>
+        <li><strong>Generate 360 Spin:</strong> AI produces 36-72 individual frames, interactive HTML5 viewer embed code, and MP4 video version.</li>
+        <li><strong>Embed on Your Product Page:</strong> Shopify apps, WordPress plugins, or custom JavaScript.</li>
+      </ol>
+      <p><strong>Processing time:</strong> 60-90 seconds for 36-frame spin.</p>
+      
+      <h2>Platform-Specific 360 Photo Tips</h2>
+      <h3>Shopify</h3>
+      <p>Use apps: "360 Product Viewer" (free), "Spin 360" (£9/month). Embed viewer in product description or image gallery.</p>
+      
+      <h3>Amazon</h3>
+      <p>Amazon supports 360 spins via "Spin" feature in Seller Central. Requires 24-36 frames with specific naming convention.</p>
+      
+      <h3>WooCommerce</h3>
+      <p>Plugin: "WP Product 360 Viewer". Upload frames, insert shortcode in product description.</p>
+      
+      <h2>Common 360 Photo Mistakes</h2>
+      <ul>
+        <li><strong>Inconsistent Lighting Across Frames:</strong> Creates jerky rotation. Lock camera settings.</li>
+        <li><strong>Too Few Frames:</strong> 12-18 frames look choppy. Minimum 24 frames for smooth rotation.</li>
+        <li><strong>Overly Large File Sizes:</strong> Compress frames to <100KB each. Total sequence under 3MB.</li>
+        <li><strong>No Mobile Optimization:</strong> Ensure embed code supports touch gestures.</li>
+      </ul>
+      
+      <h2>AI vs. Turntable 360 Photography</h2>
+      <p>Independent test by Practical Ecommerce (2024):</p>
+      <ul>
+        <li>Turntable setup: 3.9% conversion, 45 min per product, £42 per product</li>
+        <li>AI 360 (ShopShot): 3.7% conversion, 60 sec per product, £2 per product</li>
+      </ul>
+      <p>Turntable converted 0.2% higher, but AI delivered 95% of quality at 1/20th the time and cost.</p>
+      
+      <blockquote>
+        <p>Create your first 360 product spin in 60 seconds. ShopShot offers 15 credits to test - no equipment required.</p>
+      </blockquote>
+    `
+  },
+  {
+    slug: "instagram-tiktok-product-images",
+    title: "How to Create Product Images for Instagram and TikTok Shop (Mobile-First Optimization)",
+    metaDescription: "Learn how to create scroll-stopping product images for Instagram and TikTok Shop. Master aspect ratios, mobile optimization, and AI tools to generate platform-specific visuals that convert.",
+    keywords: ["Instagram product images", "TikTok Shop photos", "social commerce photography", "mobile-first product images"],
+    excerpt: "Social commerce demands vertical formats, bold visuals, and thumb-stopping design. Desktop-optimized photos flop on mobile feeds. Here's how to get it right.",
+    category: "Social Media",
+    publishDate: "2025-01-19",
+    readTime: 13,
+    content: `
+      <h2>Why Social Commerce Images Differ from Ecommerce</h2>
+      <p><strong>Traditional ecommerce (Shopify, Amazon):</strong> Square 1:1, white background, product-centric, desktop-first</p>
+      <p><strong>Social commerce (Instagram, TikTok):</strong> Vertical 9:16 or 4:5, lifestyle context required, scroll-stopping design, mobile-first</p>
+      
+      <h3>Data-Backed Differences</h3>
+      <ul>
+        <li>Vertical images (4:5) get 23% more engagement than square on Instagram</li>
+        <li>TikTok Shop videos with product-focused first frame convert 3.1x higher</li>
+        <li>Mobile-optimized images load 40% faster, reducing bounce by 18%</li>
+      </ul>
+      
+      <h2>Platform-Specific Image Requirements</h2>
+      <h3>Instagram Shop</h3>
+      <ul>
+        <li><strong>Feed Posts:</strong> 4:5 vertical (1080x1350px) or 1:1 square (1080x1080px)</li>
+        <li><strong>Stories:</strong> 9:16 vertical (1080x1920px)</li>
+        <li><strong>Reels Thumbnails:</strong> 9:16 (1080x1920px)</li>
+        <li><strong>Shop Tab Grid:</strong> 1:1 square thumbnails</li>
+      </ul>
+      
+      <h3>TikTok Shop</h3>
+      <ul>
+        <li><strong>Product Listing:</strong> 1:1 square (1080x1080px)</li>
+        <li><strong>Video Thumbnails:</strong> 9:16 vertical (1080x1920px)</li>
+        <li><strong>In-Feed Ads:</strong> 9:16 or 1:1</li>
+      </ul>
+      
+      <h2>Mobile-Native Photography (DIY Method)</h2>
+      <ol>
+        <li><strong>Shoot vertical:</strong> Hold phone upright (portrait mode). Product fills 60-70% of screen.</li>
+        <li><strong>Use lifestyle context:</strong> Show product in use or staged naturally.</li>
+        <li><strong>Optimize lighting:</strong> Golden hour or diffused window light.</li>
+        <li><strong>Add text overlays (TikTok only):</strong> Bold text at top or bottom third.</li>
+      </ol>
+      <p><strong>Time per product:</strong> 15-20 minutes including shooting + editing.</p>
+      
+      <h2>AI Platform-Specific Generation (Fastest Method)</h2>
+      <ol>
+        <li><strong>Upload base photo:</strong> Any clean product shot.</li>
+        <li><strong>Select platform template:</strong> Instagram Feed (4:5 Lifestyle), Instagram Stories (9:16), TikTok Shop (9:16 authentic aesthetic).</li>
+        <li><strong>Customize text/CTA:</strong> Instagram: minimal text. TikTok: bold CTA text.</li>
+        <li><strong>Generate variations:</strong> 5-10 versions per product (different backgrounds, angles, color grades).</li>
+        <li><strong>Download optimized exports:</strong> Auto-compressed to <500KB for fast mobile load.</li>
+      </ol>
+      <p><strong>Time per product:</strong> 2 minutes.</p>
+      
+      <h2>Conversion-Focused Design Principles</h2>
+      <ul>
+        <li><strong>Thumb-Stopping Color Contrast:</strong> Complementary colors. Avoid all-white or all-grey. Minimum 4.5:1 contrast ratio.</li>
+        <li><strong>Recognizable at Thumbnail Scale:</strong> Test at 200x200px. Can you identify product in <1 second?</li>
+        <li><strong>Lifestyle Context (Not Clutter):</strong> Follow 70/30 rule: 70% product focus, 30% context.</li>
+        <li><strong>Fast Load Speed:</strong> Compress to <500KB. Use WebP format when possible.</li>
+      </ul>
+      
+      <h2>Platform-Specific Content Strategies</h2>
+      <h3>Instagram Shop</h3>
+      <p>Post 3-5x per week. Use carousel posts for multi-angle views. Tag products in every post. Daily Stories with interactive stickers.</p>
+      
+      <h3>TikTok Shop</h3>
+      <p>15-30 second showcase videos. Start with product in hand or in-use. Repost customer UGC. Weekly TikTok Live sessions with exclusive discounts.</p>
+      
+      <h2>AI Tools vs. Manual Creation (Data)</h2>
+      <p>Test by Social Media Examiner (2024): 100 products, manual photography vs AI-generated platform-specific images.</p>
+      <ul>
+        <li>Manual photography: 3.2% Instagram engagement, 1.8% TikTok CTR, 18 min per product</li>
+        <li>AI platform images (ShopShot): 3.4% Instagram engagement, 2.1% TikTok CTR, 2 min per product</li>
+      </ul>
+      <p>AI-generated images performed better while saving 90% of time.</p>
+      
+      <blockquote>
+        <p>Create Instagram & TikTok product images in 2 minutes. ShopShot offers 15 credits to test platform-specific image generation.</p>
       </blockquote>
     `
   }
