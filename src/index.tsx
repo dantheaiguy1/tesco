@@ -4824,57 +4824,62 @@ Requirements:
 - Make it eye-catching for ${config.name}
 - DO NOT include any text or logos in the image`;
 
-      try {
-        const imageEndpoint = `https://aiplatform.googleapis.com/v1/projects/${projectId}/locations/global/publishers/google/models/${imageModel}:generateContent`;
-        
-        const imageResponse = await fetch(imageEndpoint, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            contents: [{ role: 'user', parts: [{ text: imagePrompt }] }],
-            generationConfig: {
-              responseModalities: ['IMAGE'],
-              temperature: 0.8
-            }
-          })
-        });
+      // Retry logic for image generation (up to 2 attempts)
+      let imageBase64 = null;
+      const maxRetries = 2;
+      
+      for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+          if (attempt > 0) {
+            console.log(`[Social Studio] Retry ${attempt + 1}/${maxRetries} for ${platform} image`);
+            await new Promise(r => setTimeout(r, 1000)); // Wait 1s before retry
+          }
+          
+          const imageEndpoint = `https://aiplatform.googleapis.com/v1/projects/${projectId}/locations/global/publishers/google/models/${imageModel}:generateContent`;
+          
+          const imageResponse = await fetch(imageEndpoint, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${accessToken}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              contents: [{ role: 'user', parts: [{ text: imagePrompt }] }],
+              generationConfig: {
+                responseModalities: ['IMAGE'],
+                temperature: 0.8
+              }
+            })
+          });
 
-        let imageBase64 = null;
-        if (imageResponse.ok) {
-          const imageData = await imageResponse.json() as any;
-          // Extract base64 image from response
-          const parts = imageData.candidates?.[0]?.content?.parts || [];
-          for (const part of parts) {
-            if (part.inlineData?.data) {
-              imageBase64 = part.inlineData.data;
-              break;
+          if (imageResponse.ok) {
+            const imageData = await imageResponse.json() as any;
+            // Extract base64 image from response
+            const parts = imageData.candidates?.[0]?.content?.parts || [];
+            for (const part of parts) {
+              if (part.inlineData?.data) {
+                imageBase64 = part.inlineData.data;
+                break;
+              }
             }
           }
+          
+          if (imageBase64) break; // Success, exit retry loop
+          
+        } catch (err) {
+          console.error(`[Social Studio] Image gen attempt ${attempt + 1} error for ${platform}:`, err);
         }
-
-        posts.push({
-          platform,
-          caption: platformData.caption,
-          imageBase64,
-          aspectRatio: config.aspectRatio,
-          maxCaption: config.maxCaption,
-          platformName: config.name
-        });
-      } catch (err) {
-        console.error(`[Social Studio] Image gen error for ${platform}:`, err);
-        posts.push({
-          platform,
-          caption: platformData.caption,
-          imageBase64: null,
-          aspectRatio: config.aspectRatio,
-          maxCaption: config.maxCaption,
-          platformName: config.name,
-          error: 'Image generation failed'
-        });
       }
+
+      posts.push({
+        platform,
+        caption: platformData.caption,
+        imageBase64,
+        aspectRatio: config.aspectRatio,
+        maxCaption: config.maxCaption,
+        platformName: config.name,
+        ...(imageBase64 ? {} : { error: 'Image generation failed' })
+      });
     }
 
     return c.json({ 
@@ -4921,39 +4926,56 @@ app.post('/api/admin/social/publish', async (c) => {
       }
 
       try {
-        let mediaId = null;
+        let mediaUrl = null;
 
-        // Step 1: Upload image if exists
+        // Step 1: Upload image if exists (using multipart/form-data)
         if (imageBase64) {
-          const mediaResponse = await fetch(`${lateBaseUrl}/media/upload`, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${lateApiKey}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              file: `data:image/png;base64,${imageBase64}`,
-              platform
-            })
-          });
+          try {
+            // Convert base64 to blob for multipart upload
+            const binaryStr = atob(imageBase64);
+            const bytes = new Uint8Array(binaryStr.length);
+            for (let i = 0; i < binaryStr.length; i++) {
+              bytes[i] = binaryStr.charCodeAt(i);
+            }
+            const blob = new Blob([bytes], { type: 'image/png' });
+            
+            const formData = new FormData();
+            formData.append('file', blob, `${platform}-image.png`);
+            
+            const mediaResponse = await fetch(`${lateBaseUrl}/media`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${lateApiKey}`
+              },
+              body: formData
+            });
 
-          if (mediaResponse.ok) {
-            const mediaData = await mediaResponse.json() as any;
-            mediaId = mediaData.id || mediaData.mediaId;
-          } else {
-            console.error(`[Late API] Media upload failed for ${platform}:`, await mediaResponse.text());
+            if (mediaResponse.ok) {
+              const mediaData = await mediaResponse.json() as any;
+              mediaUrl = mediaData.url || mediaData.fileUrl || mediaData.file?.url;
+              console.log(`[Late API] Media uploaded for ${platform}:`, mediaUrl);
+            } else {
+              const errText = await mediaResponse.text();
+              console.error(`[Late API] Media upload failed for ${platform}:`, errText);
+            }
+          } catch (uploadErr) {
+            console.error(`[Late API] Media upload error for ${platform}:`, uploadErr);
           }
         }
 
-        // Step 2: Create post
+        // Step 2: Create post using correct Late API format
+        // publishNow: true to publish immediately to all connected accounts
         const postPayload: any = {
-          platform,
-          text: caption,
-          scheduledAt: new Date().toISOString() // Post immediately
+          content: caption,
+          publishNow: true
         };
 
-        if (mediaId) {
-          postPayload.mediaIds = [mediaId];
+        // Add media if uploaded successfully
+        if (mediaUrl) {
+          postPayload.mediaItems = [{
+            type: 'image',
+            url: mediaUrl
+          }];
         }
 
         const postResponse = await fetch(`${lateBaseUrl}/posts`, {
