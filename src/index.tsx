@@ -5481,17 +5481,39 @@ app.post('/api/admin/social/publish', async (c) => {
         }
 
         const postData = await postResponse.json() as any;
-        console.log(`[Late API] Success response for ${platform}:`, JSON.stringify(postData));
+        console.log(`[Late API] Response for ${platform}:`, JSON.stringify(postData));
         
-        // Extract post ID and URL from Late API response
-        // Late API returns: { post: { _id, platforms: [{ platform, platformPostUrl }] } }
+        // Extract post object and ID from Late API response
+        // Late API returns: { post: { _id, platforms: [{ platform, platformPostUrl, error }] } }
         const postObj = postData.post || postData;
         const postId = postObj._id || postObj.id || postData._id || postData.id || null;
         
-        // Find platform-specific URL from platforms array
+        // Find platform-specific result from platforms array
         const platformResult = postObj.platforms?.find((p: any) => 
           p.platform?.toLowerCase() === platform.toLowerCase()
         );
+        
+        // Check for platform-specific errors (Late API may return 200 but platform failed)
+        // Common errors: "YouTube quota exceeded", "Instagram rate limit", etc.
+        const platformError = platformResult?.error || platformResult?.errorMessage || 
+                             platformResult?.failureReason || null;
+        const platformStatus = platformResult?.status?.toLowerCase();
+        
+        if (platformError || platformStatus === 'failed' || platformStatus === 'error') {
+          const errorMsg = platformError || `${platform} publishing failed`;
+          console.error(`[Late API] Platform-specific error for ${platform}:`, errorMsg);
+          
+          // Save as failed with the specific error
+          const failedPostId = crypto.randomUUID();
+          await db.prepare(`
+            INSERT INTO social_posts (id, platform, caption, image_base64, post_id, status, prompt, error_message, created_by)
+            VALUES (?, ?, ?, ?, ?, 'failed', ?, ?, ?)
+          `).bind(failedPostId, platform, String(caption), imageBase64 || null, postId ? String(postId) : null, String(prompt || ''), String(errorMsg), user.id).run();
+          
+          results.push({ platform, success: false, error: errorMsg, postId: postId });
+          continue;
+        }
+        
         const postUrl = platformResult?.platformPostUrl || postObj.url || postData.url || null;
         
         // Save successful post to DB
