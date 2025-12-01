@@ -49,6 +49,8 @@ type Bindings = {
   GOOGLE_CLIENT_SECRET: string;
   // Late API for Social Studio
   LATE_API_KEY: string;
+  // R2 for video uploads
+  VIDEO_BUCKET: R2Bucket;
 }
 
 // User type for authenticated requests
@@ -5077,9 +5079,98 @@ BANNED ELEMENTS:
   }
 });
 
-// Get upload token for direct Late API upload (admin only)
-// This bypasses Cloudflare Worker payload limits by allowing direct upload to Late
-app.get('/api/admin/social/upload-token', async (c) => {
+// Get presigned URL for direct R2 upload (admin only)
+// This bypasses Cloudflare Worker payload limits - videos upload directly to R2
+app.post('/api/admin/social/get-upload-url', async (c) => {
+  const user = c.get('user') as any;
+  if (!user || user.role !== 'admin') {
+    return c.json({ success: false, error: 'Admin access required' }, 403);
+  }
+
+  try {
+    const { fileName, fileType, fileSize } = await c.req.json();
+    
+    if (!fileName || !fileType) {
+      return c.json({ success: false, error: 'Missing fileName or fileType' }, 400);
+    }
+
+    // Validate file size (500MB max for R2)
+    if (fileSize && fileSize > 500 * 1024 * 1024) {
+      return c.json({ success: false, error: 'Video must be under 500MB' }, 400);
+    }
+
+    // Validate file type
+    const validTypes = ['video/mp4', 'video/quicktime', 'video/webm', 'video/mov'];
+    if (!validTypes.some(t => fileType.includes('video/'))) {
+      return c.json({ success: false, error: 'Invalid video type. Use MP4, MOV, or WebM.' }, 400);
+    }
+
+    // Generate unique key for R2
+    const timestamp = Date.now();
+    const randomId = Math.random().toString(36).substring(2, 10);
+    const ext = fileName.split('.').pop() || 'mp4';
+    const key = `videos/${timestamp}-${randomId}.${ext}`;
+
+    // Return the key - frontend will upload directly using our PUT endpoint
+    return c.json({ 
+      success: true,
+      key,
+      uploadUrl: `/api/admin/social/upload-to-r2/${key}`
+    });
+
+  } catch (error: any) {
+    console.error('[R2 Upload] Get URL error:', error);
+    return c.json({ success: false, error: error.message || 'Failed to get upload URL' }, 500);
+  }
+});
+
+// Direct R2 upload endpoint - receives video stream and writes to R2
+app.put('/api/admin/social/upload-to-r2/:key{.+}', async (c) => {
+  const user = c.get('user') as any;
+  if (!user || user.role !== 'admin') {
+    return c.json({ success: false, error: 'Admin access required' }, 403);
+  }
+
+  try {
+    const key = c.req.param('key');
+    const bucket = c.env.VIDEO_BUCKET;
+    
+    if (!bucket) {
+      return c.json({ success: false, error: 'R2 bucket not configured' }, 500);
+    }
+
+    // Get the raw body as ArrayBuffer
+    const body = await c.req.arrayBuffer();
+    
+    if (!body || body.byteLength === 0) {
+      return c.json({ success: false, error: 'No video data received' }, 400);
+    }
+
+    console.log(`[R2 Upload] Uploading ${key}, size: ${body.byteLength} bytes`);
+
+    // Upload to R2
+    await bucket.put(key, body, {
+      httpMetadata: {
+        contentType: c.req.header('Content-Type') || 'video/mp4'
+      }
+    });
+
+    console.log(`[R2 Upload] Success: ${key}`);
+
+    return c.json({ 
+      success: true, 
+      key,
+      size: body.byteLength
+    });
+
+  } catch (error: any) {
+    console.error('[R2 Upload] Error:', error);
+    return c.json({ success: false, error: error.message || 'Failed to upload to R2' }, 500);
+  }
+});
+
+// Transfer video from R2 to Late API (admin only)
+app.post('/api/admin/social/transfer-to-late', async (c) => {
   const user = c.get('user') as any;
   if (!user || user.role !== 'admin') {
     return c.json({ success: false, error: 'Admin access required' }, 403);
@@ -5090,13 +5181,79 @@ app.get('/api/admin/social/upload-token', async (c) => {
     return c.json({ success: false, error: 'Late API not configured' }, 500);
   }
 
-  // Return the token for direct upload
-  // This is secure because only authenticated admins can access this endpoint
-  return c.json({ 
-    success: true, 
-    token: lateApiKey,
-    uploadUrl: 'https://getlate.dev/api/v1/media'
-  });
+  const bucket = c.env.VIDEO_BUCKET;
+  if (!bucket) {
+    return c.json({ success: false, error: 'R2 bucket not configured' }, 500);
+  }
+
+  try {
+    const { key, fileName } = await c.req.json();
+    
+    if (!key) {
+      return c.json({ success: false, error: 'Missing R2 key' }, 400);
+    }
+
+    console.log(`[R2->Late] Fetching ${key} from R2...`);
+
+    // Get video from R2
+    const object = await bucket.get(key);
+    if (!object) {
+      return c.json({ success: false, error: 'Video not found in R2' }, 404);
+    }
+
+    const videoData = await object.arrayBuffer();
+    console.log(`[R2->Late] Got ${videoData.byteLength} bytes, uploading to Late...`);
+
+    // Create blob and form data for Late API
+    const blob = new Blob([videoData], { type: object.httpMetadata?.contentType || 'video/mp4' });
+    const formData = new FormData();
+    formData.append('files', blob, fileName || 'video.mp4');
+
+    // Upload to Late API
+    const lateResponse = await fetch('https://getlate.dev/api/v1/media', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${lateApiKey}`
+      },
+      body: formData
+    });
+
+    const lateText = await lateResponse.text();
+    console.log(`[R2->Late] Late API response:`, lateResponse.status, lateText);
+
+    if (!lateResponse.ok) {
+      return c.json({ success: false, error: 'Late API upload failed: ' + lateText }, 500);
+    }
+
+    let videoUrl = null;
+    try {
+      const lateData = JSON.parse(lateText);
+      videoUrl = lateData.files?.[0]?.url || lateData.url || lateData.fileUrl;
+    } catch (e) {
+      return c.json({ success: false, error: 'Invalid Late API response' }, 500);
+    }
+
+    if (!videoUrl) {
+      return c.json({ success: false, error: 'No video URL returned from Late' }, 500);
+    }
+
+    // Clean up R2 (optional - delete after successful transfer)
+    try {
+      await bucket.delete(key);
+      console.log(`[R2->Late] Cleaned up R2 key: ${key}`);
+    } catch (e) {
+      console.warn(`[R2->Late] Failed to clean up R2 key: ${key}`, e);
+    }
+
+    return c.json({ 
+      success: true, 
+      videoUrl 
+    });
+
+  } catch (error: any) {
+    console.error('[R2->Late] Transfer error:', error);
+    return c.json({ success: false, error: error.message || 'Failed to transfer video' }, 500);
+  }
 });
 
 // Upload video for social posts (admin only) - DEPRECATED: Use upload-token instead
@@ -17586,7 +17743,7 @@ function getSocialStudioPage(user: any) {
       <div class="video-upload-area" id="videoUploadArea" onclick="document.getElementById('videoInput').click()">
         <div class="video-upload-icon">📹</div>
         <div class="video-upload-text">Click or drag to upload portrait video</div>
-        <div class="video-upload-hint">MP4, MOV, WebM - Max 5MB - Portrait (9:16) recommended - Compress larger videos</div>
+        <div class="video-upload-hint">MP4, MOV, WebM - Up to 500MB - Portrait (9:16) recommended for Shorts/Reels</div>
         <input type="file" id="videoInput" accept="video/mp4,video/quicktime,video/webm" style="display: none" onchange="handleVideoSelect(event)">
       </div>
       
@@ -17738,9 +17895,9 @@ function getSocialStudioPage(user: any) {
       const file = event.target.files[0];
       if (!file) return;
       
-      // Validate file size (5MB to stay within Cloudflare Worker limits)
-      if (file.size > 5 * 1024 * 1024) {
-        showToast('Video must be under 5MB. Please compress or use a shorter clip.', 'error');
+      // Validate file size (500MB max with R2 upload)
+      if (file.size > 500 * 1024 * 1024) {
+        showToast('Video must be under 500MB', 'error');
         return;
       }
       
@@ -17880,33 +18037,67 @@ function getSocialStudioPage(user: any) {
       
       try {
         if (mediaType === 'video') {
-          // Video mode: Upload via backend proxy, then generate captions
-          setLoading(true, 'Uploading video...');
+          // Video mode: Upload to R2 first, then transfer to Late, then generate captions
           
-          // Check file size - must be under 5MB due to Worker limits
-          if (uploadedVideoFile.size > 5 * 1024 * 1024) {
-            throw new Error('Video must be under 5MB for now. Please compress your video or use a shorter clip.');
+          // Check file size (500MB max)
+          if (uploadedVideoFile.size > 500 * 1024 * 1024) {
+            throw new Error('Video must be under 500MB');
           }
           
-          // Upload through backend proxy
-          const formData = new FormData();
-          formData.append('video', uploadedVideoFile, uploadedVideoFile.name);
-          
-          const uploadRes = await fetch('/api/admin/social/upload-video', {
+          // Step 1: Get R2 upload URL
+          setLoading(true, 'Preparing upload...');
+          const urlRes = await fetch('/api/admin/social/get-upload-url', {
             method: 'POST',
-            body: formData
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              fileName: uploadedVideoFile.name,
+              fileType: uploadedVideoFile.type,
+              fileSize: uploadedVideoFile.size
+            })
+          });
+          const urlData = await urlRes.json();
+          if (!urlData.success) {
+            throw new Error(urlData.error || 'Failed to get upload URL');
+          }
+          
+          // Step 2: Upload directly to R2 (bypasses Worker payload limits)
+          setLoading(true, 'Uploading video (' + (uploadedVideoFile.size / (1024*1024)).toFixed(1) + 'MB)...');
+          console.log('[Video Upload] Uploading to R2:', urlData.key);
+          
+          const uploadRes = await fetch(urlData.uploadUrl, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': uploadedVideoFile.type
+            },
+            body: uploadedVideoFile
           });
           
-          const uploadData = await uploadRes.json();
-          console.log('[Video Upload] Response:', uploadData);
+          const uploadResult = await uploadRes.json();
+          if (!uploadResult.success) {
+            throw new Error(uploadResult.error || 'R2 upload failed');
+          }
+          console.log('[Video Upload] R2 upload complete:', uploadResult);
           
-          if (!uploadData.success) {
-            throw new Error(uploadData.error || 'Video upload failed');
+          // Step 3: Transfer from R2 to Late API
+          setLoading(true, 'Processing video...');
+          const transferRes = await fetch('/api/admin/social/transfer-to-late', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              key: urlData.key,
+              fileName: uploadedVideoFile.name
+            })
+          });
+          
+          const transferData = await transferRes.json();
+          if (!transferData.success) {
+            throw new Error(transferData.error || 'Failed to process video');
           }
           
-          uploadedVideoUrl = uploadData.videoUrl;
-          console.log('[Video Upload] Success:', uploadedVideoUrl);
+          uploadedVideoUrl = transferData.videoUrl;
+          console.log('[Video Upload] Complete! Late URL:', uploadedVideoUrl);
           
+          // Step 4: Generate captions
           setLoading(true, 'Generating captions with AI...');
           
           // Generate captions for video (includes YouTube)
