@@ -9375,8 +9375,10 @@ function getHomePage(user?: User) {
       // Reset Hero White image state for new generation
       window.heroWhiteImageReady = false;
       window.heroWhiteImageUrl = null;
-      // Reset retry counts for new generation
+      // Reset retry counts and Pro fallback state for new generation
       window.retryCount = {};
+      window.proFailureCount = 0;
+      window.autoFallbackToStandard = false;
       
       // Apply brand colors to session BEFORE generating
       await applyBrandColorsToSession(currentSessionId);
@@ -9449,6 +9451,17 @@ function getHomePage(user?: User) {
       const v = variationDefs[index];
       const progressBar = document.getElementById('progress-' + index);
       
+      // Track consecutive Pro failures for auto-fallback
+      window.proFailureCount = window.proFailureCount || 0;
+      window.autoFallbackToStandard = window.autoFallbackToStandard || false;
+      
+      // Determine which model to use (may have auto-fallen back to Standard)
+      let modelToUse = selectedModel;
+      if (selectedModel === 'nano' && window.autoFallbackToStandard) {
+        modelToUse = 'flash';
+        console.log('[Generate] Using Standard (auto-fallback from Pro) for variation', index);
+      }
+      
       // Animate progress
       let progress = 0;
       const interval = setInterval(() => {
@@ -9457,7 +9470,7 @@ function getHomePage(user?: User) {
       }, 500);
 
       try {
-        console.log('[Generate] Sending request for variation', index, 'with model:', selectedModel);
+        console.log('[Generate] Sending request for variation', index, 'with model:', modelToUse);
         const res = await fetch('/api/generate-single/' + currentSessionId + '/' + (index - 1), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -9465,7 +9478,7 @@ function getHomePage(user?: User) {
             originalImage: currentOriginalImage,
             productName: document.getElementById('product-name-edit')?.value || 'Product',
             customPrompt: customPrompts[index],
-            model: selectedModel
+            model: modelToUse
           })
         });
 
@@ -9482,6 +9495,10 @@ function getHomePage(user?: User) {
         }
         
         if (data.success && data.image) {
+          // Reset Pro failure count on success
+          if (modelToUse === 'nano') {
+            window.proFailureCount = 0;
+          }
           lightboxImages[index] = { src: data.image, label: v.label };
           card.innerHTML = '<img src="' + data.image + '" onclick="openLightbox(' + index + ')">' +
             '<div class="card-overlay">' +
@@ -9508,6 +9525,19 @@ function getHomePage(user?: User) {
             '<div class="card-label">' + v.label + '</div>';
           showPaywallModal(data.required, data.current);
         } else {
+          // Track Pro model failures for auto-fallback
+          if (modelToUse === 'nano') {
+            window.proFailureCount = (window.proFailureCount || 0) + 1;
+            console.log('[Generate] Pro failure count:', window.proFailureCount);
+            
+            // After 2 consecutive Pro failures, switch to Standard
+            if (window.proFailureCount >= 2 && !window.autoFallbackToStandard) {
+              window.autoFallbackToStandard = true;
+              console.log('[Generate] Auto-fallback activated: switching to Standard model');
+              showNotification('Pro model unstable - switching to Standard for faster results. Pro credits preserved.');
+            }
+          }
+          
           // Auto-retry on failure (max 2 retries)
           const retryCount = window.retryCount || {};
           retryCount[index] = (retryCount[index] || 0) + 1;
@@ -9526,6 +9556,19 @@ function getHomePage(user?: User) {
       } catch (e) {
         clearInterval(interval);
         const card = document.getElementById('card-' + index);
+        
+        // Track Pro model errors (timeouts, network issues) for auto-fallback
+        if (modelToUse === 'nano') {
+          window.proFailureCount = (window.proFailureCount || 0) + 1;
+          console.log('[Generate] Pro error count:', window.proFailureCount, 'Error:', e.message || e);
+          
+          // After 2 consecutive Pro failures/errors, switch to Standard
+          if (window.proFailureCount >= 2 && !window.autoFallbackToStandard) {
+            window.autoFallbackToStandard = true;
+            console.log('[Generate] Auto-fallback activated: switching to Standard model');
+            showNotification('Pro model unstable - switching to Standard for faster results. Pro credits preserved.');
+          }
+        }
         
         // Auto-retry on error (max 2 retries)
         const retryCount = window.retryCount || {};
