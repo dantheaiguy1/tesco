@@ -4011,18 +4011,18 @@ function generateBrandColorPrompt(brandColors: string[]): string {
   
   const colorLabels = ['Primary', 'Secondary', 'Accent', 'Neutral', 'Contrast'];
   const usageGuides = [
-    'use for dominant background elements, fabrics, or surfaces',
-    'use for contrast props, secondary items, or complementary elements',
+    'MUST be the dominant background color - use as large fabric backdrop, wall, or surface',
+    'use for secondary props, complementary items, or accent surfaces',
     'use for small highlights, accent items, or decorative touches',
     'use for base surfaces, neutral props, or grounding elements',
-    'use for text elements, shadows, or high-contrast details'
+    'use for contrast details or shadow areas'
   ];
   
   const colorLines = brandColors
     .filter(c => c && c.trim())
     .map((hex, i) => {
       const name = hexToColorName(hex);
-      return `- ${colorLabels[i] || 'Additional'}: ${hex} (${name}) - ${usageGuides[i] || 'use as accent'}`;
+      return `- ${colorLabels[i] || 'Additional'}: ${hex} (EXACT ${name.toUpperCase()}) - ${usageGuides[i] || 'use as accent'}`;
     })
     .join('\n');
   
@@ -4030,10 +4030,16 @@ function generateBrandColorPrompt(brandColors: string[]): string {
   
   return `
 
-Incorporate this brand color palette naturally into the scene:
+CRITICAL BRAND COLOR REQUIREMENTS - Use these EXACT colors with FULL SATURATION:
 ${colorLines}
 
-Apply these colors to backgrounds, props, fabrics, surfaces, and environmental lighting. Prioritize these brand colors over default aesthetic choices. Do NOT alter the product's own colors - only the surrounding context and styling elements.`;
+IMPORTANT COLOR INSTRUCTIONS:
+- Use BOLD, VIBRANT, FULLY SATURATED versions of these brand colors
+- Do NOT desaturate, lighten, or mute these colors - maintain their full intensity
+- The primary color should be prominently visible and unmistakably match the hex code
+- Apply colors to backgrounds, fabrics, props, and surfaces - NOT to the product itself
+- These are brand colors that MUST be recognizable and true to the hex values provided
+- Treat these colors as if matching a strict brand guideline - accuracy is essential`;
 }
 
 // Shared prompt generator function - Strategic ecommerce prompts
