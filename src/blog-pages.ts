@@ -123,7 +123,7 @@ export const blogPosts: BlogPost[] = [
     keywords: ["AI product photography", "product photography AI", "AI generated product images", "automated product photos"],
     excerpt: "Discover how AI is revolutionizing product photography for e-commerce sellers, making professional-quality images accessible to everyone.",
     category: "AI Technology",
-    publishDate: "2025-01-15",
+    publishDate: "2024-11-10",
     readTime: 8,
     featured: true,
     content: `
@@ -185,7 +185,7 @@ export const blogPosts: BlogPost[] = [
     keywords: ["white background product photography", "product photos white background", "Amazon product images", "clean product shots"],
     excerpt: "White background photos are essential for e-commerce success. Learn how to create them professionally using traditional methods or AI shortcuts.",
     category: "Tutorials",
-    publishDate: "2025-01-12",
+    publishDate: "2024-11-12",
     readTime: 7,
     content: `
       <h2>Why White Backgrounds Matter</h2>
@@ -288,7 +288,7 @@ export const blogPosts: BlogPost[] = [
     keywords: ["lifestyle product photography", "product lifestyle images", "contextual product photos", "in-use product shots"],
     excerpt: "Lifestyle photography shows products in real-world settings, helping customers envision ownership. Learn how to create these powerful selling images.",
     category: "Tutorials",
-    publishDate: "2025-01-10",
+    publishDate: "2024-11-14",
     readTime: 9,
     content: `
       <h2>What is Lifestyle Product Photography?</h2>
@@ -386,7 +386,7 @@ export const blogPosts: BlogPost[] = [
     keywords: ["Amazon product photography", "Amazon image requirements", "Amazon listing photos", "sell on Amazon images"],
     excerpt: "Master Amazon's strict image requirements and learn strategies to create listings that rank higher and convert better.",
     category: "Marketplaces",
-    publishDate: "2025-01-08",
+    publishDate: "2024-11-16",
     readTime: 10,
     content: `
       <h2>Understanding Amazon's Image Requirements</h2>
@@ -506,7 +506,7 @@ export const blogPosts: BlogPost[] = [
     keywords: ["product photography lighting", "lighting for product photos", "studio lighting setup", "natural light photography"],
     excerpt: "Lighting makes or breaks product photography. Learn professional techniques and discover how AI can create perfect lighting from any source image.",
     category: "Tutorials",
-    publishDate: "2025-01-05",
+    publishDate: "2024-11-18",
     readTime: 8,
     content: `
       <h2>Why Lighting is Everything</h2>
@@ -627,7 +627,7 @@ export const blogPosts: BlogPost[] = [
     keywords: ["flat lay photography", "overhead product photos", "product arrangement photography", "styled product shots"],
     excerpt: "Flat lay photography creates stunning overhead compositions perfect for social media and e-commerce. Learn the techniques and tools to master this style.",
     category: "Tutorials",
-    publishDate: "2025-01-03",
+    publishDate: "2024-11-20",
     readTime: 7,
     content: `
       <h2>What is Flat Lay Photography?</h2>
@@ -752,7 +752,7 @@ export const blogPosts: BlogPost[] = [
     keywords: ["Etsy product photography", "handmade product photos", "Etsy listing images", "craft photography"],
     excerpt: "Etsy shoppers expect a certain aesthetic. Learn how to photograph handmade products that fit the platform and drive sales.",
     category: "Marketplaces",
-    publishDate: "2024-12-28",
+    publishDate: "2024-11-22",
     readTime: 8,
     content: `
       <h2>Understanding the Etsy Aesthetic</h2>
@@ -868,7 +868,7 @@ export const blogPosts: BlogPost[] = [
     keywords: ["Instagram product photography", "product photos for Instagram", "Instagram shopping images", "social media product shots"],
     excerpt: "Instagram is visual-first. Learn how to create product photography that stops the scroll, drives engagement, and converts followers into customers.",
     category: "Social Media",
-    publishDate: "2024-12-25",
+    publishDate: "2024-11-23",
     readTime: 9,
     content: `
       <h2>Why Instagram Product Photography is Different</h2>
@@ -983,7 +983,7 @@ export const blogPosts: BlogPost[] = [
     keywords: ["product photography mistakes", "bad product photos", "improve product images", "e-commerce photography errors"],
     excerpt: "Poor product photography costs sales. Learn the 10 most common mistakes that hurt conversion rates and how to fix them quickly.",
     category: "Tutorials",
-    publishDate: "2024-12-22",
+    publishDate: "2024-11-24",
     readTime: 7,
     content: `
       <h2>Why Product Photography Mistakes Cost Real Money</h2>
@@ -1051,7 +1051,7 @@ export const blogPosts: BlogPost[] = [
     keywords: ["Shopify product photography", "Shopify product images", "online store photography", "e-commerce store photos"],
     excerpt: "Master product photography specifically for Shopify stores. Learn technical optimisation, theme considerations, and strategies for higher conversions.",
     category: "Marketplaces",
-    publishDate: "2025-01-20",
+    publishDate: "2024-11-25",
     readTime: 8,
     content: `
       <h2>Shopify's Unique Image Considerations</h2>
@@ -1178,7 +1178,7 @@ export const blogPosts: BlogPost[] = [
     keywords: ["product photography without photographer", "DIY product photos", "AI product photography", "cheap product photography"],
     excerpt: "You don't need a professional photographer to get professional-looking product photos anymore. Learn exactly how to create images that make your products look expensive without spending a fortune.",
     category: "Tutorials",
-    publishDate: "2025-01-28",
+    publishDate: "2024-11-26",
     readTime: 12,
     featured: true,
     content: `
@@ -1236,7 +1236,7 @@ export const blogPosts: BlogPost[] = [
     keywords: ["bulk product images", "Shopify product photos", "batch product photography", "catalog photography"],
     excerpt: "That 'small' catalog of 50 products suddenly needs 250+ photos. Here's how to handle bulk product photography without losing your mind or your budget.",
     category: "Tutorials",
-    publishDate: "2025-01-27",
+    publishDate: "2024-11-27",
     readTime: 10,
     content: `
       <h2>The Challenge: Large Catalogs Need Photos (Lots of Them)</h2>
@@ -1293,7 +1293,7 @@ export const blogPosts: BlogPost[] = [
     keywords: ["Amazon product images", "Amazon image requirements", "Amazon white background", "Amazon listing photos"],
     excerpt: "Amazon rejected my first product listing within 2 hours. 'Main image does not meet technical requirements.' Here's how to get it right the first time.",
     category: "Marketplaces",
-    publishDate: "2025-01-26",
+    publishDate: "2024-11-28",
     readTime: 11,
     content: `
       <h2>Amazon's Product Photo Requirements for 2025</h2>
@@ -1353,7 +1353,7 @@ export const blogPosts: BlogPost[] = [
     keywords: ["multiple product photos", "product image variations", "AI product photography", "one photo multiple versions"],
     excerpt: "I had one good photo of a water bottle. Then my partner asked for white background for Amazon, lifestyle for Instagram, and gradient for the website. Here's the smart solution.",
     category: "AI Technology",
-    publishDate: "2025-01-25",
+    publishDate: "2024-11-29",
     readTime: 9,
     content: `
       <h2>Why Multiple Product Photos Actually Matter</h2>
@@ -1418,7 +1418,7 @@ export const blogPosts: BlogPost[] = [
     keywords: ["ecommerce product photography", "product photography guide", "online store photos", "product image optimization"],
     excerpt: "72% of customers say product photos influence their purchase decisions more than descriptions. This is everything you need to know about ecommerce photography.",
     category: "Tutorials",
-    publishDate: "2025-01-24",
+    publishDate: "2024-11-30",
     readTime: 15,
     featured: true,
     content: `
@@ -1484,7 +1484,7 @@ export const blogPosts: BlogPost[] = [
     keywords: ["AI product image generation", "AI photography tools", "generate product photos", "automated product photography"],
     excerpt: "Two years ago, 'AI product photography' meant janky, obviously fake images. Today, I genuinely can't tell which of my product images were shot by a photographer and which were AI-generated.",
     category: "AI Technology",
-    publishDate: "2025-01-23",
+    publishDate: "2024-12-01",
     readTime: 11,
     content: `
       <h2>What is AI Product Photography? (The Actual Technology)</h2>
@@ -1556,7 +1556,7 @@ export const blogPosts: BlogPost[] = [
     keywords: ["white background product photos", "pure white background", "Amazon image requirements", "RGB 255 255 255"],
     excerpt: "Amazon rejected my listing. 'Image does not meet technical requirements - background is not pure white.' Turns out, there's 'looks white' and 'RGB 255, 255, 255 pure white.' They're not the same.",
     category: "Tutorials",
-    publishDate: "2025-01-22",
+    publishDate: "2024-12-01",
     readTime: 10,
     content: `
       <h2>Why Marketplaces Require White Backgrounds</h2>
@@ -1626,7 +1626,7 @@ export const blogPosts: BlogPost[] = [
     keywords: ["lifestyle product photos", "contextual product images", "product photography without studio", "in-use product shots"],
     excerpt: "White background shots get clicks, but lifestyle images close deals. A Shopify study found lifestyle photos convert 40% higher. Here's how to create them without a studio.",
     category: "Tutorials",
-    publishDate: "2025-01-21",
+    publishDate: "2024-12-01",
     readTime: 12,
     content: `
       <h2>Why Lifestyle Product Photos Sell Better</h2>
@@ -1691,7 +1691,7 @@ export const blogPosts: BlogPost[] = [
     keywords: ["360 degree product photos", "product spin photography", "interactive product images", "360 product viewer"],
     excerpt: "360-degree product photos increase conversions by 27% and reduce returns by 22%. Here's how to create them without expensive turntable equipment.",
     category: "AI Technology",
-    publishDate: "2025-01-20",
+    publishDate: "2024-11-25",
     readTime: 10,
     content: `
       <h2>Why 360-Degree Product Photos Increase Sales</h2>
@@ -1758,7 +1758,7 @@ export const blogPosts: BlogPost[] = [
     keywords: ["Instagram product images", "TikTok Shop photos", "social commerce photography", "mobile-first product images"],
     excerpt: "Social commerce demands vertical formats, bold visuals, and thumb-stopping design. Desktop-optimized photos flop on mobile feeds. Here's how to get it right.",
     category: "Social Media",
-    publishDate: "2025-01-19",
+    publishDate: "2024-12-01",
     readTime: 13,
     content: `
       <h2>Why Social Commerce Images Differ from Ecommerce</h2>
