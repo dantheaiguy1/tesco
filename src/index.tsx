@@ -5120,9 +5120,9 @@ app.post('/api/admin/social/upload-video', async (c) => {
       return c.json({ success: false, error: 'No video file provided' }, 400);
     }
 
-    // Validate file size (100MB max)
-    if (video.size > 100 * 1024 * 1024) {
-      return c.json({ success: false, error: 'Video must be under 100MB' }, 400);
+    // Validate file size (5MB max due to Cloudflare Worker payload limits)
+    if (video.size > 5 * 1024 * 1024) {
+      return c.json({ success: false, error: 'Video must be under 5MB. Please compress your video.' }, 400);
     }
 
     // Validate file type
@@ -17586,7 +17586,7 @@ function getSocialStudioPage(user: any) {
       <div class="video-upload-area" id="videoUploadArea" onclick="document.getElementById('videoInput').click()">
         <div class="video-upload-icon">📹</div>
         <div class="video-upload-text">Click or drag to upload portrait video</div>
-        <div class="video-upload-hint">MP4, MOV, WebM - Max 50MB - Portrait (9:16) recommended</div>
+        <div class="video-upload-hint">MP4, MOV, WebM - Max 5MB - Portrait (9:16) recommended - Compress larger videos</div>
         <input type="file" id="videoInput" accept="video/mp4,video/quicktime,video/webm" style="display: none" onchange="handleVideoSelect(event)">
       </div>
       
@@ -17738,9 +17738,9 @@ function getSocialStudioPage(user: any) {
       const file = event.target.files[0];
       if (!file) return;
       
-      // Validate file size (50MB to stay within Late API limits)
-      if (file.size > 50 * 1024 * 1024) {
-        showToast('Video must be under 50MB', 'error');
+      // Validate file size (5MB to stay within Cloudflare Worker limits)
+      if (file.size > 5 * 1024 * 1024) {
+        showToast('Video must be under 5MB. Please compress or use a shorter clip.', 'error');
         return;
       }
       
@@ -17880,49 +17880,32 @@ function getSocialStudioPage(user: any) {
       
       try {
         if (mediaType === 'video') {
-          // Video mode: Upload directly to Late API, then generate captions
-          setLoading(true, 'Uploading video to Late API...');
+          // Video mode: Upload via backend proxy, then generate captions
+          setLoading(true, 'Uploading video...');
           
-          // Step 1: Get upload credentials from our backend
-          const credRes = await fetch('/api/admin/social/upload-token');
-          const credData = await credRes.json();
-          if (!credData.success) {
-            throw new Error(credData.error || 'Failed to get upload credentials');
+          // Check file size - must be under 5MB due to Worker limits
+          if (uploadedVideoFile.size > 5 * 1024 * 1024) {
+            throw new Error('Video must be under 5MB for now. Please compress your video or use a shorter clip.');
           }
           
-          // Step 2: Upload directly to Late API (bypasses Worker payload limits)
+          // Upload through backend proxy
           const formData = new FormData();
-          formData.append('files', uploadedVideoFile, uploadedVideoFile.name);
+          formData.append('video', uploadedVideoFile, uploadedVideoFile.name);
           
-          const uploadRes = await fetch('https://getlate.dev/api/v1/media', {
+          const uploadRes = await fetch('/api/admin/social/upload-video', {
             method: 'POST',
-            headers: {
-              'Authorization': 'Bearer ' + credData.token
-            },
             body: formData
           });
           
-          const uploadText = await uploadRes.text();
-          console.log('[Video Upload] Response:', uploadRes.status, uploadText);
+          const uploadData = await uploadRes.json();
+          console.log('[Video Upload] Response:', uploadData);
           
-          if (!uploadRes.ok) {
-            throw new Error('Video upload failed: ' + uploadText);
+          if (!uploadData.success) {
+            throw new Error(uploadData.error || 'Video upload failed');
           }
           
-          let videoUrl = null;
-          try {
-            const uploadData = JSON.parse(uploadText);
-            videoUrl = uploadData.files?.[0]?.url || uploadData.url || uploadData.fileUrl;
-          } catch (e) {
-            throw new Error('Invalid upload response');
-          }
-          
-          if (!videoUrl) {
-            throw new Error('No video URL returned');
-          }
-          
-          uploadedVideoUrl = videoUrl;
-          console.log('[Video Upload] Success:', videoUrl);
+          uploadedVideoUrl = uploadData.videoUrl;
+          console.log('[Video Upload] Success:', uploadedVideoUrl);
           
           setLoading(true, 'Generating captions with AI...');
           
