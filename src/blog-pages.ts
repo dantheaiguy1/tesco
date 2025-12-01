@@ -111,8 +111,179 @@ const BLOG_STYLES = `
     .prose blockquote { border-left: 4px solid #8b5cf6; padding-left: 1rem; margin: 1.5rem 0; font-style: italic; color: #6b7280; background: #f9fafb; padding: 1rem 1rem 1rem 1.5rem; border-radius: 0 0.5rem 0.5rem 0; }
     .blog-card { transition: transform 0.2s, box-shadow 0.2s; }
     .blog-card:hover { transform: translateY(-4px); box-shadow: 0 12px 24px rgba(0,0,0,0.1); }
+    /* Table of Contents Styles */
+    .toc { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 0.75rem; padding: 1.5rem; margin-bottom: 2rem; }
+    .toc h4 { font-size: 1rem; font-weight: 700; color: #1f2937; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.5rem; }
+    .toc ul { list-style: none; padding: 0; margin: 0; }
+    .toc li { padding: 0.375rem 0; border-bottom: 1px solid #e2e8f0; }
+    .toc li:last-child { border-bottom: none; }
+    .toc a { color: #6366f1; text-decoration: none; font-size: 0.9rem; }
+    .toc a:hover { color: #4f46e5; text-decoration: underline; }
+    /* Related Posts Box */
+    .related-reads { background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border: 1px solid #bae6fd; border-radius: 0.75rem; padding: 1.5rem; margin: 2rem 0; }
+    .related-reads h4 { font-size: 1rem; font-weight: 700; color: #0369a1; margin-bottom: 1rem; }
+    .related-reads ul { list-style: none; padding: 0; margin: 0; }
+    .related-reads li { padding: 0.5rem 0; }
+    .related-reads a { color: #0284c7; font-weight: 500; text-decoration: none; }
+    .related-reads a:hover { text-decoration: underline; }
+    /* FAQ Section */
+    .faq-section { background: #fefce8; border: 1px solid #fde047; border-radius: 0.75rem; padding: 1.5rem; margin-top: 2rem; }
+    .faq-section h3 { font-size: 1.25rem; font-weight: 700; color: #854d0e; margin-bottom: 1rem; }
+    .faq-item { border-bottom: 1px solid #fde047; padding: 1rem 0; }
+    .faq-item:last-child { border-bottom: none; padding-bottom: 0; }
+    .faq-question { font-weight: 600; color: #1f2937; margin-bottom: 0.5rem; }
+    .faq-answer { color: #4b5563; line-height: 1.6; }
   </style>
 `;
+
+// Internal linking map - each post links to 3-5 related posts
+const INTERNAL_LINKS: Record<string, string[]> = {
+  "ai-product-photography-guide": ["ai-product-image-generation", "product-photos-without-photographer", "white-background-product-photos", "ecommerce-product-photography-guide", "bulk-product-images-shopify"],
+  "white-background-product-photos": ["amazon-product-images-requirements", "amazon-product-photography", "ai-product-photography-guide", "white-background-product-photos-guide"],
+  "lifestyle-product-photography": ["lifestyle-product-photos-without-studio", "instagram-product-photography", "instagram-tiktok-product-images", "flat-lay-photography"],
+  "amazon-product-photography": ["amazon-product-images-requirements", "white-background-product-photos", "ecommerce-product-photography-guide", "bulk-product-images-shopify"],
+  "product-photography-lighting": ["ai-product-photography-guide", "white-background-product-photos", "lifestyle-product-photography", "product-photography-mistakes"],
+  "flat-lay-photography": ["lifestyle-product-photography", "instagram-product-photography", "instagram-tiktok-product-images", "product-photography-lighting"],
+  "etsy-product-photography": ["lifestyle-product-photography", "product-photos-without-photographer", "product-photography-lighting", "ai-product-photography-guide"],
+  "instagram-product-photography": ["instagram-tiktok-product-images", "lifestyle-product-photography", "flat-lay-photography", "multiple-product-photos-one-image"],
+  "product-photography-mistakes": ["product-photography-lighting", "white-background-product-photos", "ai-product-photography-guide", "ecommerce-product-photography-guide"],
+  "shopify-product-photography": ["bulk-product-images-shopify", "white-background-product-photos", "ecommerce-product-photography-guide", "ai-product-photography-guide"],
+  "product-photos-without-photographer": ["ai-product-photography-guide", "ai-product-image-generation", "product-photography-lighting", "bulk-product-images-shopify"],
+  "bulk-product-images-shopify": ["shopify-product-photography", "ai-product-image-generation", "product-photos-without-photographer", "multiple-product-photos-one-image"],
+  "amazon-product-images-requirements": ["amazon-product-photography", "white-background-product-photos", "ecommerce-product-photography-guide", "white-background-product-photos-guide"],
+  "multiple-product-photos-one-image": ["ai-product-image-generation", "bulk-product-images-shopify", "ai-product-photography-guide", "360-degree-product-photos"],
+  "ecommerce-product-photography-guide": ["ai-product-photography-guide", "amazon-product-photography", "shopify-product-photography", "white-background-product-photos", "product-photography-mistakes"],
+  "ai-product-image-generation": ["ai-product-photography-guide", "multiple-product-photos-one-image", "product-photos-without-photographer", "bulk-product-images-shopify"],
+  "white-background-product-photos-guide": ["white-background-product-photos", "amazon-product-images-requirements", "amazon-product-photography", "product-photography-lighting"],
+  "lifestyle-product-photos-without-studio": ["lifestyle-product-photography", "product-photos-without-photographer", "instagram-product-photography", "flat-lay-photography"],
+  "360-degree-product-photos": ["multiple-product-photos-one-image", "ai-product-image-generation", "ecommerce-product-photography-guide", "amazon-product-photography"],
+  "instagram-tiktok-product-images": ["instagram-product-photography", "lifestyle-product-photography", "flat-lay-photography", "multiple-product-photos-one-image"]
+};
+
+// FAQ data for each blog post - optimized for featured snippets
+const FAQ_DATA: Record<string, Array<{question: string, answer: string}>> = {
+  "ai-product-photography-guide": [
+    { question: "What is AI product photography?", answer: "AI product photography uses artificial intelligence to transform ordinary product photos into professional-quality images. You upload a single photo, and AI generates multiple variations with different backgrounds, lighting, and compositions in seconds." },
+    { question: "How much does AI product photography cost?", answer: "AI product photography typically costs 40-60 GBP per month for unlimited generations, compared to 300-1,500 GBP per traditional photo shoot. ShopShot offers plans starting at 39.99 GBP/month." },
+    { question: "Is AI product photography as good as professional photography?", answer: "Modern AI product photography produces results comparable to professional studio photography for e-commerce use. AI excels at consistency, speed, and cost-effectiveness, generating 10 variations in 25 seconds." },
+    { question: "What image formats work with AI product photography?", answer: "Most AI tools accept JPEG, PNG, and WebP formats. For best results, use clear images at least 1000x1000 pixels with good lighting and the product clearly visible." },
+    { question: "Can AI remove backgrounds from product photos?", answer: "Yes, AI can automatically remove backgrounds and place products on white backgrounds, lifestyle scenes, or custom environments. This is one of the core features of AI product photography tools." }
+  ],
+  "white-background-product-photos": [
+    { question: "Why do Amazon product photos need white backgrounds?", answer: "Amazon requires pure white backgrounds (RGB 255,255,255) for main product images to ensure consistency across the marketplace and put focus entirely on products. Images not meeting this requirement may be suppressed." },
+    { question: "How do I get a pure white background on product photos?", answer: "Use a lightbox or white sweep, overexpose the background by 1-2 stops, or use AI tools like ShopShot that automatically generate pure white backgrounds. Post-processing in Photoshop can also achieve this." },
+    { question: "What is the RGB value for a pure white background?", answer: "A pure white background has RGB values of 255, 255, 255 (hex #FFFFFF). Amazon and most marketplaces require backgrounds within this range for main product images." },
+    { question: "Can I convert any background to white using AI?", answer: "Yes, AI tools can extract your product from any background and place it on a pure white background. ShopShot does this automatically in the Hero (White BG) variation." }
+  ],
+  "lifestyle-product-photography": [
+    { question: "What is lifestyle product photography?", answer: "Lifestyle product photography shows products in real-world settings and use cases, helping customers visualize owning and using the product. It creates emotional connections and typically converts 30% better than plain product shots." },
+    { question: "Do I need a studio for lifestyle photography?", answer: "No, you can create lifestyle shots at home using natural light, simple props, and good composition. AI tools like ShopShot can also generate lifestyle scenes from a single product photo." },
+    { question: "What props work best for lifestyle product photos?", answer: "Choose props that complement your product and appeal to your target audience. For food, use utensils and ingredients. For fashion, use accessories. Keep props minimal to avoid distracting from the product." },
+    { question: "How many lifestyle images should I have per product?", answer: "Aim for 2-3 lifestyle images per product alongside your white background shots. This gives customers multiple perspectives and use cases while maintaining a clean product page." }
+  ],
+  "amazon-product-photography": [
+    { question: "What are Amazon's product image requirements?", answer: "Amazon requires: pure white background (RGB 255,255,255) for main image, product filling 85% of frame, minimum 1000px on longest side (1600px+ recommended), JPEG/PNG/GIF format, and no text or graphics on main image." },
+    { question: "How many images should I have for Amazon listings?", answer: "Amazon allows up to 9 images. Use all slots: 1 main white background, 2-3 lifestyle shots, 1-2 infographics, 1 size reference, and additional angles. More images typically means higher conversion rates." },
+    { question: "What image size is best for Amazon?", answer: "Use at least 1600x1600 pixels for zoom functionality. Amazon requires minimum 1000px on the longest side, but larger images enable the zoom feature which increases conversions by up to 30%." },
+    { question: "Can I use AI-generated images on Amazon?", answer: "Yes, Amazon allows AI-generated product images as long as they accurately represent the product. AI tools are excellent for creating consistent, compliant white background shots and lifestyle variations." }
+  ],
+  "product-photography-lighting": [
+    { question: "What is the best lighting for product photography?", answer: "Soft, diffused lighting works best for most products. Use softboxes, diffusers, or natural window light. Position your main light at 45 degrees to the product with a fill light or reflector opposite to reduce shadows." },
+    { question: "Can I use natural light for product photography?", answer: "Yes, natural light works excellently for product photography. Shoot near large windows, avoid direct sunlight, and use white foam boards as reflectors. Overcast days provide ideal soft, even lighting." },
+    { question: "How many lights do I need for product photography?", answer: "Start with 2 lights: one main light and one fill light or reflector. For more advanced setups, add a backlight for separation. Many professionals use 3-4 lights for complete control." },
+    { question: "What color temperature should product photos be?", answer: "Use 5000-5500K (daylight balanced) for accurate color reproduction. Ensure all lights match in color temperature. Shoot in RAW format to easily adjust white balance in post-production." }
+  ],
+  "flat-lay-photography": [
+    { question: "What is flat lay photography?", answer: "Flat lay photography is a technique where objects are arranged on a flat surface and photographed from directly above. It's popular for fashion, food, and lifestyle brands on Instagram and Pinterest." },
+    { question: "What background works best for flat lay photos?", answer: "Popular flat lay backgrounds include marble, wood textures, solid colors, and fabric. Choose backgrounds that complement your products without overpowering them. Consistency across your feed builds brand recognition." },
+    { question: "How do I avoid shadows in flat lay photography?", answer: "Use diffused overhead lighting or photograph near a window with sheer curtains. Position lights at equal distances from both sides. A lightbox or large diffuser panel eliminates most shadow issues." },
+    { question: "What camera angle is best for flat lay?", answer: "Shoot directly overhead at 90 degrees to the surface. Use a tripod or camera arm to keep the camera perfectly parallel to the surface. This ensures all elements remain in focus and proportions stay accurate." }
+  ],
+  "etsy-product-photography": [
+    { question: "What size images does Etsy require?", answer: "Etsy requires images at least 2000px on the shortest side for zoom functionality. The recommended size is 2000x2000 pixels at 72 DPI in JPEG or PNG format." },
+    { question: "How many photos should an Etsy listing have?", answer: "Etsy allows up to 10 images per listing. Use all 10: main product shot, multiple angles, scale reference, detail shots, lifestyle images, and packaging if relevant. Listings with more images convert better." },
+    { question: "Should Etsy photos have white backgrounds?", answer: "Unlike Amazon, Etsy favors lifestyle and contextual imagery. While white backgrounds work for some products, handmade items often perform better with natural, crafted-looking backgrounds that convey authenticity." },
+    { question: "What makes Etsy product photos successful?", answer: "Successful Etsy photos tell a story. Show your product in use, highlight handmade details, include lifestyle context, and maintain consistent styling across your shop. Authenticity resonates with Etsy buyers." }
+  ],
+  "instagram-product-photography": [
+    { question: "What is the best image size for Instagram product photos?", answer: "Instagram supports multiple sizes: 1080x1080 (square), 1080x1350 (portrait, best engagement), and 1080x608 (landscape). Portrait format 4:5 takes up more screen space and typically gets highest engagement." },
+    { question: "How do I make product photos Instagram-worthy?", answer: "Use consistent filters/presets, incorporate lifestyle elements, shoot with good natural lighting, use the rule of thirds, and maintain a cohesive color palette across your feed. Authenticity outperforms overly polished content." },
+    { question: "Should I use carousel posts for products on Instagram?", answer: "Yes, carousel posts get 1.4x more reach and 3.1x more engagement than single images. Use carousels to show multiple angles, details, use cases, and before/after comparisons." },
+    { question: "What hashtags work best for product photography on Instagram?", answer: "Mix popular hashtags (#productphotography 5M+ posts) with niche ones (#handmadejewelry). Use 20-30 hashtags, include location tags, and create a branded hashtag. Research competitor hashtags for ideas." }
+  ],
+  "product-photography-mistakes": [
+    { question: "What is the biggest mistake in product photography?", answer: "Poor lighting is the most common mistake. It causes color inaccuracies, harsh shadows, and unflattering product appearance. Always use soft, diffused lighting and avoid mixed light sources." },
+    { question: "Why do my product photos look unprofessional?", answer: "Common issues include: poor lighting, cluttered backgrounds, inconsistent styling, wrong camera settings, lack of editing, and showing products at unflattering angles. Focus on these fundamentals first." },
+    { question: "How do I fix blurry product photos?", answer: "Use a tripod, increase shutter speed (1/125s minimum for handheld), ensure adequate lighting, use a smaller aperture (f/8-f/11) for sharpness, and enable image stabilization. Focus on the product's key features." },
+    { question: "Should I edit product photos?", answer: "Yes, basic editing is essential. Adjust white balance, exposure, contrast, and sharpness. Remove dust spots and imperfections. However, never misrepresent the product. Keep editing consistent across all products." }
+  ],
+  "shopify-product-photography": [
+    { question: "What image size does Shopify recommend?", answer: "Shopify recommends 2048x2048 pixels for square images. This enables zoom functionality and looks crisp on all devices. Use consistent dimensions across all products for a professional storefront." },
+    { question: "How many images should Shopify products have?", answer: "Include 4-6 images minimum: main product shot, multiple angles, detail close-ups, scale reference, and lifestyle shots. More images reduce returns by setting accurate customer expectations." },
+    { question: "Does Shopify compress product images?", answer: "Yes, Shopify automatically compresses and converts images to WebP format for faster loading. Upload high-quality originals (under 20MB) and let Shopify handle optimization." },
+    { question: "Can I bulk upload product images to Shopify?", answer: "Yes, use Shopify's CSV import feature or apps like Matrixify for bulk uploads. Name files with SKU numbers for automatic matching. AI tools like ShopShot can generate bulk images from single source photos." }
+  ],
+  "product-photos-without-photographer": [
+    { question: "Can I take professional product photos myself?", answer: "Yes, with the right setup and techniques. You need good lighting (natural or artificial), a clean background, a smartphone or camera, and basic editing skills. AI tools can then enhance results to professional quality." },
+    { question: "How much does professional product photography cost?", answer: "Professional photographers charge 300-1,500 GBP per shoot, or 25-100 GBP per product. For 50 products, expect 2,500+ GBP. AI alternatives like ShopShot cost 40 GBP/month for unlimited images." },
+    { question: "What equipment do I need for DIY product photography?", answer: "Essential: smartphone with good camera or DSLR, tripod, white background (paper/foam board), lighting (ring light or window), and editing software. Total investment: 100-300 GBP for quality results." },
+    { question: "Is AI product photography better than DIY?", answer: "AI product photography produces more consistent, professional results in less time. Upload one photo, get 10 variations in 25 seconds. DIY takes 2-3 hours per product with variable results." }
+  ],
+  "bulk-product-images-shopify": [
+    { question: "How do I create bulk product images quickly?", answer: "AI tools like ShopShot generate 10 professional variations per product in 25 seconds. For 50 products, that's 500 images in under an hour, compared to weeks with traditional photography." },
+    { question: "What is the most cost-effective way to photograph many products?", answer: "AI product photography is most cost-effective for bulk images. At 40 GBP/month unlimited vs 1,200+ GBP for traditional photography of 100 products, AI saves 95%+ while maintaining quality." },
+    { question: "Can I maintain consistency across hundreds of product images?", answer: "Yes, AI tools ensure perfect consistency. Every image has identical lighting, backgrounds, and quality. Traditional photography often shows variations between sessions." },
+    { question: "How long does bulk product photography take?", answer: "Traditional: 100 products = 2-3 weeks (setup, shooting, editing). AI: 100 products = 1-2 hours. ShopShot processes each product in 25 seconds with 10 variations." }
+  ],
+  "amazon-product-images-requirements": [
+    { question: "What are Amazon's main image requirements?", answer: "Amazon main images must have: pure white background (RGB 255,255,255), product fills 85% of frame, no text/logos/watermarks, minimum 1000px (1600px+ recommended), and show only the product being sold." },
+    { question: "Will Amazon reject my product images?", answer: "Amazon may suppress listings with non-compliant images. Common rejection reasons: non-white backgrounds, text on main image, product under 85% of frame, low resolution, and multiple products shown." },
+    { question: "What file format does Amazon accept for product images?", answer: "Amazon accepts JPEG (.jpg), PNG (.png), GIF (.gif), and TIFF (.tif). JPEG is recommended for photos due to smaller file sizes. Use PNG for images requiring transparency." },
+    { question: "How do I check if my background is pure white for Amazon?", answer: "Use image editing software to check RGB values. Pure white is 255,255,255. In Photoshop, use the eyedropper tool. Amazon's Seller Central also provides image quality checks during upload." }
+  ],
+  "multiple-product-photos-one-image": [
+    { question: "Can AI generate multiple product photos from one image?", answer: "Yes, AI tools like ShopShot generate 10 different professional variations from a single source image in 25 seconds. Variations include white background, lifestyle shots, detail views, and more." },
+    { question: "What variations can I get from one product photo?", answer: "From one photo, AI generates: hero white background, lifestyle/in-use shots, texture details, branding close-ups, construction details, color/finish shots, scale references, flat-lay styled, environment context, and multi-angle views." },
+    { question: "How does AI create different angles from one photo?", answer: "AI analyzes your product's shape, texture, and features, then generates new perspectives using trained models. While not true 3D, it creates convincing alternative views suitable for e-commerce use." },
+    { question: "Is the quality consistent across AI-generated variations?", answer: "Yes, AI maintains consistent lighting, color accuracy, and quality across all variations. This consistency is actually superior to traditional photography where conditions may change between shots." }
+  ],
+  "ecommerce-product-photography-guide": [
+    { question: "What makes good e-commerce product photography?", answer: "Good e-commerce photography includes: consistent lighting, clean backgrounds, multiple angles, detail shots, lifestyle context, accurate colors, high resolution (1600px+), and fast loading times." },
+    { question: "How many product images increase e-commerce conversions?", answer: "Studies show conversion rates increase with more images: 1 image = baseline, 3 images = 5% increase, 5 images = 10% increase, 8+ images = up to 25% increase. Always maximize allowed images." },
+    { question: "What is the ROI of professional product photography?", answer: "Professional product photography typically delivers 2-5x ROI through increased conversions, reduced returns, and higher perceived value. AI photography offers similar benefits at 1/10th the cost." },
+    { question: "Should I use models in product photography?", answer: "For wearables and lifestyle products, models increase conversions by 20-30%. For other products, lifestyle settings without models work well. AI can generate both styles from a single product photo." }
+  ],
+  "ai-product-image-generation": [
+    { question: "How does AI product image generation work?", answer: "AI analyzes your uploaded product photo, identifies the product, removes the background, then generates new images by placing the product in various settings using machine learning models trained on millions of professional photos." },
+    { question: "What AI models are used for product photography?", answer: "Modern AI product photography uses models like Google's Gemini, DALL-E, and specialized e-commerce models. ShopShot uses Gemini Flash for fast generation and Gemini Pro for highest quality results." },
+    { question: "How long does AI image generation take?", answer: "AI generates product images in seconds. ShopShot creates 10 professional variations in approximately 25 seconds. Traditional photography and editing takes hours per product." },
+    { question: "Can AI match my brand style?", answer: "Yes, AI tools can incorporate brand colors and maintain consistent styling. ShopShot's brand color feature lets you specify colors that appear in lifestyle backgrounds to match your brand identity." }
+  ],
+  "white-background-product-photos-guide": [
+    { question: "What makes a perfect white background product photo?", answer: "Perfect white backgrounds are: pure white (RGB 255,255,255), evenly lit without gradients, shadow-free or with minimal soft shadows, and seamlessly blend with any white webpage." },
+    { question: "How do I remove shadows from white background photos?", answer: "Use diffused lighting from multiple angles, place product on a raised platform, use a light tent or softbox, and in post-processing, adjust levels to push shadows to white while maintaining product detail." },
+    { question: "What is a product photography lightbox?", answer: "A lightbox (or light tent) is a translucent enclosure that diffuses light evenly around products, eliminating harsh shadows and creating clean white backgrounds. Sizes range from 40cm for small items to 120cm+ for larger products." },
+    { question: "Can phones take good white background product photos?", answer: "Yes, modern smartphones take excellent product photos. Use good lighting, a white background, and tripod. AI tools can then perfect the white background and enhance quality to professional standards." }
+  ],
+  "lifestyle-product-photos-without-studio": [
+    { question: "How do I create lifestyle product photos at home?", answer: "Use natural window light, create scenes with household items as props, shoot in clean areas of your home, and use consistent styling. AI tools can then generate professional lifestyle variations from your basic shots." },
+    { question: "What props work for lifestyle product photography?", answer: "Choose props that tell your product's story: plants for organic products, books for intellectual items, fabric textures for fashion. Keep props minimal (3-5 items) and ensure they don't overpower your product." },
+    { question: "Do I need expensive equipment for lifestyle photography?", answer: "No, you can create great lifestyle shots with a smartphone, natural light, and creative props. Focus on composition and storytelling. AI tools can enhance basic photos to professional quality." },
+    { question: "Can AI create lifestyle backgrounds for my products?", answer: "Yes, AI tools like ShopShot automatically generate lifestyle scenes including in-use shots, styled flat-lays, and environmental contexts from a single product photo without any physical props or sets." }
+  ],
+  "360-degree-product-photos": [
+    { question: "What is 360-degree product photography?", answer: "360-degree photography captures products from all angles, creating an interactive spin view where customers can rotate products virtually. It increases engagement by 30% and reduces returns by showing products completely." },
+    { question: "How many images do I need for 360-degree product views?", answer: "Standard 360 spins use 24-72 images (one every 5-15 degrees). More images create smoother rotation. For basic spins, 24 frames work well. Premium products benefit from 72 frames." },
+    { question: "Can AI create 360-degree product videos?", answer: "Yes, AI can generate 360-degree spin videos from a single product image. ShopShot's 360 video feature creates smooth rotation animations without requiring multiple source photos or a turntable." },
+    { question: "What equipment is needed for 360 product photography?", answer: "Traditional 360 requires: motorized turntable (100-500 GBP), camera on tripod, consistent lighting, and stitching software. AI alternatives can generate 360 views from a single static image." }
+  ],
+  "instagram-tiktok-product-images": [
+    { question: "What image sizes work for Instagram and TikTok?", answer: "Instagram: 1080x1350 (4:5 portrait) for feed, 1080x1920 (9:16) for Stories/Reels. TikTok: 1080x1920 (9:16) for all content. Portrait formats maximize screen real estate and engagement." },
+    { question: "Should product photos be different for Instagram vs TikTok?", answer: "Yes, Instagram favors polished, aesthetic content while TikTok prefers authentic, dynamic content. Create platform-specific variations. AI tools can generate both styles from one product photo." },
+    { question: "How often should I post product content on social media?", answer: "Instagram: 3-5 posts per week, daily Stories. TikTok: 1-3 posts daily for algorithm favor. Consistency matters more than frequency. Use batch creation with AI tools to maintain regular posting." },
+    { question: "Do I need video content for social media product marketing?", answer: "Yes, video significantly outperforms static images on both platforms. Short product showcases (15-30 seconds) get 2-3x more engagement. AI can create product videos and spin animations from static photos." }
+  ]
+};
 
 // All blog posts data
 export const blogPosts: BlogPost[] = [
@@ -2026,21 +2197,109 @@ export function getBlogIndexPage(): string {
 </html>`;
 }
 
+// Helper function to extract H2 headings from content for Table of Contents
+function extractHeadings(content: string): Array<{id: string, text: string}> {
+  const headings: Array<{id: string, text: string}> = [];
+  const h2Regex = /<h2[^>]*>([^<]+)<\/h2>/gi;
+  let match;
+  while ((match = h2Regex.exec(content)) !== null) {
+    const text = match[1].trim();
+    const id = text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    headings.push({ id, text });
+  }
+  return headings;
+}
+
+// Helper function to add IDs to H2 headings in content
+function addHeadingIds(content: string): string {
+  return content.replace(/<h2>([^<]+)<\/h2>/gi, (match, text) => {
+    const id = text.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    return `<h2 id="${id}">${text}</h2>`;
+  });
+}
+
+// Helper to escape quotes in JSON strings
+function escapeJsonString(str: string): string {
+  return str.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
 // Single Blog Post Page
 export function getBlogPostPage(slug: string): string | null {
   const post = getBlogPost(slug);
   if (!post) return null;
 
+  // Get internal links for this post
+  const internalLinkSlugs = INTERNAL_LINKS[slug] || [];
+  const internalLinks = internalLinkSlugs
+    .map(s => blogPosts.find(p => p.slug === s))
+    .filter(p => p !== undefined) as BlogPost[];
+
+  // Get FAQ data for this post
+  const faqs = FAQ_DATA[slug] || [];
+
+  // Extract headings for Table of Contents (only for posts with 6+ min read time)
+  const headings = post.readTime >= 6 ? extractHeadings(post.content) : [];
+  const contentWithIds = post.readTime >= 6 ? addHeadingIds(post.content) : post.content;
+
+  // Related posts by category (different from internal links)
   const relatedPosts = blogPosts
     .filter(p => p.slug !== slug && p.category === post.category)
     .slice(0, 3);
+  
+  // Format date
+  const formattedDate = new Date(post.publishDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 
+  // Generate Table of Contents HTML
+  const tocHtml = headings.length >= 3 ? `
+      <nav class="toc">
+        <h4><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"></path></svg> Table of Contents</h4>
+        <ul>
+          ${headings.map(h => `<li><a href="#${h.id}">${h.text}</a></li>`).join('\n          ')}
+        </ul>
+      </nav>` : '';
+
+  // Generate Internal Links HTML
+  const internalLinksHtml = internalLinks.length > 0 ? `
+      <div class="related-reads">
+        <h4>Related Guides You Might Like</h4>
+        <ul>
+          ${internalLinks.map(p => `<li><a href="/blog/${p.slug}">${p.title}</a></li>`).join('\n          ')}
+        </ul>
+      </div>` : '';
+
+  // Generate FAQ HTML
+  const faqHtml = faqs.length > 0 ? `
+      <section class="faq-section">
+        <h3>Frequently Asked Questions</h3>
+        ${faqs.map(faq => `<div class="faq-item">
+          <p class="faq-question">${faq.question}</p>
+          <p class="faq-answer">${faq.answer}</p>
+        </div>`).join('\n        ')}
+      </section>` : '';
+
+  // Generate FAQ Schema JSON
+  const faqSchemaJson = faqs.length > 0 ? `,
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      ${faqs.map(faq => `{
+        "@type": "Question",
+        "name": "${escapeJsonString(faq.question)}",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "${escapeJsonString(faq.answer)}"
+        }
+      }`).join(',\n      ')}
+    ]
+  }` : '';
+
+  // Generate Related Posts HTML
   const relatedPostsHtml = relatedPosts.length > 0 ? `
     <section class="mt-16 pt-12 border-t border-gray-200">
       <h2 class="text-2xl font-bold text-gray-900 mb-8">Related Articles</h2>
       <div class="grid md:grid-cols-3 gap-6">
-        ${relatedPosts.map(p => `
-          <article class="blog-card bg-white rounded-xl shadow-md overflow-hidden">
+        ${relatedPosts.map(p => `<article class="blog-card bg-white rounded-xl shadow-md overflow-hidden">
             <a href="/blog/${p.slug}">
               <img src="/static/blog/${p.slug}.jpg" alt="${p.title}" class="w-full h-40 object-cover" onerror="this.src='/static/blog/default.jpg'">
             </a>
@@ -2050,11 +2309,9 @@ export function getBlogPostPage(slug: string): string | null {
               </h3>
               <span class="text-sm text-gray-500">${p.readTime} min read</span>
             </div>
-          </article>
-        `).join('')}
+          </article>`).join('\n        ')}
       </div>
-    </section>
-  ` : '';
+    </section>` : '';
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -2081,13 +2338,14 @@ export function getBlogPostPage(slug: string): string | null {
   <style>
     body { font-family: 'Inter', sans-serif; }
     .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    html { scroll-behavior: smooth; }
   </style>
   <script type="application/ld+json">
-  {
+  [{
     "@context": "https://schema.org",
     "@type": "BlogPosting",
-    "headline": "${post.title}",
-    "description": "${post.metaDescription}",
+    "headline": "${escapeJsonString(post.title)}",
+    "description": "${escapeJsonString(post.metaDescription)}",
     "image": "https://www.shopshot.co.uk/static/blog/${post.slug}.jpg",
     "datePublished": "${post.publishDate}",
     "dateModified": "${post.publishDate}",
@@ -2107,7 +2365,7 @@ export function getBlogPostPage(slug: string): string | null {
       "@type": "WebPage",
       "@id": "https://www.shopshot.co.uk/blog/${post.slug}"
     }
-  }
+  }${faqSchemaJson}]
   </script>
 </head>
 <body class="bg-gray-50">
@@ -2147,7 +2405,7 @@ export function getBlogPostPage(slug: string): string | null {
         <!-- Meta -->
         <div class="flex items-center gap-4 mb-6">
           <span class="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-sm font-semibold">${post.category}</span>
-          <span class="text-gray-500 text-sm">${new Date(post.publishDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+          <span class="text-gray-500 text-sm">${formattedDate}</span>
           <span class="text-gray-500 text-sm">${post.readTime} min read</span>
         </div>
 
@@ -2156,12 +2414,12 @@ export function getBlogPostPage(slug: string): string | null {
         
         <!-- Excerpt -->
         <p class="text-xl text-gray-600 mb-8 leading-relaxed">${post.excerpt}</p>
-
+${tocHtml}
         <!-- Content -->
         <div class="prose max-w-none">
-          ${post.content}
+          ${contentWithIds}
         </div>
-
+${internalLinksHtml}${faqHtml}
         <!-- CTA -->
         <div class="mt-12 p-8 bg-gradient-to-r from-purple-600 to-indigo-600 rounded-xl text-white text-center">
           <h3 class="text-2xl font-bold mb-3">Ready to Transform Your Product Photography?</h3>
@@ -2186,8 +2444,7 @@ export function getBlogPostPage(slug: string): string | null {
         </div>
       </div>
     </article>
-
-    ${relatedPostsHtml}
+${relatedPostsHtml}
   </main>
 
   ${FOOTER_HTML}
