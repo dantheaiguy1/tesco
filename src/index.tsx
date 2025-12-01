@@ -1584,12 +1584,8 @@ app.get('/api/test-vertex-image', async (c) => {
 // Marketing homepage for logged-out users, app for logged-in
 app.get('/', (c) => {
   const user = c.get('user')
-  if (user) {
-    // Logged in - show the app
-    return c.html(getHomePage(user))
-  }
-  // Logged out - show marketing page
-  return c.html(getMarketingPage())
+  // Always show marketing page - logged in users get "Open App" menu item
+  return c.html(getMarketingPage(user))
 })
 
 // Direct app access (redirects to login if not authenticated)
@@ -5156,7 +5152,7 @@ function getAuthPageStyles(): string {
 // ============================================================================
 // MARKETING HOMEPAGE - Sells the app to new visitors
 // ============================================================================
-function getMarketingPage() {
+function getMarketingPage(user?: User) {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -6124,8 +6120,12 @@ function getMarketingPage() {
       <a href="#features" class="nav-link">Features</a>
       <a href="#how-it-works" class="nav-link">How It Works</a>
       <a href="#pricing" class="nav-link">Pricing</a>
+      ${user ? `
+      <a href="/app" class="nav-cta">Open App</a>
+      ` : `
       <a href="/login" class="nav-link">Log In</a>
       <a href="/app" class="nav-cta">Try Free</a>
+      `}
     </div>
   </nav>
 
