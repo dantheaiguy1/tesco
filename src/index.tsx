@@ -8165,7 +8165,7 @@ function getHomePage(user?: User) {
   ${GTM_BODY}
   <!-- Guest Header (logged out users only) -->
   <header class="guest-header">
-    <div class="guest-logo">
+    <a href="/" class="guest-logo" style="text-decoration: none;">
       <div class="guest-logo-icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="12" cy="12" r="10"/>
@@ -8173,7 +8173,7 @@ function getHomePage(user?: User) {
         </svg>
       </div>
       <span class="guest-logo-text">ShopShot</span>
-    </div>
+    </a>
     <div class="guest-auth-btns">
       <a href="/login" class="guest-login-btn">Log in</a>
       <a href="/register" class="guest-signup-btn">Sign up free</a>
@@ -8186,7 +8186,7 @@ function getHomePage(user?: User) {
   <!-- Sidebar - ElevenLabs style -->
   <aside id="sidebar" class="sidebar">
     <!-- Logo -->
-    <div class="sidebar-logo">
+    <a href="/" class="sidebar-logo" style="text-decoration: none;">
       <div class="sidebar-logo-icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="12" cy="12" r="10"/>
@@ -8194,7 +8194,7 @@ function getHomePage(user?: User) {
         </svg>
       </div>
       <span class="sidebar-logo-text">ShopShot</span>
-    </div>
+    </a>
     
     <!-- Generate New Button -->
     <div class="sidebar-header">
