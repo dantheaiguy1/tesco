@@ -4959,11 +4959,18 @@ Respond ONLY with valid JSON:
       const platformData = captions[platform];
       if (!platformData || !config) continue;
       
+      // Ensure caption is a string (Gemini may return nested objects)
+      let captionText = platformData.caption;
+      if (typeof captionText === 'object' && captionText !== null) {
+        captionText = captionText.text || captionText.caption || captionText.title || JSON.stringify(captionText);
+      }
+      captionText = String(captionText || '');
+      
       // For video mode, skip image generation - use the uploaded video
       if (isVideoMode) {
         posts.push({
           platform,
-          caption: platformData.caption,
+          caption: captionText,
           videoUrl: videoUrl,
           imageBase64: null,
           aspectRatio: config.aspectRatio,
@@ -5058,7 +5065,7 @@ BANNED ELEMENTS:
 
       posts.push({
         platform,
-        caption: platformData.caption,
+        caption: captionText,  // Use already-sanitized caption string
         imageBase64,
         aspectRatio: config.aspectRatio,
         maxCaption: config.maxCaption,
@@ -5169,7 +5176,11 @@ app.put('/api/admin/social/upload-to-r2/:key{.+}', async (c) => {
   }
 });
 
+// R2 public domain for direct URL access
+const R2_PUBLIC_DOMAIN = 'pub-dc7e4f65e1c8497583a99e9ebe196cd3.r2.dev';
+
 // Transfer video from R2 to Late API (admin only)
+// Now uses public R2 URL - Late API fetches directly, no Worker memory issues
 app.post('/api/admin/social/transfer-to-late', async (c) => {
   const user = c.get('user') as any;
   if (!user || user.role !== 'admin') {
@@ -5193,61 +5204,23 @@ app.post('/api/admin/social/transfer-to-late', async (c) => {
       return c.json({ success: false, error: 'Missing R2 key' }, 400);
     }
 
-    console.log(`[R2->Late] Fetching ${key} from R2...`);
-
-    // Get video from R2
-    const object = await bucket.get(key);
+    // Verify file exists in R2
+    const object = await bucket.head(key);
     if (!object) {
       return c.json({ success: false, error: 'Video not found in R2' }, 404);
     }
 
-    const videoData = await object.arrayBuffer();
-    console.log(`[R2->Late] Got ${videoData.byteLength} bytes, uploading to Late...`);
+    // Generate public URL for the video
+    const publicVideoUrl = `https://${R2_PUBLIC_DOMAIN}/${key}`;
+    console.log(`[R2->Late] Public URL: ${publicVideoUrl}, size: ${object.size} bytes`);
 
-    // Create blob and form data for Late API
-    const blob = new Blob([videoData], { type: object.httpMetadata?.contentType || 'video/mp4' });
-    const formData = new FormData();
-    formData.append('files', blob, fileName || 'video.mp4');
-
-    // Upload to Late API
-    const lateResponse = await fetch('https://getlate.dev/api/v1/media', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${lateApiKey}`
-      },
-      body: formData
-    });
-
-    const lateText = await lateResponse.text();
-    console.log(`[R2->Late] Late API response:`, lateResponse.status, lateText);
-
-    if (!lateResponse.ok) {
-      return c.json({ success: false, error: 'Late API upload failed: ' + lateText }, 500);
-    }
-
-    let videoUrl = null;
-    try {
-      const lateData = JSON.parse(lateText);
-      videoUrl = lateData.files?.[0]?.url || lateData.url || lateData.fileUrl;
-    } catch (e) {
-      return c.json({ success: false, error: 'Invalid Late API response' }, 500);
-    }
-
-    if (!videoUrl) {
-      return c.json({ success: false, error: 'No video URL returned from Late' }, 500);
-    }
-
-    // Clean up R2 (optional - delete after successful transfer)
-    try {
-      await bucket.delete(key);
-      console.log(`[R2->Late] Cleaned up R2 key: ${key}`);
-    } catch (e) {
-      console.warn(`[R2->Late] Failed to clean up R2 key: ${key}`, e);
-    }
-
+    // Return the public R2 URL - Late API will fetch from this URL when publishing
+    // This avoids loading the entire video into Worker memory
     return c.json({ 
       success: true, 
-      videoUrl 
+      videoUrl: publicVideoUrl,
+      r2Key: key,
+      size: object.size
     });
 
   } catch (error: any) {
@@ -5363,7 +5336,13 @@ app.post('/api/admin/social/publish', async (c) => {
     const isVideoMode = mediaType === 'video';
 
     for (const post of posts) {
-      const { platform, caption, imageBase64, videoUrl: postVideoUrl } = post;
+      const { platform, imageBase64, videoUrl: postVideoUrl } = post;
+      // Ensure caption is a string (AI might return object for some platforms)
+      let caption = post.caption;
+      if (typeof caption === 'object' && caption !== null) {
+        caption = caption.text || caption.caption || JSON.stringify(caption);
+      }
+      caption = String(caption || '');
       
       if (!platform || !caption) {
         results.push({ platform, success: false, error: 'Missing platform or caption' });
@@ -5495,7 +5474,7 @@ app.post('/api/admin/social/publish', async (c) => {
           await db.prepare(`
             INSERT INTO social_posts (id, platform, caption, image_base64, status, prompt, error_message, created_by)
             VALUES (?, ?, ?, ?, 'failed', ?, ?, ?)
-          `).bind(failedPostId, platform, caption, imageBase64 || null, prompt || null, errorText, user.id).run();
+          `).bind(failedPostId, platform, String(caption), imageBase64 || null, String(prompt || ''), String(errorText || ''), user.id).run();
           
           results.push({ platform, success: false, error: userError });
           continue;
@@ -5512,12 +5491,12 @@ app.post('/api/admin/social/publish', async (c) => {
         `).bind(
           successPostId, 
           platform, 
-          caption, 
+          String(caption), 
           imageBase64 || null,
-          postData.id || null,
-          postData.url || null,
+          postData.id ? String(postData.id) : null,
+          postData.url ? String(postData.url) : null,
           postStatus,
-          prompt || null,
+          String(prompt || ''),
           user.id
         ).run();
 
@@ -5536,7 +5515,7 @@ app.post('/api/admin/social/publish', async (c) => {
         await db.prepare(`
           INSERT INTO social_posts (id, platform, caption, image_base64, status, prompt, error_message, created_by)
           VALUES (?, ?, ?, ?, 'failed', ?, ?, ?)
-        `).bind(postId, platform, caption, imageBase64 || null, prompt || null, err.message, user.id).run();
+        `).bind(postId, platform, String(caption), imageBase64 || null, String(prompt || ''), String(err.message || 'Unknown error'), user.id).run();
         
         results.push({ platform, success: false, error: err.message });
       }
