@@ -1448,6 +1448,8 @@ async function ensureDatabase(db: D1Database) {
     try { await db.prepare('ALTER TABLE sessions ADD COLUMN video_url TEXT').run() } catch (e) {}
     try { await db.prepare('ALTER TABLE sessions ADD COLUMN video_type TEXT').run() } catch (e) {}
     try { await db.prepare('ALTER TABLE generated_images ADD COLUMN model TEXT DEFAULT \'nano\'').run() } catch (e) {}
+    try { await db.prepare('ALTER TABLE users ADD COLUMN phone TEXT').run() } catch (e) {}
+    try { await db.prepare('ALTER TABLE users ADD COLUMN marketing_consent INTEGER DEFAULT 0').run() } catch (e) {}
   } catch (err) {
     console.log('Database already initialized or error:', err)
   }
@@ -2526,10 +2528,15 @@ app.post('/api/auth/register', async (c) => {
     const db = c.env.TESCO_DB;
     await ensureDatabase(db);
     
-    const { email, password, confirmPassword, name } = await c.req.json();
+    const { email, password, confirmPassword, name, phone, marketing_consent } = await c.req.json();
     
     if (!email || !password) {
       return c.json({ success: false, error: 'Email and password required' }, 400);
+    }
+    
+    // Validate phone number (required)
+    if (!phone || phone.trim().length < 10) {
+      return c.json({ success: false, error: 'Valid mobile phone number required' }, 400);
     }
     
     // Validate password confirmation
@@ -2593,9 +2600,9 @@ app.post('/api/auth/register', async (c) => {
     const passwordHash = await hashPassword(password);
     
     await db.prepare(`
-      INSERT INTO users (id, email, password_hash, name, cheaper_credits, better_credits, email_verified, email_verification_code, email_verification_expires)
-      VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
-    `).bind(userId, email.toLowerCase(), passwordHash, name || null, CREDITS.SIGNUP_CHEAPER, CREDITS.SIGNUP_BETTER, verificationCode, expiresAt.toISOString()).run();
+      INSERT INTO users (id, email, password_hash, name, phone, marketing_consent, cheaper_credits, better_credits, email_verified, email_verification_code, email_verification_expires)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+    `).bind(userId, email.toLowerCase(), passwordHash, name || null, phone?.trim() || null, marketing_consent ? 1 : 0, CREDITS.SIGNUP_CHEAPER, CREDITS.SIGNUP_BETTER, verificationCode, expiresAt.toISOString()).run();
     
     // Send verification email
     if (c.env.RESEND_API_KEY) {
@@ -11575,11 +11582,16 @@ function getRegisterPage() {
             <input type="text" id="name" class="form-input" placeholder="Your name" autocomplete="name">
           </div>
           <div class="form-group">
-            <label class="form-label">Email</label>
+            <label class="form-label">Email <span style="color: #DC2626;">*</span></label>
             <input type="email" id="email" class="form-input" placeholder="you@example.com" required autocomplete="email">
           </div>
           <div class="form-group">
-            <label class="form-label">Password</label>
+            <label class="form-label">Mobile Phone <span style="color: #DC2626;">*</span></label>
+            <input type="tel" id="phone" class="form-input" placeholder="+44 7XXX XXXXXX" required autocomplete="tel" pattern="[+0-9\\s\\-()]{10,20}">
+            <p style="font-size: 11px; color: #6B7280; margin-top: 4px;">For important account updates and exclusive offers</p>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Password <span style="color: #DC2626;">*</span></label>
             <input type="password" id="password" class="form-input" placeholder="Create a strong password" required minlength="8" autocomplete="new-password" oninput="checkPasswordStrength()">
             <ul class="password-requirements" id="password-requirements">
               <li id="req-length" class="invalid"><span class="cross">✗</span> At least 8 characters</li>
@@ -11754,6 +11766,16 @@ function getRegisterPage() {
       btn.textContent = 'Creating account...';
       errEl.classList.remove('show');
       
+      // Validate phone number
+      const phone = document.getElementById('phone').value.trim();
+      if (!phone || phone.length < 10) {
+        errEl.textContent = 'Please enter a valid mobile phone number';
+        errEl.classList.add('show');
+        btn.disabled = false;
+        btn.textContent = 'Create Account';
+        return;
+      }
+      
       try {
         const res = await fetch('/api/auth/register', {
           method: 'POST',
@@ -11761,6 +11783,7 @@ function getRegisterPage() {
           body: JSON.stringify({
             name: document.getElementById('name').value || null,
             email: document.getElementById('email').value,
+            phone: phone,
             password: password,
             confirmPassword: confirmPassword,
             marketing_consent: document.getElementById('marketing_consent').checked
