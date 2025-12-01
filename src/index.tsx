@@ -7935,7 +7935,7 @@ function getHomePage(user?: User) {
       align-items: center;
       gap: 12px;
       max-width: 400px;
-      z-index: 200;
+      z-index: 10000;
     }
     .error-toast.show { display: flex; }
     
