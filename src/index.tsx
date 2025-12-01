@@ -1450,6 +1450,26 @@ async function ensureDatabase(db: D1Database) {
     try { await db.prepare('ALTER TABLE generated_images ADD COLUMN model TEXT DEFAULT \'nano\'').run() } catch (e) {}
     try { await db.prepare('ALTER TABLE users ADD COLUMN phone TEXT').run() } catch (e) {}
     try { await db.prepare('ALTER TABLE users ADD COLUMN marketing_consent INTEGER DEFAULT 0').run() } catch (e) {}
+    
+    // Brand colors feature (2024-12-01)
+    // User brand settings table - stores persistent brand color preferences
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS user_brand_settings (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+        color_1 TEXT,
+        color_2 TEXT,
+        color_3 TEXT,
+        color_4 TEXT,
+        color_5 TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `).run()
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_user_brand_settings_user_id ON user_brand_settings(user_id)').run()
+    
+    // Add brand_colors column to sessions for per-session overrides
+    try { await db.prepare('ALTER TABLE sessions ADD COLUMN brand_colors TEXT').run() } catch (e) {}
   } catch (err) {
     console.log('Database already initialized or error:', err)
   }
@@ -3116,6 +3136,164 @@ app.get('/api/credits/history', async (c) => {
 });
 
 // ============================================================================
+// BRAND COLORS API
+// ============================================================================
+
+// Hex color validation regex
+const HEX_COLOR_REGEX = /^#[0-9A-Fa-f]{6}$/;
+
+// Get saved brand colors
+app.get('/api/account/brand-colors', async (c) => {
+  const authResult = requireAuth(c);
+  if (authResult instanceof Response) return authResult;
+  const user = authResult;
+  
+  const db = c.env.TESCO_DB;
+  await ensureDatabase(db);
+  
+  const settings = await db.prepare(
+    'SELECT color_1, color_2, color_3, color_4, color_5 FROM user_brand_settings WHERE user_id = ?'
+  ).bind(user.id).first() as any;
+  
+  if (!settings) {
+    return c.json({
+      color_1: null,
+      color_2: null,
+      color_3: null,
+      color_4: null,
+      color_5: null
+    });
+  }
+  
+  return c.json({
+    color_1: settings.color_1 || null,
+    color_2: settings.color_2 || null,
+    color_3: settings.color_3 || null,
+    color_4: settings.color_4 || null,
+    color_5: settings.color_5 || null
+  });
+});
+
+// Save brand colors as account default
+app.post('/api/account/brand-colors', async (c) => {
+  const authResult = requireAuth(c);
+  if (authResult instanceof Response) return authResult;
+  const user = authResult;
+  
+  const db = c.env.TESCO_DB;
+  await ensureDatabase(db);
+  
+  const body = await c.req.json();
+  const { color_1, color_2, color_3, color_4, color_5 } = body;
+  
+  // Validate hex codes (only if provided and non-empty)
+  const colors = [color_1, color_2, color_3, color_4, color_5];
+  for (const color of colors) {
+    if (color && color.trim() !== '' && !HEX_COLOR_REGEX.test(color)) {
+      return c.json({ 
+        success: false, 
+        error: 'Invalid hex color format. Use #RRGGBB format.' 
+      }, 400);
+    }
+  }
+  
+  // Convert empty strings to null
+  const cleanColor = (c: string | null | undefined) => (c && c.trim() !== '') ? c.toUpperCase() : null;
+  
+  const c1 = cleanColor(color_1);
+  const c2 = cleanColor(color_2);
+  const c3 = cleanColor(color_3);
+  const c4 = cleanColor(color_4);
+  const c5 = cleanColor(color_5);
+  
+  // Check if settings exist
+  const existing = await db.prepare(
+    'SELECT id FROM user_brand_settings WHERE user_id = ?'
+  ).bind(user.id).first();
+  
+  if (existing) {
+    // Update existing
+    await db.prepare(`
+      UPDATE user_brand_settings 
+      SET color_1 = ?, color_2 = ?, color_3 = ?, color_4 = ?, color_5 = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE user_id = ?
+    `).bind(c1, c2, c3, c4, c5, user.id).run();
+  } else {
+    // Insert new
+    const id = `brand_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    await db.prepare(`
+      INSERT INTO user_brand_settings (id, user_id, color_1, color_2, color_3, color_4, color_5)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).bind(id, user.id, c1, c2, c3, c4, c5).run();
+  }
+  
+  return c.json({
+    success: true,
+    brand_colors: {
+      color_1: c1,
+      color_2: c2,
+      color_3: c3,
+      color_4: c4,
+      color_5: c5
+    }
+  });
+});
+
+// Apply brand colors to current session
+app.post('/api/sessions/:sessionId/brand-colors', async (c) => {
+  const authResult = requireAuth(c);
+  if (authResult instanceof Response) return authResult;
+  const user = authResult;
+  
+  const sessionId = c.req.param('sessionId');
+  const db = c.env.TESCO_DB;
+  
+  // Verify session belongs to user
+  const session = await db.prepare(
+    'SELECT id FROM sessions WHERE id = ? AND user_id = ?'
+  ).bind(sessionId, user.id).first();
+  
+  if (!session) {
+    return c.json({ success: false, error: 'Session not found' }, 404);
+  }
+  
+  const body = await c.req.json();
+  const { colors } = body; // Array of 0-5 hex codes
+  
+  // Validate
+  if (!Array.isArray(colors)) {
+    return c.json({ success: false, error: 'colors must be an array' }, 400);
+  }
+  
+  if (colors.length > 5) {
+    return c.json({ success: false, error: 'Maximum 5 colors allowed' }, 400);
+  }
+  
+  // Validate each color
+  for (const color of colors) {
+    if (color && !HEX_COLOR_REGEX.test(color)) {
+      return c.json({ 
+        success: false, 
+        error: 'Invalid hex color format. Use #RRGGBB format.' 
+      }, 400);
+    }
+  }
+  
+  // Store as JSON (uppercase hex codes)
+  const cleanColors = colors.map((c: string) => c ? c.toUpperCase() : null).filter(Boolean);
+  const brandColorsJson = JSON.stringify(cleanColors);
+  
+  await db.prepare(
+    'UPDATE sessions SET brand_colors = ? WHERE id = ?'
+  ).bind(brandColorsJson, sessionId).run();
+  
+  return c.json({
+    success: true,
+    session_id: sessionId
+  });
+});
+
+// ============================================================================
 // STRIPE BILLING ROUTES
 // ============================================================================
 
@@ -3749,6 +3927,115 @@ const variationDefinitions = [
   { field: 'multi_angle', label: '10. Multiple Angles' }
 ]
 
+// Helper to convert hex to descriptive color name for AI prompts
+function hexToColorName(hex: string): string {
+  const colorMap: Record<string, string> = {
+    // Reds
+    '#FF0000': 'pure red', '#FF5733': 'coral orange', '#DC143C': 'crimson red',
+    '#8B0000': 'dark red', '#CD5C5C': 'indian red', '#F08080': 'light coral',
+    // Oranges
+    '#FFA500': 'orange', '#FF8C00': 'dark orange', '#FF7F50': 'coral',
+    '#E67E22': 'carrot orange', '#D35400': 'pumpkin orange',
+    // Yellows
+    '#FFFF00': 'yellow', '#FFD700': 'gold', '#FFC107': 'amber',
+    '#F0E68C': 'khaki gold', '#FFFACD': 'lemon chiffon',
+    // Greens
+    '#008000': 'green', '#228B22': 'forest green', '#32CD32': 'lime green',
+    '#90EE90': 'light green', '#006400': 'dark green', '#2ECC71': 'emerald',
+    '#27AE60': 'jade green', '#1ABC9C': 'turquoise green',
+    // Blues
+    '#0000FF': 'blue', '#1E90FF': 'dodger blue', '#00BFFF': 'sky blue',
+    '#3498DB': 'cerulean blue', '#2980B9': 'ocean blue', '#000080': 'navy blue',
+    '#4169E1': 'royal blue', '#87CEEB': 'light sky blue',
+    // Purples
+    '#800080': 'purple', '#9B59B6': 'amethyst purple', '#8E44AD': 'wisteria purple',
+    '#DDA0DD': 'plum', '#E6E6FA': 'lavender', '#4B0082': 'indigo',
+    // Pinks
+    '#FFC0CB': 'pink', '#FF69B4': 'hot pink', '#FF1493': 'deep pink',
+    '#DB7093': 'pale violet red',
+    // Browns
+    '#A52A2A': 'brown', '#8B4513': 'saddle brown', '#D2691E': 'chocolate',
+    '#CD853F': 'peru', '#DEB887': 'burlywood',
+    // Grays/Neutrals
+    '#000000': 'black', '#1A1A1A': 'charcoal black', '#2C2C2C': 'dark charcoal',
+    '#333333': 'dark gray', '#666666': 'medium gray', '#808080': 'gray',
+    '#A9A9A9': 'dark silver', '#C0C0C0': 'silver', '#D3D3D3': 'light gray',
+    '#F5F5F5': 'white smoke', '#FFFFFF': 'pure white', '#FFFAFA': 'snow white',
+    // Beiges/Creams
+    '#F5F5DC': 'beige', '#FAEBD7': 'antique white', '#FFE4C4': 'bisque',
+    '#FFFDD0': 'cream', '#FAF0E6': 'linen',
+    // Teals/Cyans
+    '#008080': 'teal', '#00CED1': 'dark turquoise', '#40E0D0': 'turquoise',
+    '#20B2AA': 'light sea green', '#00FFFF': 'cyan',
+  };
+  
+  const upperHex = hex.toUpperCase();
+  if (colorMap[upperHex]) return colorMap[upperHex];
+  
+  // Parse RGB and generate descriptive name based on values
+  const r = parseInt(upperHex.slice(1, 3), 16);
+  const g = parseInt(upperHex.slice(3, 5), 16);
+  const b = parseInt(upperHex.slice(5, 7), 16);
+  
+  // Determine dominant color family
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const lightness = (max + min) / 2 / 255;
+  
+  if (max - min < 30) {
+    // Grayscale
+    if (lightness < 0.2) return 'near black';
+    if (lightness < 0.4) return 'dark gray';
+    if (lightness < 0.6) return 'medium gray';
+    if (lightness < 0.8) return 'light gray';
+    return 'off white';
+  }
+  
+  // Color names based on dominant channel
+  let colorFamily = '';
+  if (r > g && r > b) {
+    colorFamily = g > b ? 'orange-red' : 'red-pink';
+  } else if (g > r && g > b) {
+    colorFamily = r > b ? 'yellow-green' : 'green';
+  } else {
+    colorFamily = r > g ? 'purple-blue' : 'blue-cyan';
+  }
+  
+  const intensity = lightness < 0.3 ? 'dark ' : lightness > 0.7 ? 'light ' : '';
+  return `${intensity}${colorFamily}`;
+}
+
+// Generate brand color palette prompt injection
+function generateBrandColorPrompt(brandColors: string[]): string {
+  if (!brandColors || brandColors.length === 0) return '';
+  
+  const colorLabels = ['Primary', 'Secondary', 'Accent', 'Neutral', 'Contrast'];
+  const usageGuides = [
+    'use for dominant background elements, fabrics, or surfaces',
+    'use for contrast props, secondary items, or complementary elements',
+    'use for small highlights, accent items, or decorative touches',
+    'use for base surfaces, neutral props, or grounding elements',
+    'use for text elements, shadows, or high-contrast details'
+  ];
+  
+  const colorLines = brandColors
+    .filter(c => c && c.trim())
+    .map((hex, i) => {
+      const name = hexToColorName(hex);
+      return `- ${colorLabels[i] || 'Additional'}: ${hex} (${name}) - ${usageGuides[i] || 'use as accent'}`;
+    })
+    .join('\n');
+  
+  if (!colorLines) return '';
+  
+  return `
+
+Incorporate this brand color palette naturally into the scene:
+${colorLines}
+
+Apply these colors to backgrounds, props, fabrics, surfaces, and environmental lighting. Prioritize these brand colors over default aesthetic choices. Do NOT alter the product's own colors - only the surrounding context and styling elements.`;
+}
+
 // Shared prompt generator function - Strategic ecommerce prompts
 function getPrompts(productName: string): Record<string, string> {
   return {
@@ -3837,8 +4124,31 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
       return c.json({ success: false, error: 'Invalid variation index', field: 'unknown' }, 400)
     }
     
-    // Use custom prompt if provided, otherwise use default
-    const prompt = customPrompt || prompts[variation.field]
+    // Fetch session to get brand colors (for variations 7, 8, 9)
+    let brandColorPrompt = '';
+    const lifestyleVariations = ['inuse_action', 'flatlay_styled', 'environment_context'];
+    
+    if (lifestyleVariations.includes(variation.field)) {
+      const session = await db.prepare(
+        'SELECT brand_colors FROM sessions WHERE id = ?'
+      ).bind(sessionId).first() as any;
+      
+      if (session?.brand_colors) {
+        try {
+          const brandColors = JSON.parse(session.brand_colors);
+          if (Array.isArray(brandColors) && brandColors.length > 0) {
+            brandColorPrompt = generateBrandColorPrompt(brandColors);
+            console.log(`[${variation.field}] Brand colors detected: ${brandColors.join(', ')}`);
+          }
+        } catch (e) {
+          console.log(`[${variation.field}] Failed to parse brand_colors:`, e);
+        }
+      }
+    }
+    
+    // Use custom prompt if provided, otherwise use default + brand colors
+    const basePrompt = customPrompt || prompts[variation.field];
+    const prompt = basePrompt + brandColorPrompt;
     const isCustom = !!customPrompt
     const modelInfo = MODEL_INFO[modelKey] || MODEL_INFO[DEFAULT_MODEL]
     console.log(`[${variation.field}] Generating with ${modelInfo.name} (${modelKey}) using ${creditTypeName} credits...`)
@@ -4008,7 +4318,24 @@ app.post('/api/regenerate/:sessionId/:variationIndex', async (c) => {
       return c.json({ success: false, error: 'Invalid variation index' }, 400)
     }
     
-    const prompt = customPrompt || prompts[variation.field]
+    // Inject brand colors for lifestyle variations (7, 8, 9)
+    let brandColorPrompt = '';
+    const lifestyleVariations = ['inuse_action', 'flatlay_styled', 'environment_context'];
+    
+    if (lifestyleVariations.includes(variation.field)) {
+      const sessionData = session as any;
+      if (sessionData?.brand_colors) {
+        try {
+          const brandColors = JSON.parse(sessionData.brand_colors);
+          if (Array.isArray(brandColors) && brandColors.length > 0) {
+            brandColorPrompt = generateBrandColorPrompt(brandColors);
+          }
+        } catch (e) { /* ignore parse errors */ }
+      }
+    }
+    
+    const basePrompt = customPrompt || prompts[variation.field];
+    const prompt = basePrompt + brandColorPrompt;
     const modelInfo = MODEL_INFO[modelKey] || MODEL_INFO[DEFAULT_MODEL]
     
     const startTime = Date.now()
@@ -7332,6 +7659,141 @@ function getHomePage(user?: User) {
     }
     .advanced-link:hover { text-decoration: underline; }
     
+    /* Brand Colors Accordion */
+    .brand-colors-section {
+      margin-top: 16px;
+      border: 1px solid #E5E7EB;
+      border-radius: 10px;
+      overflow: hidden;
+      background: rgba(255,255,255,0.7);
+    }
+    .brand-colors-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 14px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .brand-colors-header:hover {
+      background: rgba(99, 102, 241, 0.05);
+    }
+    .brand-colors-title {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .brand-colors-title span:first-child {
+      font-size: 13px;
+      font-weight: 600;
+      color: #374151;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .brand-colors-title span:last-child {
+      font-size: 11px;
+      color: #6B7280;
+    }
+    .brand-colors-arrow {
+      font-size: 12px;
+      color: #9CA3AF;
+      transition: transform 0.2s;
+    }
+    .brand-colors-section.expanded .brand-colors-arrow {
+      transform: rotate(180deg);
+    }
+    .brand-colors-body {
+      display: none;
+      padding: 0 14px 14px;
+      border-top: 1px solid #E5E7EB;
+    }
+    .brand-colors-section.expanded .brand-colors-body {
+      display: block;
+    }
+    .color-inputs-grid {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+      flex-wrap: wrap;
+    }
+    .color-input-item {
+      flex: 1;
+      min-width: 54px;
+      max-width: 70px;
+    }
+    .color-swatch {
+      width: 100%;
+      height: 36px;
+      border-radius: 6px;
+      border: 2px solid #E5E7EB;
+      background: #F3F4F6;
+      transition: all 0.2s;
+      cursor: pointer;
+    }
+    .color-swatch.has-color {
+      border-color: rgba(0,0,0,0.15);
+    }
+    .color-swatch.invalid {
+      border-color: #EF4444;
+      background: #FEE2E2;
+    }
+    .color-hex-input {
+      width: 100%;
+      margin-top: 4px;
+      padding: 4px 6px;
+      font-size: 10px;
+      font-family: monospace;
+      text-align: center;
+      border: 1px solid #E5E7EB;
+      border-radius: 4px;
+      text-transform: uppercase;
+    }
+    .color-hex-input:focus {
+      outline: none;
+      border-color: #6366F1;
+      box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+    }
+    .color-hex-input.invalid {
+      border-color: #EF4444;
+    }
+    .brand-colors-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .brand-save-btn, .brand-clear-btn {
+      flex: 1;
+      padding: 8px 12px;
+      font-size: 12px;
+      font-weight: 500;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .brand-save-btn {
+      background: linear-gradient(135deg, #3B82F6 0%, #6366F1 100%);
+      color: white;
+      border: none;
+    }
+    .brand-save-btn:hover {
+      opacity: 0.9;
+    }
+    .brand-clear-btn {
+      background: white;
+      color: #6B7280;
+      border: 1px solid #E5E7EB;
+    }
+    .brand-clear-btn:hover {
+      background: #F9FAFB;
+    }
+    .brand-colors-hint {
+      font-size: 10px;
+      color: #9CA3AF;
+      margin-top: 10px;
+      line-height: 1.4;
+    }
+    
     /* Generate button - purple gradient */
     .generate-btn {
       display: block;
@@ -8379,6 +8841,53 @@ function getHomePage(user?: User) {
         ⚙️ Advanced Mode (Custom Prompts)
       </div>
 
+      <!-- Brand Colors Accordion -->
+      <div id="brand-colors-section" class="brand-colors-section">
+        <div class="brand-colors-header" onclick="toggleBrandColors()">
+          <div class="brand-colors-title">
+            <span>🎨 Brand Colors (Optional)</span>
+            <span>Match lifestyle shots to your brand aesthetic</span>
+          </div>
+          <span class="brand-colors-arrow">▼</span>
+        </div>
+        <div class="brand-colors-body">
+          <div class="color-inputs-grid">
+            <div class="color-input-item">
+              <div class="color-swatch" id="swatch-1" onclick="document.getElementById('color-1').focus()"></div>
+              <input type="text" class="color-hex-input" id="color-1" placeholder="#FF5733" maxlength="7" 
+                     oninput="updateColorSwatch(1)" onblur="formatColorInput(1)">
+            </div>
+            <div class="color-input-item">
+              <div class="color-swatch" id="swatch-2" onclick="document.getElementById('color-2').focus()"></div>
+              <input type="text" class="color-hex-input" id="color-2" placeholder="#1A1A1A" maxlength="7"
+                     oninput="updateColorSwatch(2)" onblur="formatColorInput(2)">
+            </div>
+            <div class="color-input-item">
+              <div class="color-swatch" id="swatch-3" onclick="document.getElementById('color-3').focus()"></div>
+              <input type="text" class="color-hex-input" id="color-3" placeholder="#F0E68C" maxlength="7"
+                     oninput="updateColorSwatch(3)" onblur="formatColorInput(3)">
+            </div>
+            <div class="color-input-item">
+              <div class="color-swatch" id="swatch-4" onclick="document.getElementById('color-4').focus()"></div>
+              <input type="text" class="color-hex-input" id="color-4" placeholder="#FFFFFF" maxlength="7"
+                     oninput="updateColorSwatch(4)" onblur="formatColorInput(4)">
+            </div>
+            <div class="color-input-item">
+              <div class="color-swatch" id="swatch-5" onclick="document.getElementById('color-5').focus()"></div>
+              <input type="text" class="color-hex-input" id="color-5" placeholder="#000000" maxlength="7"
+                     oninput="updateColorSwatch(5)" onblur="formatColorInput(5)">
+            </div>
+          </div>
+          <div class="brand-colors-actions">
+            <button class="brand-save-btn" onclick="saveBrandColors()">💾 Save as Default</button>
+            <button class="brand-clear-btn" onclick="clearBrandColors()">Clear</button>
+          </div>
+          <div class="brand-colors-hint">
+            Colors apply to lifestyle shots (#7, #8, #9) only. Product colors stay unchanged.
+          </div>
+        </div>
+      </div>
+
       <!-- Generate Button -->
       <button id="generate-btn" class="generate-btn" onclick="generateVariations()" disabled>
         Generate 10 Professional Shots
@@ -8862,6 +9371,9 @@ function getHomePage(user?: User) {
       window.heroWhiteImageUrl = null;
       // Reset retry counts for new generation
       window.retryCount = {};
+      
+      // Apply brand colors to session BEFORE generating
+      await applyBrandColorsToSession(currentSessionId);
       
       document.getElementById('upload-screen').style.display = 'none';
       document.getElementById('results-screen').style.display = 'block';
@@ -9772,12 +10284,159 @@ function getHomePage(user?: User) {
       }
     }
     
+    // ============================================
+    // BRAND COLORS FEATURE
+    // ============================================
+    let savedBrandColors = { color_1: null, color_2: null, color_3: null, color_4: null, color_5: null };
+    
+    function toggleBrandColors() {
+      const section = document.getElementById('brand-colors-section');
+      if (section) section.classList.toggle('expanded');
+    }
+    
+    function isValidHex(hex) {
+      return /^#[0-9A-Fa-f]{6}$/.test(hex);
+    }
+    
+    function updateColorSwatch(index) {
+      const input = document.getElementById('color-' + index);
+      const swatch = document.getElementById('swatch-' + index);
+      if (!input || !swatch) return;
+      
+      let val = input.value.trim().toUpperCase();
+      
+      // Auto-add # if missing
+      if (val && !val.startsWith('#')) {
+        val = '#' + val;
+        input.value = val;
+      }
+      
+      if (val === '' || val === '#') {
+        swatch.style.background = '#F3F4F6';
+        swatch.classList.remove('has-color', 'invalid');
+        input.classList.remove('invalid');
+      } else if (isValidHex(val)) {
+        swatch.style.background = val;
+        swatch.classList.add('has-color');
+        swatch.classList.remove('invalid');
+        input.classList.remove('invalid');
+      } else {
+        swatch.style.background = '#FEE2E2';
+        swatch.classList.add('invalid');
+        swatch.classList.remove('has-color');
+        input.classList.add('invalid');
+      }
+    }
+    
+    function formatColorInput(index) {
+      const input = document.getElementById('color-' + index);
+      if (!input) return;
+      let val = input.value.trim().toUpperCase();
+      if (val && !val.startsWith('#')) val = '#' + val;
+      if (val.length > 7) val = val.substring(0, 7);
+      input.value = val;
+      updateColorSwatch(index);
+    }
+    
+    async function loadSavedBrandColors() {
+      if (!currentUser) return;
+      try {
+        const res = await fetch('/api/account/brand-colors');
+        if (res.ok) {
+          const data = await res.json();
+          savedBrandColors = data;
+          // Pre-populate inputs
+          for (let i = 1; i <= 5; i++) {
+            const color = data['color_' + i];
+            const input = document.getElementById('color-' + i);
+            if (input && color) {
+              input.value = color;
+              updateColorSwatch(i);
+            }
+          }
+        }
+      } catch (err) {
+        console.log('Failed to load brand colors:', err);
+      }
+    }
+    
+    async function saveBrandColors() {
+      if (!currentUser) {
+        showError('Please log in to save brand colors');
+        return;
+      }
+      
+      const colors = {};
+      for (let i = 1; i <= 5; i++) {
+        const input = document.getElementById('color-' + i);
+        const val = input ? input.value.trim().toUpperCase() : '';
+        colors['color_' + i] = (val && isValidHex(val)) ? val : null;
+      }
+      
+      try {
+        const res = await fetch('/api/account/brand-colors', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(colors)
+        });
+        
+        if (res.ok) {
+          savedBrandColors = colors;
+          showNotification('Brand colors saved for future generations');
+        } else {
+          const data = await res.json();
+          showError(data.error || 'Failed to save brand colors');
+        }
+      } catch (err) {
+        showError('Failed to save brand colors');
+      }
+    }
+    
+    function clearBrandColors() {
+      for (let i = 1; i <= 5; i++) {
+        const input = document.getElementById('color-' + i);
+        if (input) {
+          input.value = '';
+          updateColorSwatch(i);
+        }
+      }
+    }
+    
+    function getBrandColorsArray() {
+      const colors = [];
+      for (let i = 1; i <= 5; i++) {
+        const input = document.getElementById('color-' + i);
+        const val = input ? input.value.trim().toUpperCase() : '';
+        if (val && isValidHex(val)) {
+          colors.push(val);
+        }
+      }
+      return colors;
+    }
+    
+    async function applyBrandColorsToSession(sessionId) {
+      const colors = getBrandColorsArray();
+      if (colors.length === 0) return; // No colors to apply
+      
+      try {
+        await fetch('/api/sessions/' + sessionId + '/brand-colors', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ colors })
+        });
+        console.log('Brand colors applied to session:', colors);
+      } catch (err) {
+        console.log('Failed to apply brand colors:', err);
+      }
+    }
+    
     // Init
     document.addEventListener('DOMContentLoaded', () => {
       // Only load sessions and credits for logged-in users
       if (currentUser) {
         loadSessions();
         updateCreditsDisplay();
+        loadSavedBrandColors(); // Load saved brand colors
       }
       
       // Check if user just signed up and has a pending image to restore
