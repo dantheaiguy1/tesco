@@ -5481,6 +5481,18 @@ app.post('/api/admin/social/publish', async (c) => {
         }
 
         const postData = await postResponse.json() as any;
+        console.log(`[Late API] Success response for ${platform}:`, JSON.stringify(postData));
+        
+        // Extract post ID and URL from Late API response
+        // Late API returns: { post: { _id, platforms: [{ platform, platformPostUrl }] } }
+        const postObj = postData.post || postData;
+        const postId = postObj._id || postObj.id || postData._id || postData.id || null;
+        
+        // Find platform-specific URL from platforms array
+        const platformResult = postObj.platforms?.find((p: any) => 
+          p.platform?.toLowerCase() === platform.toLowerCase()
+        );
+        const postUrl = platformResult?.platformPostUrl || postObj.url || postData.url || null;
         
         // Save successful post to DB
         const successPostId = crypto.randomUUID();
@@ -5493,8 +5505,8 @@ app.post('/api/admin/social/publish', async (c) => {
           platform, 
           String(caption), 
           imageBase64 || null,
-          postData.id ? String(postData.id) : null,
-          postData.url ? String(postData.url) : null,
+          postId ? String(postId) : null,
+          postUrl ? String(postUrl) : null,
           postStatus,
           String(prompt || ''),
           user.id
@@ -5503,8 +5515,8 @@ app.post('/api/admin/social/publish', async (c) => {
         results.push({ 
           platform, 
           success: true, 
-          postId: postData.id,
-          postUrl: postData.url 
+          postId: postId,
+          postUrl: postUrl 
         });
 
       } catch (err: any) {
