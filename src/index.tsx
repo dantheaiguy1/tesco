@@ -7103,7 +7103,92 @@ function getMarketingPage(user?: User) {
     }
     .section-dark .section-subtitle { color: #9CA3AF; }
     
-    /* Features Grid */
+    /* Feature Sections - Alternating Layout */
+    .feature-section {
+      padding: 100px 0;
+      background: #ffffff;
+    }
+    .feature-section:nth-child(even) {
+      background: #f9fafb;
+    }
+    .feature-section-container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 40px;
+      display: grid;
+      grid-template-columns: 55% 45%;
+      gap: 80px;
+      align-items: center;
+    }
+    .feature-section.reverse .feature-section-container {
+      grid-template-columns: 45% 55%;
+    }
+    .feature-section.reverse .feature-section-image {
+      order: 2;
+    }
+    .feature-section-image img {
+      width: 100%;
+      height: auto;
+      border-radius: 16px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.1);
+    }
+    .feature-section-content h2 {
+      font-size: 48px;
+      font-weight: 700;
+      line-height: 1.2;
+      margin-bottom: 24px;
+      color: #111827;
+    }
+    .feature-section-content p {
+      font-size: 20px;
+      line-height: 1.6;
+      margin-bottom: 32px;
+      color: #6b7280;
+    }
+    .feature-cta-button {
+      display: inline-block;
+      padding: 16px 40px;
+      background: #4F46E5;
+      color: white;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 18px;
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+    .feature-cta-button:hover {
+      background: #4338CA;
+      transform: translateY(-2px);
+      box-shadow: 0 10px 30px rgba(79, 70, 229, 0.3);
+    }
+    @media (max-width: 768px) {
+      .feature-section {
+        padding: 60px 0;
+      }
+      .feature-section-container {
+        grid-template-columns: 1fr;
+        gap: 40px;
+        padding: 0 20px;
+      }
+      .feature-section.reverse .feature-section-container {
+        grid-template-columns: 1fr;
+      }
+      .feature-section.reverse .feature-section-image {
+        order: 0;
+      }
+      .feature-section-content h2 {
+        font-size: 32px;
+      }
+      .feature-section-content p {
+        font-size: 18px;
+      }
+      .feature-cta-button {
+        padding: 14px 32px;
+        font-size: 16px;
+      }
+    }
+    
+    /* Legacy Features Grid - keeping for compatibility */
     .features-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
@@ -7497,7 +7582,7 @@ function getMarketingPage(user?: User) {
     </div>
   </div>
 
-  <!-- Features Section -->
+  <!-- Features Section Header -->
   <section class="section" id="features">
     <div class="section-header">
       <div class="section-badge">Features</div>
@@ -7532,37 +7617,88 @@ function getMarketingPage(user?: User) {
       </div>
       <p class="promo-video-caption">See ShopShot transform a simple product photo into 10 professional shots</p>
     </div>
-    
-    <div class="features-grid">
-      <div class="feature-card">
-        <div class="feature-icon">📸</div>
-        <h3>10 Unique Variations</h3>
-        <p>Hero shots, lifestyle contexts, flat-lays, macro details, and more from a single upload.</p>
+  </section>
+  
+  <!-- Feature Section 1: 10 Unique Variations -->
+  <section class="feature-section">
+    <div class="feature-section-container">
+      <div class="feature-section-image">
+        <img src="/static/examples/example-1-full.jpg" alt="10 product photo variations showing same product in different contexts" loading="lazy" />
       </div>
-      <div class="feature-card">
-        <div class="feature-icon">⚡</div>
-        <h3>Lightning Fast</h3>
-        <p>Get all 10 professional variations in about 25 seconds. Faster than making a cup of coffee.</p>
+      <div class="feature-section-content">
+        <h2>10 Unique Variations</h2>
+        <p>Hero shots, lifestyle contexts, flat-lays, macro details, and more from a single upload. Every angle and style you need to sell more.</p>
+        <a href="/app" class="feature-cta-button">Try It Free</a>
       </div>
-      <div class="feature-card">
-        <div class="feature-icon">🎯</div>
-        <h3>Works With Any Photo</h3>
-        <p>Crumpled background? Bad lighting? No problem. Our AI extracts and enhances your product.</p>
+    </div>
+  </section>
+  
+  <!-- Feature Section 2: Lightning Fast (Reversed) -->
+  <section class="feature-section reverse">
+    <div class="feature-section-container">
+      <div class="feature-section-image">
+        <img src="/static/examples/example-2-full.jpg" alt="Fast product photo transformation in 25 seconds" loading="lazy" />
       </div>
-      <div class="feature-card">
-        <div class="feature-icon">🖼️</div>
-        <h3>High Resolution</h3>
-        <p>Download print-ready images perfect for marketplaces, websites, and social media.</p>
+      <div class="feature-section-content">
+        <h2>Lightning Fast</h2>
+        <p>Get all 10 professional variations in about 25 seconds. Faster than making a cup of coffee. No waiting around for renders.</p>
+        <a href="#how-it-works" class="feature-cta-button">See It In Action</a>
       </div>
-      <div class="feature-card">
-        <div class="feature-icon">🔄</div>
-        <h3>Regenerate Anytime</h3>
-        <p>Not happy with a result? Regenerate individual images or the entire set with one click.</p>
+    </div>
+  </section>
+  
+  <!-- Feature Section 3: Works With Any Photo -->
+  <section class="feature-section">
+    <div class="feature-section-container">
+      <div class="feature-section-image">
+        <img src="/static/examples/example-3-full.jpg" alt="AI extracting product from any background" loading="lazy" />
       </div>
-      <div class="feature-card">
-        <div class="feature-icon">📦</div>
-        <h3>Bulk Download</h3>
-        <p>Download all variations as a ZIP file. Ready to upload to your store in seconds.</p>
+      <div class="feature-section-content">
+        <h2>Works With Any Photo</h2>
+        <p>Crumpled background? Bad lighting? No problem. Our AI extracts and enhances your product from even the messiest photos.</p>
+        <a href="/app" class="feature-cta-button">Upload Now</a>
+      </div>
+    </div>
+  </section>
+  
+  <!-- Feature Section 4: High Resolution (Reversed) -->
+  <section class="feature-section reverse">
+    <div class="feature-section-container">
+      <div class="feature-section-image">
+        <img src="/static/examples/example-4-full.jpg" alt="High resolution product images ready for print" loading="lazy" />
+      </div>
+      <div class="feature-section-content">
+        <h2>High Resolution</h2>
+        <p>Download print-ready images perfect for marketplaces, websites, and social media. Crisp, detailed, and professional quality.</p>
+        <a href="/pricing" class="feature-cta-button">Start Free Trial</a>
+      </div>
+    </div>
+  </section>
+  
+  <!-- Feature Section 5: Regenerate Anytime -->
+  <section class="feature-section">
+    <div class="feature-section-container">
+      <div class="feature-section-image">
+        <img src="/static/examples/example-5-full.jpg" alt="Regenerate product images with one click" loading="lazy" />
+      </div>
+      <div class="feature-section-content">
+        <h2>Regenerate Anytime</h2>
+        <p>Not happy with a result? Regenerate individual images or the entire set with one click. Unlimited creative control.</p>
+        <a href="/app" class="feature-cta-button">Try It Free</a>
+      </div>
+    </div>
+  </section>
+  
+  <!-- Feature Section 6: Bulk Download (Reversed) -->
+  <section class="feature-section reverse">
+    <div class="feature-section-container">
+      <div class="feature-section-image">
+        <img src="/static/examples/example-6-full.jpg" alt="Bulk download all product images as ZIP" loading="lazy" />
+      </div>
+      <div class="feature-section-content">
+        <h2>Bulk Download</h2>
+        <p>Download all variations as a ZIP file. Ready to upload to your store in seconds. No more tedious one-by-one downloads.</p>
+        <a href="/app" class="feature-cta-button">Open App</a>
       </div>
     </div>
   </section>
@@ -7594,34 +7730,16 @@ function getMarketingPage(user?: User) {
     </div>
   </section>
 
-  <!-- Use Cases -->
-  <section class="section">
-    <div class="section-header">
-      <div class="section-badge">Use Cases</div>
-      <h2 class="section-title">Perfect for Every Seller</h2>
-      <p class="section-subtitle">Whether you're selling one item or thousands, ShopShot scales with you.</p>
-    </div>
-    
-    <div class="use-cases">
-      <div class="use-case">
-        <div class="use-case-icon">🛒</div>
-        <h4>eBay Sellers</h4>
+  <!-- Feature Section 7: Perfect for Every Seller -->
+  <section class="feature-section">
+    <div class="feature-section-container">
+      <div class="feature-section-image">
+        <img src="/static/examples/example-7-thumb.jpg" alt="Product photos optimized for eBay, Etsy, Amazon, Depop, and social media" loading="lazy" />
       </div>
-      <div class="use-case">
-        <div class="use-case-icon">🎨</div>
-        <h4>Etsy Shops</h4>
-      </div>
-      <div class="use-case">
-        <div class="use-case-icon">📦</div>
-        <h4>Amazon FBA</h4>
-      </div>
-      <div class="use-case">
-        <div class="use-case-icon">👗</div>
-        <h4>Depop & Vinted</h4>
-      </div>
-      <div class="use-case">
-        <div class="use-case-icon">📱</div>
-        <h4>Social Commerce</h4>
+      <div class="feature-section-content">
+        <h2>Perfect for Every Seller</h2>
+        <p>Whether you're selling one item or thousands, ShopShot scales with you. Optimized for eBay, Etsy, Amazon, Depop, Vinted, and social commerce.</p>
+        <a href="/register" class="feature-cta-button">Get Started Free</a>
       </div>
     </div>
   </section>
