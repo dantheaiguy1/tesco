@@ -7188,6 +7188,182 @@ function getMarketingPage(user?: User) {
       }
     }
     
+    /* Brand Colors Section - Eye-catching comparison */
+    .brand-colors-section {
+      padding: 100px 0;
+      background: linear-gradient(135deg, #EEF2FF 0%, #E0E7FF 50%, #C7D2FE 100%);
+      position: relative;
+      overflow: hidden;
+    }
+    .brand-colors-section::before {
+      content: '';
+      position: absolute;
+      top: -50%;
+      right: -20%;
+      width: 600px;
+      height: 600px;
+      background: radial-gradient(circle, rgba(99, 102, 241, 0.15) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .brand-colors-container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 40px;
+      position: relative;
+      z-index: 1;
+    }
+    .brand-colors-header {
+      text-align: center;
+      margin-bottom: 60px;
+    }
+    .brand-colors-badge {
+      display: inline-block;
+      padding: 8px 20px;
+      background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%);
+      color: white;
+      border-radius: 100px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      margin-bottom: 20px;
+      box-shadow: 0 4px 15px rgba(79, 70, 229, 0.4);
+    }
+    .brand-colors-header h2 {
+      font-size: 52px;
+      font-weight: 800;
+      color: #1F2937;
+      margin-bottom: 16px;
+      line-height: 1.1;
+    }
+    .brand-colors-header p {
+      font-size: 20px;
+      color: #4B5563;
+      max-width: 600px;
+      margin: 0 auto;
+      line-height: 1.6;
+    }
+    .brand-colors-comparison {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+      margin-bottom: 50px;
+    }
+    .comparison-side {
+      flex: 1;
+      max-width: 500px;
+    }
+    .comparison-label {
+      text-align: center;
+      font-size: 14px;
+      font-weight: 600;
+      color: #6B7280;
+      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .comparison-label.highlight {
+      color: #4F46E5;
+    }
+    .comparison-side img {
+      width: 100%;
+      border-radius: 16px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+      transition: transform 0.3s, box-shadow 0.3s;
+    }
+    .comparison-side img:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 30px 80px rgba(0, 0, 0, 0.2);
+    }
+    .comparison-divider {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+    .divider-icon {
+      width: 48px;
+      height: 48px;
+      background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      box-shadow: 0 4px 20px rgba(79, 70, 229, 0.4);
+    }
+    .brand-colors-feature {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 40px;
+      margin-bottom: 40px;
+      background: white;
+      padding: 32px;
+      border-radius: 20px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.08);
+    }
+    .brand-ui-preview {
+      max-width: 400px;
+      border-radius: 12px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+    }
+    .brand-colors-bullets {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .bullet-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 18px;
+      color: #374151;
+    }
+    .bullet-icon {
+      font-size: 24px;
+    }
+    .brand-colors-cta {
+      display: block;
+      width: fit-content;
+      margin: 0 auto;
+      padding: 18px 48px;
+      background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%);
+      color: white;
+      border-radius: 12px;
+      font-weight: 700;
+      font-size: 18px;
+      text-decoration: none;
+      transition: all 0.3s;
+      box-shadow: 0 8px 30px rgba(79, 70, 229, 0.4);
+    }
+    .brand-colors-cta:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 12px 40px rgba(79, 70, 229, 0.5);
+    }
+    @media (max-width: 900px) {
+      .brand-colors-section { padding: 60px 0; }
+      .brand-colors-container { padding: 0 20px; }
+      .brand-colors-header h2 { font-size: 36px; }
+      .brand-colors-header p { font-size: 18px; }
+      .brand-colors-comparison {
+        flex-direction: column;
+        gap: 20px;
+      }
+      .comparison-side { max-width: 100%; }
+      .comparison-divider { 
+        transform: rotate(90deg);
+        margin: 10px 0;
+      }
+      .brand-colors-feature {
+        flex-direction: column;
+        padding: 24px;
+        gap: 24px;
+      }
+      .brand-ui-preview { max-width: 100%; }
+      .bullet-item { font-size: 16px; }
+    }
+    
     /* Legacy Features Grid - keeping for compatibility */
     .features-grid {
       display: grid;
@@ -7644,6 +7820,55 @@ function getMarketingPage(user?: User) {
         <p>Get all 10 professional variations in about 25 seconds. Faster than making a cup of coffee. No waiting around for renders.</p>
         <a href="#how-it-works" class="feature-cta-button">See It In Action</a>
       </div>
+    </div>
+  </section>
+  
+  <!-- Feature Section: Brand Colors - Special Before/After -->
+  <section class="brand-colors-section">
+    <div class="brand-colors-container">
+      <div class="brand-colors-header">
+        <span class="brand-colors-badge">NEW FEATURE</span>
+        <h2>Match Your Brand Aesthetic</h2>
+        <p>Add your brand colors and watch lifestyle shots transform to match. Perfect consistency across all your product photography.</p>
+      </div>
+      
+      <div class="brand-colors-comparison">
+        <div class="comparison-side">
+          <div class="comparison-label">Without Brand Colors</div>
+          <img src="/static/examples/brand-colors-before.jpg" alt="Product photos without brand colors" loading="lazy" />
+        </div>
+        <div class="comparison-divider">
+          <div class="divider-icon">
+            <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+            </svg>
+          </div>
+        </div>
+        <div class="comparison-side">
+          <div class="comparison-label highlight">With Brand Colors</div>
+          <img src="/static/examples/brand-colors-after.jpg" alt="Product photos with brand colors applied" loading="lazy" />
+        </div>
+      </div>
+      
+      <div class="brand-colors-feature">
+        <img src="/static/examples/brand-colors-ui.jpg" alt="Brand colors picker interface" class="brand-ui-preview" loading="lazy" />
+        <div class="brand-colors-bullets">
+          <div class="bullet-item">
+            <span class="bullet-icon">🎨</span>
+            <span>Add up to 5 brand colors</span>
+          </div>
+          <div class="bullet-item">
+            <span class="bullet-icon">✨</span>
+            <span>Applies to lifestyle shots (#7, #8, #9)</span>
+          </div>
+          <div class="bullet-item">
+            <span class="bullet-icon">💾</span>
+            <span>Save as default for all future shoots</span>
+          </div>
+        </div>
+      </div>
+      
+      <a href="/app" class="brand-colors-cta">Try Brand Colors Free</a>
     </div>
   </section>
   
