@@ -4087,7 +4087,17 @@ IMPORTANT COLOR INSTRUCTIONS:
 }
 
 // Shared prompt generator function - Strategic ecommerce prompts
-function getPrompts(productName: string): Record<string, string> {
+function getPrompts(productName: string, productSize: string = 'medium'): Record<string, string> {
+  // Size descriptions to help AI understand product scale
+  const sizeDescriptions: Record<string, string> = {
+    'tiny': 'This is a very small/tiny product (like jewelry, USB drive, pill, coin-sized item). Show it at appropriate small scale with props that emphasize its compact size.',
+    'small': 'This is a small handheld product (like a phone, wallet, cosmetic item). Show it at natural handheld scale.',
+    'medium': 'This is a medium-sized product (like shoes, books, bottles). Show it at natural table-top scale.',
+    'large': 'This is a large product (like bags, small appliances, chairs). Show it at appropriate large scale in the scene.'
+  };
+  
+  const sizeHint = sizeDescriptions[productSize] || sizeDescriptions['medium'];
+  
   return {
     // === DETAIL/CLOSE-UP SHOTS (1-5) - Trust-building, return-reducing ===
     
@@ -4099,19 +4109,19 @@ function getPrompts(productName: string): Record<string, string> {
     
     'color_finish': `Close-up photography of this ${productName} emphasizing true-to-life color accuracy and surface finish. Professional color-corrected studio lighting. Neutral background to showcase product color without distraction. Lighting angles showing sheen, matte finish, or surface quality. Commercial product photography for accurate buyer expectations. High resolution 2k, color-faithful presentation.`,
     
-    'scale_reference': `Product photography of this ${productName} with clear scale reference showing actual size. Close-up composition with human hand partially in frame OR common object for size comparison. Professional studio lighting, clear perspective on product dimensions. Ecommerce photography that reduces size-related returns. High resolution 2k, practical size-accurate presentation.`,
+    'scale_reference': `Product photography of this ${productName} with clear scale reference showing actual size. ${sizeHint} Close-up composition with human hand partially in frame OR common object for size comparison. Professional studio lighting, clear perspective on product dimensions. Ecommerce photography that reduces size-related returns. High resolution 2k, practical size-accurate presentation.`,
     
     // === CONTEXT/LIFESTYLE SHOTS (6-10) - Conversion-driving ===
     
-    'hero_white': `Clean professional product photo of this ${productName} on pure white (#FFFFFF) background. Product centered with generous white space padding on all sides. Studio lighting from multiple angles. Product positioned at slight 45-degree angle showing depth and dimensionality. Soft natural shadow underneath. High resolution 2k, catalog-quality commercial photography.`,
+    'hero_white': `Clean professional product photo of this ${productName} on pure white (#FFFFFF) background. ${sizeHint} Product centered with generous white space padding on all sides. Studio lighting from multiple angles. Product positioned at slight 45-degree angle showing depth and dimensionality. Soft natural shadow underneath. High resolution 2k, catalog-quality commercial photography.`,
     
-    'inuse_action': `This ${productName} being actively used in real-world scenario. Natural hands interacting with product showing scale and functionality. Authentic everyday setting. Lifestyle photography demonstrating practical application. Candid moment captured. Relatable use-case photography. Natural lighting. High resolution 2k, genuine user experience style.`,
+    'inuse_action': `This ${productName} being actively used in real-world scenario. ${sizeHint} Natural hands interacting with product showing scale and functionality. Authentic everyday setting. Lifestyle photography demonstrating practical application. Candid moment captured. Relatable use-case photography. Natural lighting. High resolution 2k, genuine user experience style.`,
     
-    'flatlay_styled': `Flat-lay composition of this ${productName} photographed directly from above. Product styled with complementary accessories and props on neutral surface. Instagram aesthetic with intentional negative space. Natural window lighting. Curated lifestyle arrangement. Social media content style. Balanced composition. High resolution 2k, aspirational product styling.`,
+    'flatlay_styled': `Flat-lay composition of this ${productName} photographed directly from above. ${sizeHint} Product styled with complementary accessories and props on neutral surface. Instagram aesthetic with intentional negative space. Natural window lighting. Curated lifestyle arrangement. Social media content style. Balanced composition. High resolution 2k, aspirational product styling.`,
     
-    'environment_context': `This ${productName} in natural environment relevant to its use. Soft natural lighting showing product in realistic setting. Background slightly blurred to emphasize product as hero. Lifestyle photography creating emotional connection and showing product purpose. Authentic scene composition. High resolution 2k, contextual storytelling style.`,
+    'environment_context': `This ${productName} in natural environment relevant to its use. ${sizeHint} Soft natural lighting showing product in realistic setting. Background slightly blurred to emphasize product as hero. Lifestyle photography creating emotional connection and showing product purpose. Authentic scene composition. High resolution 2k, contextual storytelling style.`,
     
-    'multi_angle': `This ${productName} shown from three key angles in single composition: front view, side profile, and top-down perspective. Clean white or grey background. Professional studio lighting consistent across all angles. Commercial photography showing complete product understanding. Informative multi-view layout. High resolution 2k, comprehensive product documentation style.`
+    'multi_angle': `This ${productName} shown from three key angles in single composition: front view, side profile, and top-down perspective. ${sizeHint} Clean white or grey background. Professional studio lighting consistent across all angles. Commercial photography showing complete product understanding. Informative multi-view layout. High resolution 2k, comprehensive product documentation style.`
   }
 }
 
@@ -4139,6 +4149,7 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
     const productName = body.productName || 'product'
     const customPrompt = body.customPrompt // User-provided custom prompt
     const modelKey = body.model || DEFAULT_MODEL // 'nano' or 'flash'
+    const productSize = body.productSize || 'medium' // tiny, small, medium, large
     
     // Determine credit type based on model
     const creditType = getCreditTypeForModel(modelKey)
@@ -4167,7 +4178,7 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
       return c.json({ success: false, error: 'AI service not configured', field: variationDefinitions[variationIndex]?.field }, 500)
     }
 
-    const prompts: Record<string, string> = getPrompts(productName)
+    const prompts: Record<string, string> = getPrompts(productName, productSize)
     
     const variation = variationDefinitions[variationIndex]
     if (!variation) {
@@ -4457,6 +4468,7 @@ app.post('/api/generate/:id', async (c) => {
 
     const body = await c.req.json().catch(() => ({}))
     const originalImage = body.originalImage || session.original_image
+    const productSize = body.productSize || 'medium'
     
     if (!originalImage || originalImage.length < 100) {
       return c.json({ success: false, error: 'No original image provided' }, 400)
@@ -4472,7 +4484,7 @@ app.post('/api/generate/:id', async (c) => {
     }
     
     const productName = session.product_name || 'product'
-    const prompts: Record<string, string> = getPrompts(productName)
+    const prompts: Record<string, string> = getPrompts(productName, productSize)
     const results: Record<string, string> = {}
     const errors: string[] = []
     
@@ -7693,9 +7705,9 @@ function getMarketingPage(user?: User) {
       <h1>Turn Any Product Photo Into <span class="hero-highlight">10 Professional Shots</span> in Seconds</h1>
       <p>Upload a single photo. Get hero shots, lifestyle images, flat-lays, and more. No photography skills needed. Perfect for online sellers.</p>
       <div class="hero-ctas">
-        <a href="/register" class="btn-primary">
+        <a href="${isLoggedIn ? '/app' : '/register'}" class="btn-primary">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-          Start Free - 15 Credits
+          ${isLoggedIn ? 'Open App' : 'Start Free - 15 Credits'}
         </a>
         <button onclick="scrollToVideo()" class="btn-secondary">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8" fill="currentColor"/></svg>
@@ -8053,9 +8065,9 @@ function getMarketingPage(user?: User) {
   <section class="final-cta">
     <h2>Ready to Transform Your Product Photos?</h2>
     <p>Join thousands of sellers using ShopShot to create scroll-stopping product images.</p>
-    <a href="/register" class="btn-primary">
+    <a href="${isLoggedIn ? '/app' : '/register'}" class="btn-primary">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-      Start Free - No Credit Card
+      ${isLoggedIn ? 'Open App' : 'Start Free - No Credit Card'}
     </a>
   </section>
 
@@ -8811,6 +8823,74 @@ function getHomePage(user?: User) {
     }
     .change-image:hover { text-decoration: underline; }
     
+    /* Product Size Selector */
+    .product-size-section {
+      margin-top: 16px;
+      padding: 16px;
+      background: #F9FAFB;
+      border-radius: 12px;
+      border: 1px solid #E5E7EB;
+    }
+    .size-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: #374151;
+      margin-bottom: 12px;
+      text-align: center;
+    }
+    .size-options {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+    }
+    .size-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 10px 6px;
+      background: white;
+      border: 2px solid #E5E7EB;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .size-btn:hover {
+      border-color: #3B82F6;
+      background: #EFF6FF;
+    }
+    .size-btn.active {
+      border-color: #3B82F6;
+      background: #EFF6FF;
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+    }
+    .size-icon {
+      font-size: 20px;
+      margin-bottom: 4px;
+    }
+    .size-name {
+      font-size: 12px;
+      font-weight: 600;
+      color: #1F2937;
+    }
+    .size-example {
+      font-size: 9px;
+      color: #6B7280;
+      text-align: center;
+      line-height: 1.2;
+      margin-top: 2px;
+    }
+    .size-hint {
+      font-size: 11px;
+      color: #6B7280;
+      text-align: center;
+      margin-top: 10px;
+    }
+    @media (max-width: 480px) {
+      .size-options {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+    
     /* Quality selector - compact button style */
     .quality-section {
       margin-top: 20px;
@@ -8857,10 +8937,24 @@ function getHomePage(user?: User) {
       transform: translateY(-2px);
       box-shadow: 0 6px 24px rgba(245, 158, 11, 0.4);
     }
-    /* Active state - ring indicator */
+    /* Active state - prominent selection indicator */
     .quality-btn.active {
-      outline: 2px solid rgba(255,255,255,0.9);
-      outline-offset: 2px;
+      outline: 3px solid #1F2937;
+      outline-offset: 3px;
+      transform: scale(1.02);
+    }
+    .quality-btn.active::after {
+      content: '✓ SELECTED';
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      background: rgba(0,0,0,0.3);
+      color: white;
+      font-size: 9px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 4px;
+      letter-spacing: 0.5px;
     }
     .quality-btn .q-label,
     .quality-btn .q-detail { color: white; }
@@ -10123,6 +10217,34 @@ function getHomePage(user?: User) {
         </div>
       </div>
 
+      <!-- Product Size Selector -->
+      <div id="product-size-section" class="product-size-section" style="display:none">
+        <div class="size-label">📏 Product Size (helps AI scale correctly)</div>
+        <div class="size-options">
+          <button class="size-btn" data-size="tiny" onclick="selectSize('tiny')">
+            <span class="size-icon">🔬</span>
+            <span class="size-name">Tiny</span>
+            <span class="size-example">Jewelry, USB drives, pills</span>
+          </button>
+          <button class="size-btn" data-size="small" onclick="selectSize('small')">
+            <span class="size-icon">📱</span>
+            <span class="size-name">Small</span>
+            <span class="size-example">Phone, wallet, cosmetics</span>
+          </button>
+          <button class="size-btn active" data-size="medium" onclick="selectSize('medium')">
+            <span class="size-icon">👟</span>
+            <span class="size-name">Medium</span>
+            <span class="size-example">Shoes, books, bottles</span>
+          </button>
+          <button class="size-btn" data-size="large" onclick="selectSize('large')">
+            <span class="size-icon">🎒</span>
+            <span class="size-name">Large</span>
+            <span class="size-example">Bags, appliances, chairs</span>
+          </button>
+        </div>
+        <div class="size-hint">This helps the AI understand your product's real-world size for accurate lifestyle shots</div>
+      </div>
+
       <!-- Quality Selector -->
       <div class="quality-section">
         <div class="quality-label">Select Quality</div>
@@ -10137,8 +10259,8 @@ function getHomePage(user?: User) {
           </button>
         </div>
         <div id="model-credit-info" class="model-credit-info">
-          <span id="selected-credit-type">Standard</span> credits will be used. 
-          You have: <strong id="available-credit-count">--</strong> credits
+          <strong>10 <span id="selected-credit-type">Standard</span> credits</strong> will be used for this generation. 
+          You have: <strong id="available-credit-count">--</strong> <span id="credit-type-label">Standard</span> credits
         </div>
         <div id="nano-warning" class="nano-warning">
           ⏱️ <strong>Pro quality takes longer:</strong> 60-120 seconds per image, sometimes up to 5 minutes if servers are busy. 
@@ -10491,6 +10613,16 @@ function getHomePage(user?: User) {
       window.location.href = '/app';
     }
 
+    // Product size selection
+    let selectedSize = 'medium'; // Default size
+    
+    function selectSize(size) {
+      selectedSize = size;
+      document.querySelectorAll('.size-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.size === size);
+      });
+    }
+    
     // Model selection
     function selectModel(model) {
       selectedModel = model;
@@ -10502,16 +10634,19 @@ function getHomePage(user?: User) {
       const creditInfo = document.getElementById('model-credit-info');
       const creditTypeEl = document.getElementById('selected-credit-type');
       const creditCountEl = document.getElementById('available-credit-count');
+      const creditTypeLabelEl = document.getElementById('credit-type-label');
       
       if (model === 'nano') {
         // Pro credits
         if (creditInfo) { creditInfo.classList.remove('standard'); creditInfo.classList.add('pro'); }
         if (creditTypeEl) creditTypeEl.textContent = 'Pro';
+        if (creditTypeLabelEl) creditTypeLabelEl.textContent = 'Pro';
         if (creditCountEl) creditCountEl.textContent = window.currentBetterCredits || '--';
       } else {
         // Standard credits
         if (creditInfo) { creditInfo.classList.remove('pro'); creditInfo.classList.add('standard'); }
         if (creditTypeEl) creditTypeEl.textContent = 'Standard';
+        if (creditTypeLabelEl) creditTypeLabelEl.textContent = 'Standard';
         if (creditCountEl) creditCountEl.textContent = window.currentCheaperCredits || '--';
       }
       
@@ -10554,6 +10689,8 @@ function getHomePage(user?: User) {
         document.getElementById('upload-prompt').style.display = 'none';
         document.getElementById('upload-preview').style.display = 'block';
         document.getElementById('upload-zone').style.height = 'auto';
+        // Show product size selector
+        document.getElementById('product-size-section').style.display = 'block';
         // Keep button disabled until upload completes
         document.getElementById('generate-btn').disabled = true;
         document.getElementById('generate-btn').textContent = 'Uploading...';
@@ -10568,11 +10705,17 @@ function getHomePage(user?: User) {
       selectedFile = null;
       currentOriginalImage = null;
       currentSessionId = null;
+      selectedSize = 'medium'; // Reset to default
       document.getElementById('upload-prompt').style.display = 'block';
       document.getElementById('upload-preview').style.display = 'none';
       document.getElementById('upload-zone').style.height = '200px';
+      document.getElementById('product-size-section').style.display = 'none';
       document.getElementById('generate-btn').disabled = true;
       document.getElementById('file-input').value = '';
+      // Reset size buttons
+      document.querySelectorAll('.size-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.size === 'medium');
+      });
     }
 
     // Track anonymous session state
@@ -10782,7 +10925,8 @@ function getHomePage(user?: User) {
             originalImage: currentOriginalImage,
             productName: document.getElementById('product-name-edit')?.value || 'Product',
             customPrompt: customPrompts[index],
-            model: modelToUse
+            model: modelToUse,
+            productSize: selectedSize
           })
         });
 
