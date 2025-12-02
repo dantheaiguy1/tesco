@@ -7799,7 +7799,7 @@ function getMarketingPage(user?: User) {
   <section class="feature-section">
     <div class="feature-section-container">
       <div class="feature-section-image">
-        <img src="/static/examples/example-1-full.jpg" alt="10 product photo variations showing same product in different contexts" loading="lazy" />
+        <img src="/static/examples/features/variations-grid.jpg" alt="10 product photo variations showing same product in different contexts" loading="lazy" />
       </div>
       <div class="feature-section-content">
         <h2>10 Unique Variations</h2>
@@ -7813,7 +7813,7 @@ function getMarketingPage(user?: User) {
   <section class="feature-section reverse">
     <div class="feature-section-container">
       <div class="feature-section-image">
-        <img src="/static/examples/example-2-full.jpg" alt="Fast product photo transformation in 25 seconds" loading="lazy" />
+        <img src="/static/examples/features/lightning-fast.jpg" alt="Fast product photo transformation in 25 seconds" loading="lazy" />
       </div>
       <div class="feature-section-content">
         <h2>Lightning Fast</h2>
@@ -7876,7 +7876,7 @@ function getMarketingPage(user?: User) {
   <section class="feature-section">
     <div class="feature-section-container">
       <div class="feature-section-image">
-        <img src="/static/examples/example-3-full.jpg" alt="AI extracting product from any background" loading="lazy" />
+        <img src="/static/examples/features/any-photo.jpg" alt="AI extracting product from any background" loading="lazy" />
       </div>
       <div class="feature-section-content">
         <h2>Works With Any Photo</h2>
@@ -7890,7 +7890,7 @@ function getMarketingPage(user?: User) {
   <section class="feature-section reverse">
     <div class="feature-section-container">
       <div class="feature-section-image">
-        <img src="/static/examples/example-4-full.jpg" alt="High resolution product images ready for print" loading="lazy" />
+        <img src="/static/examples/features/high-resolution.jpg" alt="High resolution product images ready for print" loading="lazy" />
       </div>
       <div class="feature-section-content">
         <h2>High Resolution</h2>
@@ -7904,7 +7904,7 @@ function getMarketingPage(user?: User) {
   <section class="feature-section">
     <div class="feature-section-container">
       <div class="feature-section-image">
-        <img src="/static/examples/example-5-full.jpg" alt="Regenerate product images with one click" loading="lazy" />
+        <img src="/static/examples/features/regenerate.jpg" alt="Regenerate product images with one click" loading="lazy" />
       </div>
       <div class="feature-section-content">
         <h2>Regenerate Anytime</h2>
@@ -7918,7 +7918,7 @@ function getMarketingPage(user?: User) {
   <section class="feature-section reverse">
     <div class="feature-section-container">
       <div class="feature-section-image">
-        <img src="/static/examples/example-6-full.jpg" alt="Bulk download all product images as ZIP" loading="lazy" />
+        <img src="/static/examples/features/bulk-download.jpg" alt="Bulk download all product images as ZIP" loading="lazy" />
       </div>
       <div class="feature-section-content">
         <h2>Bulk Download</h2>
@@ -7959,7 +7959,7 @@ function getMarketingPage(user?: User) {
   <section class="feature-section">
     <div class="feature-section-container">
       <div class="feature-section-image">
-        <img src="/static/examples/example-7-thumb.jpg" alt="Product photos optimized for eBay, Etsy, Amazon, Depop, and social media" loading="lazy" />
+        <img src="/static/examples/features/every-seller.jpg" alt="Product photos optimized for eBay, Etsy, Amazon, Depop, and social media" loading="lazy" />
       </div>
       <div class="feature-section-content">
         <h2>Perfect for Every Seller</h2>
