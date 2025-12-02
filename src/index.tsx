@@ -7897,7 +7897,7 @@ function getMarketingPage(user?: User) {
       </div>
       <div class="feature-section-content">
         <h2>Works With Any Photo</h2>
-        <p>Crumpled background? Bad lighting? No problem. Our AI extracts and enhances your product from even the messiest photos.</p>
+        <p>Upload your best product shot and our AI extracts it perfectly, placing it in 10 professional settings - studio lighting, lifestyle scenes, and more.</p>
         <a href="/app" class="feature-cta-button">Upload Now</a>
       </div>
     </div>
@@ -10199,7 +10199,7 @@ function getHomePage(user?: User) {
       
       <div class="upload-header">
         <h1>Upload Your Product Photo</h1>
-        <p>Even crumpled product photos work - 10 variations in ~25 seconds</p>
+        <p>Upload your best shot - get 10 professional variations in ~25 seconds</p>
       </div>
 
       <!-- Upload Zone -->
@@ -10215,7 +10215,7 @@ function getHomePage(user?: User) {
             </svg>
           </div>
           <div class="upload-primary">Drag & Drop or Click to Upload</div>
-          <div class="upload-secondary">Even crumpled product photos work - 10 variations in ~25 seconds</div>
+          <div class="upload-secondary">Upload your best shot - 10 professional variations in ~25 seconds</div>
           <div class="upload-formats">JPG, PNG, WebP up to 10MB</div>
         </div>
         <div id="upload-preview" class="image-preview" style="display:none">
@@ -14714,7 +14714,7 @@ function getGetStartedPage() {
           <div class="feature-icon">🎯</div>
           <div class="feature-text">
             <h4>Works With Any Photo</h4>
-            <p>Even crumpled or low-quality images work great</p>
+            <p>Clear, well-lit photos give the best results</p>
           </div>
         </div>
       </div>
