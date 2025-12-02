@@ -7719,7 +7719,6 @@ function getMarketingPage(user?: User) {
         <div class="ticker-item" data-index="3"><img src="/static/examples/example-4-thumb.jpg" alt="Candle"></div>
         <div class="ticker-item" data-index="4"><img src="/static/examples/example-5-thumb.jpg" alt="Coffee bags"></div>
         <div class="ticker-item" data-index="5"><img src="/static/examples/example-6-thumb.jpg" alt="Smartwatch"></div>
-        <div class="ticker-item" data-index="6"><img src="/static/examples/example-7-thumb.jpg" alt="Silver ring"></div>
         <!-- Duplicate for seamless loop -->
         <div class="ticker-item" data-index="0"><img src="/static/examples/example-1-thumb.jpg" alt="Vacuum cleaner"></div>
         <div class="ticker-item" data-index="1"><img src="/static/examples/example-2-thumb.jpg" alt="Skincare serum"></div>
@@ -7727,7 +7726,6 @@ function getMarketingPage(user?: User) {
         <div class="ticker-item" data-index="3"><img src="/static/examples/example-4-thumb.jpg" alt="Candle"></div>
         <div class="ticker-item" data-index="4"><img src="/static/examples/example-5-thumb.jpg" alt="Coffee bags"></div>
         <div class="ticker-item" data-index="5"><img src="/static/examples/example-6-thumb.jpg" alt="Smartwatch"></div>
-        <div class="ticker-item" data-index="6"><img src="/static/examples/example-7-thumb.jpg" alt="Silver ring"></div>
       </div>
     </div>
   </section>
@@ -8171,8 +8169,7 @@ function getMarketingPage(user?: User) {
       '/static/examples/example-3-full.jpg',
       '/static/examples/example-4-full.jpg',
       '/static/examples/example-5-full.jpg',
-      '/static/examples/example-6-full.jpg',
-      '/static/examples/example-7-thumb.jpg'  // Ring doesn't have full grid, use thumb
+      '/static/examples/example-6-full.jpg'
     ];
     let currentLightboxIndex = 0;
     
