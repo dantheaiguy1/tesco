@@ -311,9 +311,15 @@ async function generateImageWithVertex(
         const errorText = await response.text();
         console.error(`[Vertex AI ERROR] Status: ${response.status}, Model: ${modelKey}/${vertexModel}`);
         
-        // Check if it's a rate limit error (429)
-        if (response.status === 429) {
-          lastError = 'Rate limited - retrying...';
+        // Check if it's a rate limit or overload error (429, 503, 529)
+        if (response.status === 429 || response.status === 503 || response.status === 529) {
+          lastError = `Rate limited (${response.status}) - retrying...`;
+          continue; // Retry
+        }
+        
+        // Also check for RESOURCE_EXHAUSTED in error body
+        if (errorText.includes('RESOURCE_EXHAUSTED') || errorText.includes('quota') || errorText.includes('rate')) {
+          lastError = 'API quota exceeded - retrying...';
           continue; // Retry
         }
         
@@ -10863,21 +10869,19 @@ function getHomePage(user?: User) {
 
       const startTime = Date.now();
       
-      if (selectedModel === 'nano') {
-        const batchSize = 3;
-        for (let b = 1; b < variationDefs.length; b += batchSize) {
-          const batch = [];
-          for (let i = b; i < Math.min(b + batchSize, variationDefs.length); i++) {
-            batch.push(generateSingle(i, startTime));
-          }
-          await Promise.allSettled(batch);
+      // Process in batches to avoid rate limiting
+      // Pro model: smaller batches (3), Standard model: larger batches (4)
+      const batchSize = selectedModel === 'nano' ? 3 : 4;
+      for (let b = 1; b < variationDefs.length; b += batchSize) {
+        const batch = [];
+        for (let i = b; i < Math.min(b + batchSize, variationDefs.length); i++) {
+          batch.push(generateSingle(i, startTime));
         }
-      } else {
-        const promises = [];
-        for (let i = 1; i < variationDefs.length; i++) {
-          promises.push(generateSingle(i, startTime));
+        await Promise.allSettled(batch);
+        // Small delay between batches to prevent rate limiting
+        if (b + batchSize < variationDefs.length) {
+          await new Promise(r => setTimeout(r, 500));
         }
-        await Promise.allSettled(promises);
       }
       
       try {
