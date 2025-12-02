@@ -6462,6 +6462,7 @@ function getAuthPageStyles(): string {
 // MARKETING HOMEPAGE - Sells the app to new visitors
 // ============================================================================
 function getMarketingPage(user?: User) {
+  const isLoggedIn = !!user;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
