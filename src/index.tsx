@@ -4093,7 +4093,15 @@ IMPORTANT COLOR INSTRUCTIONS:
 }
 
 // Shared prompt generator function - Strategic ecommerce prompts
-function getPrompts(productName: string, productSize: string = 'medium'): Record<string, string> {
+interface ProductDimensions {
+  width?: string;
+  height?: string;
+  depth?: string;
+  unit?: string;
+  weight?: string;
+}
+
+function getPrompts(productName: string, productSize: string = 'medium', dimensions?: ProductDimensions): Record<string, string> {
   // Size descriptions to help AI understand product scale
   const sizeDescriptions: Record<string, string> = {
     'tiny': 'This is a very small/tiny product (like jewelry, USB drive, pill, coin-sized item). Show it at appropriate small scale with props that emphasize its compact size.',
@@ -4102,7 +4110,22 @@ function getPrompts(productName: string, productSize: string = 'medium'): Record
     'large': 'This is a large product (like bags, small appliances, chairs). Show it at appropriate large scale in the scene.'
   };
   
-  const sizeHint = sizeDescriptions[productSize] || sizeDescriptions['medium'];
+  // Build precise dimension hint if custom dimensions provided
+  let sizeHint = sizeDescriptions[productSize] || sizeDescriptions['medium'];
+  
+  if (dimensions && (dimensions.width || dimensions.height || dimensions.depth)) {
+    const parts: string[] = [];
+    const unit = dimensions.unit || 'cm';
+    
+    if (dimensions.width) parts.push(`${dimensions.width}${unit} wide`);
+    if (dimensions.height) parts.push(`${dimensions.height}${unit} tall`);
+    if (dimensions.depth) parts.push(`${dimensions.depth}${unit} deep`);
+    
+    const dimensionStr = parts.join(', ');
+    const weightStr = dimensions.weight ? ` weighing ${dimensions.weight}` : '';
+    
+    sizeHint = `PRECISE DIMENSIONS: This product measures ${dimensionStr}${weightStr}. Use these exact measurements to accurately scale the product in the scene. Show it at its true real-world size relative to other objects, hands, or surfaces.`;
+  }
   
   return {
     // === DETAIL/CLOSE-UP SHOTS (1-5) - Trust-building, return-reducing ===
@@ -4156,6 +4179,7 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
     const customPrompt = body.customPrompt // User-provided custom prompt
     const modelKey = body.model || DEFAULT_MODEL // 'nano' or 'flash'
     const productSize = body.productSize || 'medium' // tiny, small, medium, large
+    const productDimensions = body.productDimensions as ProductDimensions | undefined // { width, height, depth, unit, weight }
     
     // Determine credit type based on model
     const creditType = getCreditTypeForModel(modelKey)
@@ -4184,7 +4208,7 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
       return c.json({ success: false, error: 'AI service not configured', field: variationDefinitions[variationIndex]?.field }, 500)
     }
 
-    const prompts: Record<string, string> = getPrompts(productName, productSize)
+    const prompts: Record<string, string> = getPrompts(productName, productSize, productDimensions)
     
     const variation = variationDefinitions[variationIndex]
     if (!variation) {
@@ -8892,9 +8916,90 @@ function getHomePage(user?: User) {
       text-align: center;
       margin-top: 10px;
     }
+    .advanced-size-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      margin-top: 12px;
+      font-size: 12px;
+      color: #3B82F6;
+      cursor: pointer;
+      padding: 6px 12px;
+      border-radius: 6px;
+      transition: background 0.2s;
+    }
+    .advanced-size-toggle:hover {
+      background: #EFF6FF;
+    }
+    .advanced-size-toggle svg {
+      transition: transform 0.2s;
+    }
+    .advanced-size-toggle.open svg {
+      transform: rotate(180deg);
+    }
+    .advanced-dimensions {
+      display: none;
+      margin-top: 12px;
+      padding: 12px;
+      background: white;
+      border-radius: 8px;
+      border: 1px solid #E5E7EB;
+    }
+    .advanced-dimensions.show {
+      display: block;
+    }
+    .dimensions-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+    }
+    .dimension-input {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .dimension-input label {
+      font-size: 11px;
+      font-weight: 500;
+      color: #6B7280;
+    }
+    .dimension-input input {
+      padding: 8px 10px;
+      border: 1px solid #D1D5DB;
+      border-radius: 6px;
+      font-size: 13px;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    .dimension-input input:focus {
+      outline: none;
+      border-color: #3B82F6;
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+    }
+    .dimension-input input::placeholder {
+      color: #9CA3AF;
+    }
+    .unit-select {
+      padding: 8px 10px;
+      border: 1px solid #D1D5DB;
+      border-radius: 6px;
+      font-size: 13px;
+      background: white;
+      cursor: pointer;
+    }
+    .dimensions-note {
+      font-size: 10px;
+      color: #9CA3AF;
+      text-align: center;
+      margin-top: 10px;
+    }
     @media (max-width: 480px) {
       .size-options {
         grid-template-columns: repeat(2, 1fr);
+      }
+      .dimensions-grid {
+        grid-template-columns: 1fr 1fr;
       }
     }
     
@@ -10250,6 +10355,41 @@ function getHomePage(user?: User) {
           </button>
         </div>
         <div class="size-hint">This helps the AI understand your product's real-world size for accurate lifestyle shots</div>
+        
+        <div class="advanced-size-toggle" onclick="toggleAdvancedDimensions()">
+          <span>📐 Enter exact dimensions</span>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+        </div>
+        
+        <div id="advanced-dimensions" class="advanced-dimensions">
+          <div class="dimensions-grid">
+            <div class="dimension-input">
+              <label>Width</label>
+              <input type="text" id="dim-width" placeholder="e.g. 10" oninput="updateDimensionsSize()">
+            </div>
+            <div class="dimension-input">
+              <label>Height</label>
+              <input type="text" id="dim-height" placeholder="e.g. 15" oninput="updateDimensionsSize()">
+            </div>
+            <div class="dimension-input">
+              <label>Depth</label>
+              <input type="text" id="dim-depth" placeholder="e.g. 5" oninput="updateDimensionsSize()">
+            </div>
+            <div class="dimension-input">
+              <label>Unit</label>
+              <select id="dim-unit" class="unit-select" onchange="updateDimensionsSize()">
+                <option value="cm">cm</option>
+                <option value="inches">inches</option>
+                <option value="mm">mm</option>
+              </select>
+            </div>
+            <div class="dimension-input" style="grid-column: span 2;">
+              <label>Weight (optional)</label>
+              <input type="text" id="dim-weight" placeholder="e.g. 250g or 0.5kg" oninput="updateDimensionsSize()">
+            </div>
+          </div>
+          <div class="dimensions-note">Exact dimensions give the AI precise context for realistic scaling</div>
+        </div>
       </div>
 
       <!-- Quality Selector -->
@@ -10622,12 +10762,77 @@ function getHomePage(user?: User) {
 
     // Product size selection
     let selectedSize = 'medium'; // Default size
+    let customDimensions = null; // { width, height, depth, unit, weight }
     
     function selectSize(size) {
       selectedSize = size;
+      customDimensions = null; // Clear custom dimensions when selecting preset
       document.querySelectorAll('.size-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.size === size);
       });
+      // Clear dimension inputs
+      ['dim-width', 'dim-height', 'dim-depth', 'dim-weight'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+      });
+    }
+    
+    function toggleAdvancedDimensions() {
+      const panel = document.getElementById('advanced-dimensions');
+      const toggle = document.querySelector('.advanced-size-toggle');
+      if (panel && toggle) {
+        panel.classList.toggle('show');
+        toggle.classList.toggle('open');
+      }
+    }
+    
+    function updateDimensionsSize() {
+      const width = document.getElementById('dim-width')?.value?.trim();
+      const height = document.getElementById('dim-height')?.value?.trim();
+      const depth = document.getElementById('dim-depth')?.value?.trim();
+      const unit = document.getElementById('dim-unit')?.value || 'cm';
+      const weight = document.getElementById('dim-weight')?.value?.trim();
+      
+      // If any dimension is entered, use custom dimensions
+      if (width || height || depth) {
+        customDimensions = { width, height, depth, unit, weight };
+        // Deselect preset size buttons
+        document.querySelectorAll('.size-btn').forEach(btn => btn.classList.remove('active'));
+        // Auto-calculate size category for fallback
+        selectedSize = calculateSizeFromDimensions(width, height, depth, unit);
+      } else {
+        customDimensions = null;
+        // Re-select medium if no dimensions
+        selectSize('medium');
+      }
+    }
+    
+    function calculateSizeFromDimensions(w, h, d, unit) {
+      // Convert to cm for comparison
+      let maxDim = Math.max(parseFloat(w) || 0, parseFloat(h) || 0, parseFloat(d) || 0);
+      if (unit === 'inches') maxDim *= 2.54;
+      if (unit === 'mm') maxDim /= 10;
+      
+      if (maxDim < 5) return 'tiny';
+      if (maxDim < 15) return 'small';
+      if (maxDim < 40) return 'medium';
+      return 'large';
+    }
+    
+    function getProductSizeInfo() {
+      // Return custom dimensions if set, otherwise preset size
+      if (customDimensions && (customDimensions.width || customDimensions.height || customDimensions.depth)) {
+        return {
+          type: 'custom',
+          size: selectedSize,
+          dimensions: customDimensions
+        };
+      }
+      return {
+        type: 'preset',
+        size: selectedSize,
+        dimensions: null
+      };
     }
     
     // Model selection
@@ -10922,7 +11127,8 @@ function getHomePage(user?: User) {
       }, 500);
 
       try {
-        console.log('[Generate] Sending request for variation', index, 'with model:', modelToUse);
+        const sizeInfo = getProductSizeInfo();
+        console.log('[Generate] Sending request for variation', index, 'with model:', modelToUse, 'size:', sizeInfo);
         const res = await fetch('/api/generate-single/' + currentSessionId + '/' + (index - 1), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -10931,7 +11137,8 @@ function getHomePage(user?: User) {
             productName: document.getElementById('product-name-edit')?.value || 'Product',
             customPrompt: customPrompts[index],
             model: modelToUse,
-            productSize: selectedSize
+            productSize: sizeInfo.size,
+            productDimensions: sizeInfo.dimensions
           })
         });
 
