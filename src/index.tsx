@@ -4093,80 +4093,54 @@ IMPORTANT COLOR INSTRUCTIONS:
 }
 
 // Shared prompt generator function - Strategic ecommerce prompts
-// KEY INSIGHT: Text-based size instructions don't work reliably with AI image generation.
-// Instead, we use RELATIONAL COMPOSITION - describing where the product sits in the scene
-// relative to reference objects, hands, and environments.
 // 
-// Best practice from research: Use "Using the provided image of [product]..." pattern
-// to ensure AI treats the input as a reference to preserve.
+// ARCHITECTURE DECISION: Size-accurate lifestyle shots require a 2-step approach that
+// Gemini's single-pass generation cannot reliably achieve. The AI treats the input image
+// as "inspiration" rather than preserving exact proportions.
+//
+// CURRENT STRATEGY: Focus on what Gemini DOES well:
+// - Studio/detail shots (1-6): Product-focused, no scale context needed
+// - Lifestyle shots (7-10): Accept AI's creative interpretation, optimize for variety
+//
+// For size-accurate lifestyle shots, a future enhancement would use Imagen's inpainting
+// API to composite the exact product cutout into generated backgrounds.
 function getPrompts(productName: string, productSize: string = 'medium'): Record<string, string> {
-  // Scene composition guides - describe HOW to compose the shot, not size measurements
-  // The key is relational context: where does product sit relative to other objects?
-  const composition: Record<string, { 
-    handPose: string;        // How a hand interacts with product
-    scaleObject: string;     // What object to show for scale comparison
-    surface: string;         // Where to place product
-    personScale: string;     // How person relates to product
-  }> = {
-    'tiny': {
-      handPose: 'resting on a single fingertip, or pinched delicately between thumb and index finger',
-      scaleObject: 'next to a coin or key for size comparison',
-      surface: 'on an open palm, next to a coin, or attached to a keyring',
-      personScale: 'the product should appear very small compared to any hands shown'
-    },
-    'small': {
-      handPose: 'held comfortably in one hand with fingers wrapped around it naturally',
-      scaleObject: 'next to a smartphone or credit card for size comparison',
-      surface: 'on a desk next to a coffee cup or phone, or tucked in a shirt pocket',
-      personScale: 'the product fits easily in one hand'
-    },
-    'medium': {
-      handPose: 'being held with one or both hands at natural arm distance',
-      scaleObject: 'on a desk or table alongside everyday objects like books or bottles',
-      surface: 'on a table, desk, or countertop with everyday items nearby',
-      personScale: 'the product requires one or two hands to hold comfortably'
-    },
-    'large': {
-      handPose: 'being carried with both arms, or with a person lifting or using it',
-      scaleObject: 'next to furniture like a chair or table for size comparison',
-      surface: 'on the floor next to furniture, or with a standing person nearby',
-      personScale: 'the product is substantial, requiring both arms or floor space'
-    }
+  // Size affects ONLY the lifestyle shot descriptions (not enforced, just suggestive)
+  const lifestyleContext: Record<string, string> = {
+    'tiny': 'a very small item like jewelry, a USB drive, or earbuds',
+    'small': 'a pocket-sized item like a phone case, wallet, or cosmetic',
+    'medium': 'a standard-sized item like a shoe, book, or water bottle',
+    'large': 'a larger item like a backpack, appliance, or furniture piece'
   };
   
-  const comp = composition[productSize] || composition['medium'];
-  
-  // PROMPT DESIGN: Following Google's Gemini best practices
-  // - "Using the provided image..." tells AI to use input as reference
-  // - Describe scenes relationally, not with measurements
-  // - Focus on composition and context, not size declarations
+  const context = lifestyleContext[productSize] || lifestyleContext['medium'];
   
   return {
-    // === SHOTS 1-5: DETAIL CLOSE-UPS ===
-    // Close-ups don't need size context - they're zoomed in on detail
+    // === SHOTS 1-6: STUDIO/DETAIL SHOTS ===
+    // These work well because they focus on the product itself, no scale issues
     
-    'macro_texture': `Using the provided image of ${productName}, create an extreme macro photograph focusing on the surface texture. Position the camera very close to reveal material grain, weave pattern, or micro-texture. Dramatic side lighting creates shadows in texture grooves. Shallow depth of field with completely blurred background. Studio quality.`,
+    'macro_texture': `Professional product photography: extreme macro close-up of the ${productName} showing surface texture and material quality. Camera positioned very close to capture material grain, weave, or micro-texture detail. Dramatic side lighting with shadows in grooves. Shallow depth of field, blurred background. High-end commercial quality.`,
     
-    'label_branding': `Using the provided image of ${productName}, create an angled close-up photograph focusing on any logo, text, or branding elements. Product tilted approximately 30 degrees. Sharp focus on identifying markings with softly blurred edges. Clean studio lighting on grey gradient background.`,
+    'label_branding': `Professional product photography: angled close-up of the ${productName} highlighting branding, logo, or text. Product tilted 30 degrees showing identifying marks clearly. Sharp focus on branding elements. Clean grey gradient studio background. Commercial catalog style.`,
     
-    'construction_detail': `Using the provided image of ${productName}, create a technical photograph from a side or back angle showing build quality and craftsmanship. Focus on edges, seams, buttons, ports, hinges, or connection points. Inspection-style angle with side lighting emphasizing depth and detail.`,
+    'construction_detail': `Professional product photography: technical detail shot of the ${productName} from side or back angle. Focus on build quality - edges, seams, buttons, ports, hinges, joints. Inspection angle revealing craftsmanship. Side lighting emphasizing depth. Documentary style.`,
     
-    'color_finish': `Using the provided image of ${productName}, create a full product photograph with dramatic one-sided lighting. Strong directional light creates a gradient across the surface to reveal whether it's matte, glossy, metallic, or textured. Dark moody background highlights the surface finish quality.`,
+    'color_finish': `Professional product photography: full product shot of ${productName} with dramatic directional lighting from one side. Light gradient across surface reveals finish - matte, glossy, metallic, or textured. Dark moody background. Surface quality hero shot.`,
     
-    'scale_reference': `Using the provided image of ${productName}, create a product photograph showing it ${comp.handPose}. Include a natural-looking human hand in frame for clear size reference. The hand should have warm skin tones with soft studio lighting. Customers need to understand the actual size.`,
+    'scale_reference': `Professional product photography: ${productName} held in a human hand for size reference. Natural hand pose with warm skin tones. Soft studio lighting. The hand interaction shows customers the actual size of this ${context}. E-commerce style.`,
     
-    // === SHOTS 6-10: LIFESTYLE & CONTEXT ===
-    // These need careful composition to show realistic scale
+    'hero_white': `Professional product photography: classic e-commerce hero shot of ${productName}. Pure white seamless background. Product centered with soft shadow beneath. Slight 3/4 angle showing dimension. Even studio lighting. Amazon/catalog style with generous white space.`,
     
-    'hero_white': `Using the provided image of ${productName}, create a classic e-commerce product photograph on a pure white seamless background. Product centered with soft shadow beneath. Slight 3/4 angle showing depth. Even studio lighting with generous white space. Amazon catalog style, professional.`,
+    // === SHOTS 7-10: LIFESTYLE/CONTEXT SHOTS ===
+    // AI interprets scale creatively - optimize for scene variety instead
     
-    'inuse_action': `Using the provided image of ${productName}, create an action photograph showing it actively being used. Show hands ${comp.handPose}, manipulating or operating the product mid-action. Capture an authentic usage moment with warm natural lighting. Real scenario, cropped close on the action.`,
+    'inuse_action': `Lifestyle product photography: ${productName} being actively used in a realistic scenario. Hands interacting with the product mid-action. Authentic moment captured. Warm natural lighting. This is ${context}. Action-focused composition.`,
     
-    'flatlay_styled': `Using the provided image of ${productName}, create a top-down flat lay photograph. Arrange the product ${comp.surface} with 3-4 complementary props on a marble or light wood surface. Instagram aesthetic with intentional negative space. Natural window light from above.`,
+    'flatlay_styled': `Lifestyle product photography: top-down flat lay arrangement featuring ${productName} with 3-4 complementary props. Marble or light wood surface. Instagram aesthetic with intentional negative space. Natural window light from above. Styled editorial look.`,
     
-    'environment_context': `Using the provided image of ${productName}, create a lifestyle photograph in its natural environment. Show the product ${comp.surface}. Wide contextual shot where the product is the hero but the environment tells the story. Golden hour or soft indoor lighting. Editorial lifestyle photography style.`,
+    'environment_context': `Lifestyle product photography: ${productName} photographed in its natural usage environment. Contextual scene where the product is the hero. This is ${context} shown where it would actually be used. Golden hour or soft indoor lighting. Editorial lifestyle style.`,
     
-    'multi_angle': `Using the provided image of ${productName}, create a composite showing 3 different angles in one image: front view (positioned top-left), back view (positioned top-right), and side profile (positioned bottom-center). All on white background. Clean product documentation showing all sides.`
+    'multi_angle': `Product documentation: composite image showing ${productName} from 3 angles - front view (top-left), back view (top-right), side profile (bottom-center). Clean white background for all three. Technical documentation showing complete product.`
   }
 }
 
