@@ -4122,29 +4122,30 @@ function getPrompts(productName: string, productSize: string = 'medium'): Record
   const size = sizeGuide[productSize] || sizeGuide['medium'];
   
   return {
-    // === SHOTS 1-5: DETAIL CLOSE-UPS (each must show DIFFERENT aspect) ===
+    // === SHOTS 1-5: DETAIL CLOSE-UPS ===
+    // Size context added to ALL shots for consistency
     
-    'macro_texture': `EXTREME MACRO shot of ${productName} surface texture filling the entire frame. Camera almost touching the product. Visible material grain, weave, or micro-texture. Dramatic side lighting creating shadows in texture grooves. Background completely blurred. Like looking through a magnifying glass at the material itself.`,
+    'macro_texture': `${size.scale} EXTREME MACRO shot of ${productName} surface texture. Camera very close to product surface. Show visible material grain, weave, pattern or micro-texture. Dramatic side lighting creating shadows in texture grooves. Shallow depth of field, background completely blurred.`,
     
-    'label_branding': `Angled shot of ${productName} focusing on any logo, text, or branding. Product tilted 30 degrees showing the branded face. If no visible branding, show the front identifying feature. Sharp focus on text/logo with product edges softly blurred. Clean studio lighting, grey gradient background.`,
+    'label_branding': `${size.scale} Angled close-up of ${productName} focusing on logo, text, or branding area. Product tilted 30 degrees. Sharp focus on any text, logo, or identifying markings. Product edges softly blurred. Clean studio lighting, grey gradient background.`,
     
-    'construction_detail': `Shot from UNDERNEATH or SIDE angle showing ${productName} build quality. Focus on edges, seams, buttons, ports, hinges, or connection points. Reveal how parts fit together. Technical inspection angle. Side lighting emphasizing depth and construction details.`,
+    'construction_detail': `${size.scale} Technical shot from SIDE or BACK angle showing ${productName} build quality. Focus on edges, seams, buttons, ports, hinges, or how parts connect. Inspection-style angle revealing construction. Side lighting emphasizing depth and detail.`,
     
-    'color_finish': `Full product shot of ${productName} with DRAMATIC LIGHTING to show surface finish. Strong directional light from one side creating gradient across surface. Shows if matte, glossy, metallic, or textured. Reflection and shadow revealing true surface quality. Dark moody background.`,
+    'color_finish': `${size.scale} Full product shot of ${productName} with dramatic one-sided lighting. Strong directional light creating gradient across surface to show if matte, glossy, metallic, or textured. Dark moody background. Reveals true surface finish quality.`,
     
-    'scale_reference': `${size.scale} Product photo of ${productName} with HUMAN HAND in frame for size comparison. ${size.hand} Natural pose, warm skin tones. Soft studio lighting. The hand provides unmistakable size reference for online shoppers.`,
+    'scale_reference': `${size.scale} Product photo of ${productName} with HUMAN HAND in frame for unmistakable size comparison. ${size.hand} Natural hand pose, warm skin tones. Soft studio lighting. Hand provides clear scale reference for shoppers.`,
     
-    // === SHOTS 6-10: LIFESTYLE & CONTEXT (each must be DIFFERENT setting) ===
+    // === SHOTS 6-10: LIFESTYLE & CONTEXT ===
     
-    'hero_white': `Classic e-commerce hero shot of ${productName} on pure white seamless background. ${size.scale} Product floating with soft shadow beneath. Shot from eye-level, slight 3/4 angle. Even, shadowless lighting. Generous white space around product. Amazon/catalog style product photo.`,
+    'hero_white': `${size.scale} Classic e-commerce shot of ${productName} on pure white seamless background. Product centered with soft shadow beneath. Slight 3/4 angle showing depth. Even studio lighting. Generous white space. Amazon/catalog style.`,
     
-    'inuse_action': `ACTION shot showing ${productName} actively being USED. ${size.hand} Hands manipulating, operating, or interacting with the product mid-action. Motion implied. Real usage scenario. Cropped tight on the action. Natural warm lighting. Authentic lifestyle moment.`,
+    'inuse_action': `${size.scale} ACTION shot of ${productName} being actively used. ${size.hand} Hands manipulating or operating the product mid-action. Real usage scenario. Cropped on the action. Warm natural lighting. Authentic moment.`,
     
-    'flatlay_styled': `TOP-DOWN flat lay of ${productName} arranged with 3-4 complementary props on marble or wood surface. ${size.scale} Styled Instagram aesthetic. Items arranged in pleasing composition with negative space. Soft natural window light from above. Lifestyle blogger style.`,
+    'flatlay_styled': `${size.scale} TOP-DOWN flat lay of ${productName} with 3-4 complementary props on marble or wood surface. ${size.scene} Instagram aesthetic with intentional negative space. Natural window light from above.`,
     
-    'environment_context': `${productName} in its NATURAL HABITAT - the real environment where it would be used. ${size.scene} Wide shot showing context and surroundings. Product is the hero but environment tells the story. Golden hour or natural indoor lighting. Editorial lifestyle photography.`,
+    'environment_context': `${size.scale} ${productName} photographed in its natural environment where it would actually be used. ${size.scene} Wide contextual shot. Product is hero, environment tells the story. Golden hour or soft indoor lighting. Editorial lifestyle style.`,
     
-    'multi_angle': `COLLAGE showing ${productName} from 3 different angles: front view (top left), back view (top right), and side profile (bottom center). ${size.scale} White background for all three. Clean product photography. Informational layout showing complete product understanding.`
+    'multi_angle': `${size.scale} COLLAGE of ${productName} from 3 angles in one image: front view (top left), back view (top right), side profile (bottom center). White background. Clean product documentation showing all sides.`
   }
 }
 
