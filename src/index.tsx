@@ -4093,64 +4093,60 @@ IMPORTANT COLOR INSTRUCTIONS:
 }
 
 // Shared prompt generator function - Strategic ecommerce prompts
-interface ProductDimensions {
-  width?: string;
-  height?: string;
-  depth?: string;
-  unit?: string;
-  weight?: string;
-}
-
-function getPrompts(productName: string, productSize: string = 'medium', dimensions?: ProductDimensions): Record<string, string> {
-  // Size descriptions to help AI understand product scale
-  const sizeDescriptions: Record<string, string> = {
-    'tiny': 'This is a very small/tiny product (like jewelry, USB drive, pill, coin-sized item). Show it at appropriate small scale with props that emphasize its compact size.',
-    'small': 'This is a small handheld product (like a phone, wallet, cosmetic item). Show it at natural handheld scale.',
-    'medium': 'This is a medium-sized product (like shoes, books, bottles). Show it at natural table-top scale.',
-    'large': 'This is a large product (like bags, small appliances, chairs). Show it at appropriate large scale in the scene.'
+// Uses contextual size descriptions instead of numeric dimensions for better AI understanding
+function getPrompts(productName: string, productSize: string = 'medium'): Record<string, string> {
+  // Contextual size descriptions using familiar reference objects
+  // AI understands these better than numeric measurements
+  const sizeContexts: Record<string, { general: string; scaleRef: string; lifestyle: string }> = {
+    'tiny': {
+      general: 'This is a miniature item that fits on a fingertip or is smaller than a coin.',
+      scaleRef: 'Show product resting on fingertips or next to a coin for scale. The item should appear delicate and small.',
+      lifestyle: 'Show the tiny product being delicately held between thumb and forefinger, or displayed on an open palm to emphasize its miniature size.'
+    },
+    'small': {
+      general: 'This is a compact, pocket-sized item that fits comfortably in one hand.',
+      scaleRef: 'Show product held naturally in one hand or next to a smartphone for scale comparison.',
+      lifestyle: 'Show the product being held in one hand, fitting in a pocket, or on a desk next to everyday items like a coffee cup or phone.'
+    },
+    'medium': {
+      general: 'This is a standard-sized product that sits on a table or requires two hands to hold.',
+      scaleRef: 'Show product on a table surface or being held with both hands to demonstrate its size.',
+      lifestyle: 'Show the product on a desk, kitchen counter, or being used with both hands in a natural setting.'
+    },
+    'large': {
+      general: 'This is a substantial item that stands on the floor or requires effort to lift.',
+      scaleRef: 'Show product next to furniture or with a person nearby to demonstrate its significant size.',
+      lifestyle: 'Show the product in a room setting with furniture for scale, or with a person interacting with it to show its full size.'
+    }
   };
   
-  // Build precise dimension hint if custom dimensions provided
-  let sizeHint = sizeDescriptions[productSize] || sizeDescriptions['medium'];
-  
-  if (dimensions && (dimensions.width || dimensions.height || dimensions.depth)) {
-    const parts: string[] = [];
-    const unit = dimensions.unit || 'cm';
-    
-    if (dimensions.width) parts.push(`${dimensions.width}${unit} wide`);
-    if (dimensions.height) parts.push(`${dimensions.height}${unit} tall`);
-    if (dimensions.depth) parts.push(`${dimensions.depth}${unit} deep`);
-    
-    const dimensionStr = parts.join(', ');
-    const weightStr = dimensions.weight ? ` weighing ${dimensions.weight}` : '';
-    
-    sizeHint = `PRECISE DIMENSIONS: This product measures ${dimensionStr}${weightStr}. Use these exact measurements to accurately scale the product in the scene. Show it at its true real-world size relative to other objects, hands, or surfaces.`;
-  }
+  const context = sizeContexts[productSize] || sizeContexts['medium'];
   
   return {
     // === DETAIL/CLOSE-UP SHOTS (1-5) - Trust-building, return-reducing ===
+    // Note: Close-up shots don't need size context as they focus on details
     
-    'macro_texture': `Extreme close-up macro photography showing this ${productName} material texture and surface detail. Shallow depth of field with soft bokeh background. Professional studio lighting highlighting weave pattern, grain, or surface texture. Rich color saturation, crisp sharp focus on texture details. Commercial product photography emphasizing quality and craftsmanship. High resolution 2k, premium detail shot that builds customer trust.`,
+    'macro_texture': `Extreme close-up macro photography showing this ${productName} material texture and surface detail. Shallow depth of field with soft bokeh background. Professional studio lighting highlighting weave pattern, grain, or surface texture. Rich color saturation, crisp sharp focus on texture details. Commercial product photography emphasizing quality and craftsmanship. High resolution 2k, premium detail shot.`,
     
     'label_branding': `Close-up product photography focused on this ${productName} branding elements, logo, and label details. Professional studio lighting, sharp focus on typography and brand marks. Slight angle showing product dimensionality while keeping text completely readable. Commercial catalog photography style, color-accurate brand presentation. High resolution 2k, editorial detail quality.`,
     
-    'construction_detail': `Detailed close-up showing this ${productName} construction quality - seams, stitching, joints, edges, or assembly details. Professional studio lighting emphasizing craftsmanship. Shallow depth of field isolating key quality indicators. Premium product photography highlighting durability and attention to detail. High resolution 2k, trust-building detail shot that reduces returns.`,
+    'construction_detail': `Detailed close-up showing this ${productName} construction quality - seams, stitching, joints, edges, or assembly details. Professional studio lighting emphasizing craftsmanship. Shallow depth of field isolating key quality indicators. Premium product photography highlighting durability and attention to detail. High resolution 2k, trust-building detail shot.`,
     
     'color_finish': `Close-up photography of this ${productName} emphasizing true-to-life color accuracy and surface finish. Professional color-corrected studio lighting. Neutral background to showcase product color without distraction. Lighting angles showing sheen, matte finish, or surface quality. Commercial product photography for accurate buyer expectations. High resolution 2k, color-faithful presentation.`,
     
-    'scale_reference': `Product photography of this ${productName} with clear scale reference showing actual size. ${sizeHint} Close-up composition with human hand partially in frame OR common object for size comparison. Professional studio lighting, clear perspective on product dimensions. Ecommerce photography that reduces size-related returns. High resolution 2k, practical size-accurate presentation.`,
+    'scale_reference': `Product photography of this ${productName} with clear size reference. ${context.scaleRef} Professional studio lighting with soft shadows. The composition should make the product's real-world size immediately obvious to viewers. Ecommerce photography style that helps customers understand exactly what size they're buying. High resolution 2k.`,
     
     // === CONTEXT/LIFESTYLE SHOTS (6-10) - Conversion-driving ===
     
-    'hero_white': `Clean professional product photo of this ${productName} on pure white (#FFFFFF) background. ${sizeHint} Product centered with generous white space padding on all sides. Studio lighting from multiple angles. Product positioned at slight 45-degree angle showing depth and dimensionality. Soft natural shadow underneath. High resolution 2k, catalog-quality commercial photography.`,
+    'hero_white': `Clean professional product photo of this ${productName} on pure white (#FFFFFF) background. ${context.general} Product centered with generous white space padding. Studio lighting from multiple angles creating soft, natural shadows. Product positioned at slight angle showing depth and dimensionality. High resolution 2k, catalog-quality commercial photography.`,
     
-    'inuse_action': `This ${productName} being actively used in real-world scenario. ${sizeHint} Natural hands interacting with product showing scale and functionality. Authentic everyday setting. Lifestyle photography demonstrating practical application. Candid moment captured. Relatable use-case photography. Natural lighting. High resolution 2k, genuine user experience style.`,
+    'inuse_action': `This ${productName} being actively used in a real-world scenario. ${context.lifestyle} Natural interaction showing how the product is meant to be used. Authentic everyday setting with warm, natural lighting. Lifestyle photography demonstrating practical application. Candid, relatable moment. High resolution 2k.`,
     
-    'flatlay_styled': `Flat-lay composition of this ${productName} photographed directly from above. ${sizeHint} Product styled with complementary accessories and props on neutral surface. Instagram aesthetic with intentional negative space. Natural window lighting. Curated lifestyle arrangement. Social media content style. Balanced composition. High resolution 2k, aspirational product styling.`,
+    'flatlay_styled': `Flat-lay composition of this ${productName} photographed directly from above. ${context.general} Product styled with complementary accessories and props on a neutral surface. Instagram aesthetic with intentional negative space. Natural window lighting creating soft shadows. Curated lifestyle arrangement. High resolution 2k, aspirational product styling.`,
     
-    'environment_context': `This ${productName} in natural environment relevant to its use. ${sizeHint} Soft natural lighting showing product in realistic setting. Background slightly blurred to emphasize product as hero. Lifestyle photography creating emotional connection and showing product purpose. Authentic scene composition. High resolution 2k, contextual storytelling style.`,
+    'environment_context': `This ${productName} in a natural environment relevant to its use. ${context.lifestyle} Soft natural lighting showing product in realistic setting. Background slightly blurred to emphasize product as hero. Lifestyle photography creating emotional connection. Authentic scene composition. High resolution 2k, contextual storytelling style.`,
     
-    'multi_angle': `This ${productName} shown from three key angles in single composition: front view, side profile, and top-down perspective. ${sizeHint} Clean white or grey background. Professional studio lighting consistent across all angles. Commercial photography showing complete product understanding. Informative multi-view layout. High resolution 2k, comprehensive product documentation style.`
+    'multi_angle': `This ${productName} shown from three key angles in single composition: front view, side profile, and top-down perspective. ${context.general} Clean white or light grey background. Professional studio lighting consistent across all angles. Commercial photography showing complete product understanding. Informative multi-view layout. High resolution 2k.`
   }
 }
 
@@ -4179,7 +4175,6 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
     const customPrompt = body.customPrompt // User-provided custom prompt
     const modelKey = body.model || DEFAULT_MODEL // 'nano' or 'flash'
     const productSize = body.productSize || 'medium' // tiny, small, medium, large
-    const productDimensions = body.productDimensions as ProductDimensions | undefined // { width, height, depth, unit, weight }
     
     // Determine credit type based on model
     const creditType = getCreditTypeForModel(modelKey)
@@ -4208,7 +4203,7 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
       return c.json({ success: false, error: 'AI service not configured', field: variationDefinitions[variationIndex]?.field }, 500)
     }
 
-    const prompts: Record<string, string> = getPrompts(productName, productSize, productDimensions)
+    const prompts: Record<string, string> = getPrompts(productName, productSize)
     
     const variation = variationDefinitions[variationIndex]
     if (!variation) {
@@ -8916,90 +8911,9 @@ function getHomePage(user?: User) {
       text-align: center;
       margin-top: 10px;
     }
-    .advanced-size-toggle {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 6px;
-      margin-top: 12px;
-      font-size: 12px;
-      color: #3B82F6;
-      cursor: pointer;
-      padding: 6px 12px;
-      border-radius: 6px;
-      transition: background 0.2s;
-    }
-    .advanced-size-toggle:hover {
-      background: #EFF6FF;
-    }
-    .advanced-size-toggle svg {
-      transition: transform 0.2s;
-    }
-    .advanced-size-toggle.open svg {
-      transform: rotate(180deg);
-    }
-    .advanced-dimensions {
-      display: none;
-      margin-top: 12px;
-      padding: 12px;
-      background: white;
-      border-radius: 8px;
-      border: 1px solid #E5E7EB;
-    }
-    .advanced-dimensions.show {
-      display: block;
-    }
-    .dimensions-grid {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 10px;
-    }
-    .dimension-input {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
-    .dimension-input label {
-      font-size: 11px;
-      font-weight: 500;
-      color: #6B7280;
-    }
-    .dimension-input input {
-      padding: 8px 10px;
-      border: 1px solid #D1D5DB;
-      border-radius: 6px;
-      font-size: 13px;
-      width: 100%;
-      box-sizing: border-box;
-    }
-    .dimension-input input:focus {
-      outline: none;
-      border-color: #3B82F6;
-      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
-    }
-    .dimension-input input::placeholder {
-      color: #9CA3AF;
-    }
-    .unit-select {
-      padding: 8px 10px;
-      border: 1px solid #D1D5DB;
-      border-radius: 6px;
-      font-size: 13px;
-      background: white;
-      cursor: pointer;
-    }
-    .dimensions-note {
-      font-size: 10px;
-      color: #9CA3AF;
-      text-align: center;
-      margin-top: 10px;
-    }
     @media (max-width: 480px) {
       .size-options {
         grid-template-columns: repeat(2, 1fr);
-      }
-      .dimensions-grid {
-        grid-template-columns: 1fr 1fr;
       }
     }
     
@@ -10354,42 +10268,7 @@ function getHomePage(user?: User) {
             <span class="size-example">Bags, appliances, chairs</span>
           </button>
         </div>
-        <div class="size-hint">This helps the AI understand your product's real-world size for accurate lifestyle shots</div>
-        
-        <div class="advanced-size-toggle" onclick="toggleAdvancedDimensions()">
-          <span>📐 Enter exact dimensions</span>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
-        </div>
-        
-        <div id="advanced-dimensions" class="advanced-dimensions">
-          <div class="dimensions-grid">
-            <div class="dimension-input">
-              <label>Width</label>
-              <input type="text" id="dim-width" placeholder="e.g. 10" oninput="updateDimensionsSize()">
-            </div>
-            <div class="dimension-input">
-              <label>Height</label>
-              <input type="text" id="dim-height" placeholder="e.g. 15" oninput="updateDimensionsSize()">
-            </div>
-            <div class="dimension-input">
-              <label>Depth</label>
-              <input type="text" id="dim-depth" placeholder="e.g. 5" oninput="updateDimensionsSize()">
-            </div>
-            <div class="dimension-input">
-              <label>Unit</label>
-              <select id="dim-unit" class="unit-select" onchange="updateDimensionsSize()">
-                <option value="cm">cm</option>
-                <option value="inches">inches</option>
-                <option value="mm">mm</option>
-              </select>
-            </div>
-            <div class="dimension-input" style="grid-column: span 2;">
-              <label>Weight (optional)</label>
-              <input type="text" id="dim-weight" placeholder="e.g. 250g or 0.5kg" oninput="updateDimensionsSize()">
-            </div>
-          </div>
-          <div class="dimensions-note">Exact dimensions give the AI precise context for realistic scaling</div>
-        </div>
+        <div class="size-hint">Helps AI show your product at the right scale in lifestyle shots</div>
       </div>
 
       <!-- Quality Selector -->
@@ -10760,79 +10639,14 @@ function getHomePage(user?: User) {
       window.location.href = '/app';
     }
 
-    // Product size selection
+    // Product size selection (Tiny/Small/Medium/Large)
     let selectedSize = 'medium'; // Default size
-    let customDimensions = null; // { width, height, depth, unit, weight }
     
     function selectSize(size) {
       selectedSize = size;
-      customDimensions = null; // Clear custom dimensions when selecting preset
       document.querySelectorAll('.size-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.size === size);
       });
-      // Clear dimension inputs
-      ['dim-width', 'dim-height', 'dim-depth', 'dim-weight'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.value = '';
-      });
-    }
-    
-    function toggleAdvancedDimensions() {
-      const panel = document.getElementById('advanced-dimensions');
-      const toggle = document.querySelector('.advanced-size-toggle');
-      if (panel && toggle) {
-        panel.classList.toggle('show');
-        toggle.classList.toggle('open');
-      }
-    }
-    
-    function updateDimensionsSize() {
-      const width = document.getElementById('dim-width')?.value?.trim();
-      const height = document.getElementById('dim-height')?.value?.trim();
-      const depth = document.getElementById('dim-depth')?.value?.trim();
-      const unit = document.getElementById('dim-unit')?.value || 'cm';
-      const weight = document.getElementById('dim-weight')?.value?.trim();
-      
-      // If any dimension is entered, use custom dimensions
-      if (width || height || depth) {
-        customDimensions = { width, height, depth, unit, weight };
-        // Deselect preset size buttons
-        document.querySelectorAll('.size-btn').forEach(btn => btn.classList.remove('active'));
-        // Auto-calculate size category for fallback
-        selectedSize = calculateSizeFromDimensions(width, height, depth, unit);
-      } else {
-        customDimensions = null;
-        // Re-select medium if no dimensions
-        selectSize('medium');
-      }
-    }
-    
-    function calculateSizeFromDimensions(w, h, d, unit) {
-      // Convert to cm for comparison
-      let maxDim = Math.max(parseFloat(w) || 0, parseFloat(h) || 0, parseFloat(d) || 0);
-      if (unit === 'inches') maxDim *= 2.54;
-      if (unit === 'mm') maxDim /= 10;
-      
-      if (maxDim < 5) return 'tiny';
-      if (maxDim < 15) return 'small';
-      if (maxDim < 40) return 'medium';
-      return 'large';
-    }
-    
-    function getProductSizeInfo() {
-      // Return custom dimensions if set, otherwise preset size
-      if (customDimensions && (customDimensions.width || customDimensions.height || customDimensions.depth)) {
-        return {
-          type: 'custom',
-          size: selectedSize,
-          dimensions: customDimensions
-        };
-      }
-      return {
-        type: 'preset',
-        size: selectedSize,
-        dimensions: null
-      };
     }
     
     // Model selection
@@ -11127,8 +10941,7 @@ function getHomePage(user?: User) {
       }, 500);
 
       try {
-        const sizeInfo = getProductSizeInfo();
-        console.log('[Generate] Sending request for variation', index, 'with model:', modelToUse, 'size:', sizeInfo);
+        console.log('[Generate] Sending request for variation', index, 'with model:', modelToUse, 'size:', selectedSize);
         const res = await fetch('/api/generate-single/' + currentSessionId + '/' + (index - 1), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -11137,8 +10950,7 @@ function getHomePage(user?: User) {
             productName: document.getElementById('product-name-edit')?.value || 'Product',
             customPrompt: customPrompts[index],
             model: modelToUse,
-            productSize: sizeInfo.size,
-            productDimensions: sizeInfo.dimensions
+            productSize: selectedSize
           })
         });
 
