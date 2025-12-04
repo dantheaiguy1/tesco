@@ -4093,60 +4093,58 @@ IMPORTANT COLOR INSTRUCTIONS:
 }
 
 // Shared prompt generator function - Strategic ecommerce prompts
-// Uses contextual size descriptions instead of numeric dimensions for better AI understanding
+// Each variation must be VISUALLY DISTINCT - different angles, compositions, and contexts
 function getPrompts(productName: string, productSize: string = 'medium'): Record<string, string> {
-  // Contextual size descriptions using familiar reference objects
-  // AI understands these better than numeric measurements
-  const sizeContexts: Record<string, { general: string; scaleRef: string; lifestyle: string }> = {
+  // Size-specific instructions - critical for accurate scaling
+  const sizeGuide: Record<string, { scale: string; hand: string; scene: string }> = {
     'tiny': {
-      general: 'This is a miniature item that fits on a fingertip or is smaller than a coin.',
-      scaleRef: 'Show product resting on fingertips or next to a coin for scale. The item should appear delicate and small.',
-      lifestyle: 'Show the tiny product being delicately held between thumb and forefinger, or displayed on an open palm to emphasize its miniature size.'
+      scale: 'CRITICAL: This is a TINY item, smaller than a thumb. It must appear very small in all images.',
+      hand: 'Show resting on a single fingertip, or pinched delicately between two fingers. The hand should dwarf the product.',
+      scene: 'Place on an open palm, next to a coin, or attached to keys to show miniature scale.'
     },
     'small': {
-      general: 'This is a compact, pocket-sized item that fits comfortably in one hand.',
-      scaleRef: 'Show product held naturally in one hand or next to a smartphone for scale comparison.',
-      lifestyle: 'Show the product being held in one hand, fitting in a pocket, or on a desk next to everyday items like a coffee cup or phone.'
+      scale: 'This is a SMALL pocket-sized item that fits easily in one hand, similar to a phone or wallet.',
+      hand: 'Show held comfortably in one hand with fingers wrapped around it naturally.',
+      scene: 'Place next to a smartphone, in a shirt pocket, or held casually in one hand.'
     },
     'medium': {
-      general: 'This is a standard-sized product that sits on a table or requires two hands to hold.',
-      scaleRef: 'Show product on a table surface or being held with both hands to demonstrate its size.',
-      lifestyle: 'Show the product on a desk, kitchen counter, or being used with both hands in a natural setting.'
+      scale: 'This is a MEDIUM-sized item like a shoe, book, or water bottle.',
+      hand: 'Show being held with one or two hands at normal arm distance.',
+      scene: 'Place on a desk, table, or countertop alongside everyday objects.'
     },
     'large': {
-      general: 'This is a substantial item that stands on the floor or requires effort to lift.',
-      scaleRef: 'Show product next to furniture or with a person nearby to demonstrate its significant size.',
-      lifestyle: 'Show the product in a room setting with furniture for scale, or with a person interacting with it to show its full size.'
+      scale: 'This is a LARGE item like a backpack, appliance, or piece of furniture.',
+      hand: 'Show being carried, lifted, or used by a full person visible in frame.',
+      scene: 'Place on the floor, next to furniture, or with a person standing nearby for scale.'
     }
   };
   
-  const context = sizeContexts[productSize] || sizeContexts['medium'];
+  const size = sizeGuide[productSize] || sizeGuide['medium'];
   
   return {
-    // === DETAIL/CLOSE-UP SHOTS (1-5) - Trust-building, return-reducing ===
-    // Note: Close-up shots don't need size context as they focus on details
+    // === SHOTS 1-5: DETAIL CLOSE-UPS (each must show DIFFERENT aspect) ===
     
-    'macro_texture': `Extreme close-up macro photography showing this ${productName} material texture and surface detail. Shallow depth of field with soft bokeh background. Professional studio lighting highlighting weave pattern, grain, or surface texture. Rich color saturation, crisp sharp focus on texture details. Commercial product photography emphasizing quality and craftsmanship. High resolution 2k, premium detail shot.`,
+    'macro_texture': `EXTREME MACRO shot of ${productName} surface texture filling the entire frame. Camera almost touching the product. Visible material grain, weave, or micro-texture. Dramatic side lighting creating shadows in texture grooves. Background completely blurred. Like looking through a magnifying glass at the material itself.`,
     
-    'label_branding': `Close-up product photography focused on this ${productName} branding elements, logo, and label details. Professional studio lighting, sharp focus on typography and brand marks. Slight angle showing product dimensionality while keeping text completely readable. Commercial catalog photography style, color-accurate brand presentation. High resolution 2k, editorial detail quality.`,
+    'label_branding': `Angled shot of ${productName} focusing on any logo, text, or branding. Product tilted 30 degrees showing the branded face. If no visible branding, show the front identifying feature. Sharp focus on text/logo with product edges softly blurred. Clean studio lighting, grey gradient background.`,
     
-    'construction_detail': `Detailed close-up showing this ${productName} construction quality - seams, stitching, joints, edges, or assembly details. Professional studio lighting emphasizing craftsmanship. Shallow depth of field isolating key quality indicators. Premium product photography highlighting durability and attention to detail. High resolution 2k, trust-building detail shot.`,
+    'construction_detail': `Shot from UNDERNEATH or SIDE angle showing ${productName} build quality. Focus on edges, seams, buttons, ports, hinges, or connection points. Reveal how parts fit together. Technical inspection angle. Side lighting emphasizing depth and construction details.`,
     
-    'color_finish': `Close-up photography of this ${productName} emphasizing true-to-life color accuracy and surface finish. Professional color-corrected studio lighting. Neutral background to showcase product color without distraction. Lighting angles showing sheen, matte finish, or surface quality. Commercial product photography for accurate buyer expectations. High resolution 2k, color-faithful presentation.`,
+    'color_finish': `Full product shot of ${productName} with DRAMATIC LIGHTING to show surface finish. Strong directional light from one side creating gradient across surface. Shows if matte, glossy, metallic, or textured. Reflection and shadow revealing true surface quality. Dark moody background.`,
     
-    'scale_reference': `Product photography of this ${productName} with clear size reference. ${context.scaleRef} Professional studio lighting with soft shadows. The composition should make the product's real-world size immediately obvious to viewers. Ecommerce photography style that helps customers understand exactly what size they're buying. High resolution 2k.`,
+    'scale_reference': `${size.scale} Product photo of ${productName} with HUMAN HAND in frame for size comparison. ${size.hand} Natural pose, warm skin tones. Soft studio lighting. The hand provides unmistakable size reference for online shoppers.`,
     
-    // === CONTEXT/LIFESTYLE SHOTS (6-10) - Conversion-driving ===
+    // === SHOTS 6-10: LIFESTYLE & CONTEXT (each must be DIFFERENT setting) ===
     
-    'hero_white': `Clean professional product photo of this ${productName} on pure white (#FFFFFF) background. ${context.general} Product centered with generous white space padding. Studio lighting from multiple angles creating soft, natural shadows. Product positioned at slight angle showing depth and dimensionality. High resolution 2k, catalog-quality commercial photography.`,
+    'hero_white': `Classic e-commerce hero shot of ${productName} on pure white seamless background. ${size.scale} Product floating with soft shadow beneath. Shot from eye-level, slight 3/4 angle. Even, shadowless lighting. Generous white space around product. Amazon/catalog style product photo.`,
     
-    'inuse_action': `This ${productName} being actively used in a real-world scenario. ${context.lifestyle} Natural interaction showing how the product is meant to be used. Authentic everyday setting with warm, natural lighting. Lifestyle photography demonstrating practical application. Candid, relatable moment. High resolution 2k.`,
+    'inuse_action': `ACTION shot showing ${productName} actively being USED. ${size.hand} Hands manipulating, operating, or interacting with the product mid-action. Motion implied. Real usage scenario. Cropped tight on the action. Natural warm lighting. Authentic lifestyle moment.`,
     
-    'flatlay_styled': `Flat-lay composition of this ${productName} photographed directly from above. ${context.general} Product styled with complementary accessories and props on a neutral surface. Instagram aesthetic with intentional negative space. Natural window lighting creating soft shadows. Curated lifestyle arrangement. High resolution 2k, aspirational product styling.`,
+    'flatlay_styled': `TOP-DOWN flat lay of ${productName} arranged with 3-4 complementary props on marble or wood surface. ${size.scale} Styled Instagram aesthetic. Items arranged in pleasing composition with negative space. Soft natural window light from above. Lifestyle blogger style.`,
     
-    'environment_context': `This ${productName} in a natural environment relevant to its use. ${context.lifestyle} Soft natural lighting showing product in realistic setting. Background slightly blurred to emphasize product as hero. Lifestyle photography creating emotional connection. Authentic scene composition. High resolution 2k, contextual storytelling style.`,
+    'environment_context': `${productName} in its NATURAL HABITAT - the real environment where it would be used. ${size.scene} Wide shot showing context and surroundings. Product is the hero but environment tells the story. Golden hour or natural indoor lighting. Editorial lifestyle photography.`,
     
-    'multi_angle': `This ${productName} shown from three key angles in single composition: front view, side profile, and top-down perspective. ${context.general} Clean white or light grey background. Professional studio lighting consistent across all angles. Commercial photography showing complete product understanding. Informative multi-view layout. High resolution 2k.`
+    'multi_angle': `COLLAGE showing ${productName} from 3 different angles: front view (top left), back view (top right), and side profile (bottom center). ${size.scale} White background for all three. Clean product photography. Informational layout showing complete product understanding.`
   }
 }
 
