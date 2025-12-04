@@ -8291,6 +8291,7 @@ function getHomePage(user?: User) {
     /* Guest mode (logged out) - hide sidebar, center content */
     body.guest-mode .sidebar { display: none; }
     body.guest-mode .main-content { margin-left: 0; }
+    body.guest-mode .upload-wrapper { max-width: 900px; }
     body.guest-mode .upload-container { max-width: 520px; }
     body.guest-mode .header { display: none; }
     
@@ -8737,13 +8738,91 @@ function getHomePage(user?: User) {
     .logo { display: none; }
     .hamburger { display: none; }
     
-    /* Upload area - centered, compact premium */
-    .upload-container {
-      max-width: 560px;
+    /* Upload area - two column layout with guidelines */
+    .upload-wrapper {
+      display: grid;
+      grid-template-columns: 1fr 320px;
+      gap: 32px;
+      max-width: 960px;
       margin: 0 auto;
       padding: 40px 24px;
       position: relative;
       z-index: 1;
+      align-items: start;
+    }
+    .upload-container {
+      max-width: 560px;
+    }
+    @media (max-width: 900px) {
+      .upload-wrapper {
+        grid-template-columns: 1fr;
+        max-width: 560px;
+      }
+      .guidelines-panel {
+        order: -1;
+      }
+    }
+    
+    /* Guidelines Panel */
+    .guidelines-panel {
+      background: rgba(255, 255, 255, 0.85);
+      backdrop-filter: blur(12px);
+      border-radius: 16px;
+      padding: 24px;
+      border: 1px solid rgba(229, 231, 235, 0.8);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+    }
+    .guidelines-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: #1F2937;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .guideline-item {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 14px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid #F3F4F6;
+    }
+    .guideline-item:last-child {
+      margin-bottom: 0;
+      padding-bottom: 0;
+      border-bottom: none;
+    }
+    .guideline-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+    .guideline-icon.good { background: #DEF7EC; }
+    .guideline-icon.bad { background: #FDE8E8; }
+    .guideline-content h4 {
+      font-size: 13px;
+      font-weight: 600;
+      color: #1F2937;
+      margin-bottom: 2px;
+    }
+    .guideline-content p {
+      font-size: 12px;
+      color: #6B7280;
+      line-height: 1.4;
+    }
+    .guidelines-footer {
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid #E5E7EB;
+      font-size: 11px;
+      color: #9CA3AF;
+      text-align: center;
     }
     .upload-header {
       margin-bottom: 20px;
@@ -10207,18 +10286,19 @@ function getHomePage(user?: User) {
     <div class="deco-shape deco-triangle"></div>
     <div class="deco-shape deco-iso-cube"></div>
 
-    <!-- Upload Screen -->
-    <div id="upload-screen" class="upload-container">
-      <!-- Free credits banner for guests -->
-      <div class="free-credits-banner-inline">
-        <span>🎁</span>
-        <span>Sign up now and get <strong>15 free credits</strong> to start!</span>
-      </div>
-      
-      <div class="upload-header">
-        <h1>Upload Your Product Photo</h1>
-        <p>Upload your best shot - get 10 professional variations in ~25 seconds</p>
-      </div>
+    <!-- Upload Screen with Guidelines -->
+    <div id="upload-screen" class="upload-wrapper">
+      <div class="upload-container">
+        <!-- Free credits banner for guests -->
+        <div class="free-credits-banner-inline">
+          <span>🎁</span>
+          <span>Sign up now and get <strong>15 free credits</strong> to start!</span>
+        </div>
+        
+        <div class="upload-header">
+          <h1>Upload Your Product Photo</h1>
+          <p>Upload your best shot - get 10 professional variations in ~25 seconds</p>
+        </div>
 
       <!-- Upload Zone -->
       <div id="upload-zone" class="upload-zone" onclick="document.getElementById('file-input').click()"
@@ -10349,7 +10429,67 @@ function getHomePage(user?: User) {
       <button id="generate-btn" class="generate-btn" onclick="generateVariations()" disabled>
         Generate 10 Professional Shots
       </button>
-    </div>
+      </div><!-- end upload-container -->
+
+      <!-- Product Image Guidelines Panel -->
+      <div class="guidelines-panel">
+        <div class="guidelines-title">
+          <span>📸</span> Photo Guidelines
+        </div>
+        
+        <div class="guideline-item">
+          <div class="guideline-icon good">✓</div>
+          <div class="guideline-content">
+            <h4>Clear, Sharp Image</h4>
+            <p>Use a well-lit, in-focus photo. Avoid blurry or dark images.</p>
+          </div>
+        </div>
+        
+        <div class="guideline-item">
+          <div class="guideline-icon good">✓</div>
+          <div class="guideline-content">
+            <h4>Show the Whole Product</h4>
+            <p>Capture the entire product in frame. Don't crop off edges.</p>
+          </div>
+        </div>
+        
+        <div class="guideline-item">
+          <div class="guideline-icon good">✓</div>
+          <div class="guideline-content">
+            <h4>Simple Background</h4>
+            <p>Plain backgrounds work best. Busy backgrounds confuse the AI.</p>
+          </div>
+        </div>
+        
+        <div class="guideline-item">
+          <div class="guideline-icon good">✓</div>
+          <div class="guideline-content">
+            <h4>Front-Facing Angle</h4>
+            <p>Show the product's best side. The AI uses this as the reference.</p>
+          </div>
+        </div>
+        
+        <div class="guideline-item">
+          <div class="guideline-icon bad">✗</div>
+          <div class="guideline-content">
+            <h4>Avoid Obscured Details</h4>
+            <p>Don't cover logos or key features. AI can't recreate what it can't see.</p>
+          </div>
+        </div>
+        
+        <div class="guideline-item">
+          <div class="guideline-icon bad">✗</div>
+          <div class="guideline-content">
+            <h4>No Extreme Angles</h4>
+            <p>Avoid top-down or side-only shots as your main image.</p>
+          </div>
+        </div>
+        
+        <div class="guidelines-footer">
+          Better input = better AI output
+        </div>
+      </div>
+    </div><!-- end upload-wrapper -->
 
     <!-- Results Screen (hidden initially) -->
     <div id="results-screen" class="results-container" style="display:none">
