@@ -793,6 +793,78 @@ async function sendNewUserNotification(apiKey: string, userEmail: string, userNa
 }
 
 // ============================================================================
+// LOOPS EMAIL MARKETING INTEGRATION
+// ============================================================================
+async function addContactToLoops(
+  apiKey: string, 
+  email: string, 
+  firstName?: string,
+  source: string = 'shopshot_signup'
+): Promise<boolean> {
+  try {
+    const response = await fetch('https://app.loops.so/api/v1/contacts/create', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        email: email.toLowerCase(),
+        firstName: firstName || undefined,
+        source: source,
+        subscribed: true,
+        userGroup: 'free_user'
+      })
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Loops contact creation error:', errorText);
+      return false;
+    }
+    
+    console.log(`[Loops] Contact added: ${email}`);
+    return true;
+  } catch (error) {
+    console.error('Loops contact creation failed:', error);
+    return false;
+  }
+}
+
+// Trigger a Loops event (for sequences)
+async function triggerLoopsEvent(
+  apiKey: string,
+  email: string,
+  eventName: string
+): Promise<boolean> {
+  try {
+    const response = await fetch('https://app.loops.so/api/v1/events/send', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        email: email.toLowerCase(),
+        eventName: eventName
+      })
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Loops event error:', errorText);
+      return false;
+    }
+    
+    console.log(`[Loops] Event triggered: ${eventName} for ${email}`);
+    return true;
+  } catch (error) {
+    console.error('Loops event failed:', error);
+    return false;
+  }
+}
+
+// ============================================================================
 // PASSWORD RESET EMAIL
 // ============================================================================
 async function sendPasswordResetEmail(apiKey: string, to: string, resetLink: string, name?: string): Promise<boolean> {
@@ -2750,6 +2822,17 @@ app.post('/api/auth/verify-email', async (c) => {
       });
     }
     
+    // Add to Loops email marketing (triggers welcome sequence)
+    if (c.env.LOOPS_API_KEY) {
+      addContactToLoops(c.env.LOOPS_API_KEY, email, user.name, 'shopshot_signup').catch(err => {
+        console.error('Failed to add contact to Loops:', err);
+      });
+      // Trigger the signup event for sequence
+      triggerLoopsEvent(c.env.LOOPS_API_KEY, email, 'user_signup').catch(err => {
+        console.error('Failed to trigger Loops event:', err);
+      });
+    }
+    
     // Create session
     const sessionId = await createUserSession(db, user.id);
     
@@ -3121,6 +3204,16 @@ app.get('/api/auth/google/callback', async (c) => {
     if (c.env.RESEND_API_KEY) {
       sendNewUserNotification(c.env.RESEND_API_KEY, googleUser.email, googleUser.name).catch(err => {
         console.error('Failed to send admin notification:', err);
+      });
+    }
+    
+    // Add to Loops email marketing (triggers welcome sequence)
+    if (c.env.LOOPS_API_KEY) {
+      addContactToLoops(c.env.LOOPS_API_KEY, googleUser.email, googleUser.name, 'google_signup').catch(err => {
+        console.error('Failed to add contact to Loops:', err);
+      });
+      triggerLoopsEvent(c.env.LOOPS_API_KEY, googleUser.email, 'user_signup').catch(err => {
+        console.error('Failed to trigger Loops event:', err);
       });
     }
     
