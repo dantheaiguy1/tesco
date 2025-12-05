@@ -51,6 +51,9 @@ type Bindings = {
   LATE_API_KEY: string;
   // R2 for video uploads
   VIDEO_BUCKET: R2Bucket;
+  // Social Command Centre
+  SOCIAL_DB: D1Database;
+  SOCIAL_MEDIA_BUCKET: R2Bucket;
 }
 
 // User type for authenticated requests
@@ -1993,12 +1996,17 @@ app.get('/admin', (c) => {
   return c.html(getAdminDashboardPage(user))
 })
 
-// Social Studio admin page
+// Social Studio admin page (legacy - redirects to new command centre)
 app.get('/admin/social-studio', (c) => {
+  return c.redirect('/admin/social')
+})
+
+// Social Command Centre (new)
+app.get('/admin/social', (c) => {
   const user = c.get('user') as any
-  if (!user) return c.redirect('/login?redirect=/admin/social-studio')
+  if (!user) return c.redirect('/login?redirect=/admin/social')
   if (user.role !== 'admin') return c.redirect('/?error=unauthorized')
-  return c.html(getSocialStudioPage(user))
+  return c.html(getSocialCommandCentrePage(user))
 })
 
 // Admin API: Get dashboard data
@@ -5798,6 +5806,663 @@ app.get('/api/admin/social/scheduled', async (c) => {
   } catch (error: any) {
     console.error('[Social Studio] Scheduled posts error:', error);
     return c.json({ success: false, error: 'Failed to fetch scheduled posts' }, 500);
+  }
+});
+
+// ============================================================================
+// SOCIAL COMMAND CENTRE API
+// ============================================================================
+
+// Get content pillars
+app.get('/api/social/pillars', async (c) => {
+  const user = c.get('user') as any;
+  if (!user || user.role !== 'admin') {
+    return c.json({ success: false, error: 'Admin access required' }, 403);
+  }
+  
+  const db = c.env.SOCIAL_DB;
+  try {
+    const pillars = await db.prepare('SELECT * FROM content_pillars ORDER BY sort_order').all();
+    return c.json({ success: true, pillars: pillars.results || [] });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// Get content roadmap
+app.get('/api/social/roadmap', async (c) => {
+  const user = c.get('user') as any;
+  if (!user || user.role !== 'admin') {
+    return c.json({ success: false, error: 'Admin access required' }, 403);
+  }
+  
+  const db = c.env.SOCIAL_DB;
+  const start = c.req.query('start');
+  const end = c.req.query('end');
+  
+  try {
+    let query = `
+      SELECT r.*, p.name as pillar_name, p.color as pillar_color, p.short_code as pillar_code
+      FROM content_roadmap r
+      LEFT JOIN content_pillars p ON r.pillar_id = p.id
+    `;
+    const params: string[] = [];
+    
+    if (start && end) {
+      query += ' WHERE r.date BETWEEN ? AND ?';
+      params.push(start, end);
+    }
+    query += ' ORDER BY r.date, CASE r.time_slot WHEN "morning" THEN 1 WHEN "noon" THEN 2 WHEN "evening" THEN 3 END';
+    
+    const roadmap = params.length > 0
+      ? await db.prepare(query).bind(...params).all()
+      : await db.prepare(query).all();
+    
+    return c.json({ success: true, roadmap: roadmap.results || [] });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// Get posts from new social DB
+app.get('/api/social/posts', async (c) => {
+  const user = c.get('user') as any;
+  if (!user || user.role !== 'admin') {
+    return c.json({ success: false, error: 'Admin access required' }, 403);
+  }
+  
+  const db = c.env.SOCIAL_DB;
+  const status = c.req.query('status');
+  const date = c.req.query('date');
+  
+  try {
+    let query = `
+      SELECT posts.*, p.name as pillar_name, p.color as pillar_color
+      FROM posts
+      LEFT JOIN content_pillars p ON posts.pillar_id = p.id
+      WHERE 1=1
+    `;
+    const params: string[] = [];
+    
+    if (status) {
+      query += ' AND posts.status = ?';
+      params.push(status);
+    }
+    if (date) {
+      query += ' AND posts.date = ?';
+      params.push(date);
+    }
+    
+    query += ' ORDER BY posts.date DESC, posts.scheduled_time DESC LIMIT 100';
+    
+    const posts = params.length > 0
+      ? await db.prepare(query).bind(...params).all()
+      : await db.prepare(query).all();
+    
+    return c.json({ success: true, posts: posts.results || [] });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// Create post
+app.post('/api/social/posts', async (c) => {
+  const user = c.get('user') as any;
+  if (!user || user.role !== 'admin') {
+    return c.json({ success: false, error: 'Admin access required' }, 403);
+  }
+  
+  const db = c.env.SOCIAL_DB;
+  
+  try {
+    const body = await c.req.json();
+    const { date, scheduled_time, time_slot, media_type, media_url, caption, platforms, pillar_id, topic, roadmap_id } = body;
+    
+    const result = await db.prepare(`
+      INSERT INTO posts (account_type, date, scheduled_time, time_slot, media_type, media_url, caption, platforms, pillar_id, topic, roadmap_id, status)
+      VALUES ('shopshot', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft')
+    `).bind(date, scheduled_time, time_slot || null, media_type, media_url || null, caption, JSON.stringify(platforms), pillar_id || null, topic || null, roadmap_id || null).run();
+    
+    // Update roadmap status if linked
+    if (roadmap_id) {
+      await db.prepare('UPDATE content_roadmap SET status = "created", post_id = ? WHERE id = ?')
+        .bind(result.meta.last_row_id, roadmap_id).run();
+    }
+    
+    return c.json({ success: true, postId: result.meta.last_row_id });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// Update post
+app.put('/api/social/posts/:id', async (c) => {
+  const user = c.get('user') as any;
+  if (!user || user.role !== 'admin') {
+    return c.json({ success: false, error: 'Admin access required' }, 403);
+  }
+  
+  const db = c.env.SOCIAL_DB;
+  const postId = c.req.param('id');
+  
+  try {
+    const body = await c.req.json();
+    const { date, scheduled_time, media_url, caption, platforms, pillar_id, status } = body;
+    
+    await db.prepare(`
+      UPDATE posts SET
+        date = COALESCE(?, date),
+        scheduled_time = COALESCE(?, scheduled_time),
+        media_url = COALESCE(?, media_url),
+        caption = COALESCE(?, caption),
+        platforms = COALESCE(?, platforms),
+        pillar_id = COALESCE(?, pillar_id),
+        status = COALESCE(?, status)
+      WHERE id = ?
+    `).bind(
+      date || null, 
+      scheduled_time || null, 
+      media_url || null, 
+      caption || null, 
+      platforms ? JSON.stringify(platforms) : null, 
+      pillar_id || null, 
+      status || null, 
+      postId
+    ).run();
+    
+    return c.json({ success: true });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// Delete post
+app.delete('/api/social/posts/:id', async (c) => {
+  const user = c.get('user') as any;
+  if (!user || user.role !== 'admin') {
+    return c.json({ success: false, error: 'Admin access required' }, 403);
+  }
+  
+  const db = c.env.SOCIAL_DB;
+  const postId = c.req.param('id');
+  
+  try {
+    await db.prepare('DELETE FROM posts WHERE id = ?').bind(postId).run();
+    return c.json({ success: true });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// Get voice profile
+app.get('/api/social/voice-profile', async (c) => {
+  const user = c.get('user') as any;
+  if (!user || user.role !== 'admin') {
+    return c.json({ success: false, error: 'Admin access required' }, 403);
+  }
+  
+  const db = c.env.SOCIAL_DB;
+  
+  try {
+    const profile = await db.prepare('SELECT * FROM voice_profiles WHERE account_type = ?').bind('shopshot').first();
+    return c.json({ success: true, profile });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// Get brand knowledge
+app.get('/api/social/knowledge', async (c) => {
+  const user = c.get('user') as any;
+  if (!user || user.role !== 'admin') {
+    return c.json({ success: false, error: 'Admin access required' }, 403);
+  }
+  
+  const db = c.env.SOCIAL_DB;
+  
+  try {
+    const knowledge = await db.prepare('SELECT * FROM brand_knowledge ORDER BY priority, section').all();
+    return c.json({ success: true, knowledge: knowledge.results || [] });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// Get platform connections
+app.get('/api/social/platforms', async (c) => {
+  const user = c.get('user') as any;
+  if (!user || user.role !== 'admin') {
+    return c.json({ success: false, error: 'Admin access required' }, 403);
+  }
+  
+  const db = c.env.SOCIAL_DB;
+  
+  try {
+    const platforms = await db.prepare('SELECT * FROM platform_connections WHERE account_type = ?').bind('shopshot').all();
+    return c.json({ success: true, platforms: platforms.results || [] });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// Get media library
+app.get('/api/social/media', async (c) => {
+  const user = c.get('user') as any;
+  if (!user || user.role !== 'admin') {
+    return c.json({ success: false, error: 'Admin access required' }, 403);
+  }
+  
+  const db = c.env.SOCIAL_DB;
+  const type = c.req.query('type');
+  
+  try {
+    let query = 'SELECT * FROM media WHERE account_type = ?';
+    const params: string[] = ['shopshot'];
+    
+    if (type) {
+      query += ' AND media_type = ?';
+      params.push(type);
+    }
+    
+    query += ' ORDER BY created_at DESC LIMIT 100';
+    
+    const media = await db.prepare(query).bind(...params).all();
+    return c.json({ success: true, media: media.results || [] });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// Upload media to R2
+app.post('/api/social/media/upload', async (c) => {
+  const user = c.get('user') as any;
+  if (!user || user.role !== 'admin') {
+    return c.json({ success: false, error: 'Admin access required' }, 403);
+  }
+  
+  const db = c.env.SOCIAL_DB;
+  const bucket = c.env.SOCIAL_MEDIA_BUCKET;
+  
+  if (!bucket) {
+    return c.json({ success: false, error: 'R2 bucket not configured' }, 500);
+  }
+  
+  try {
+    const formData = await c.req.formData();
+    const file = formData.get('file') as File;
+    const pillarId = formData.get('pillar_id') as string;
+    
+    if (!file) {
+      return c.json({ success: false, error: 'No file provided' }, 400);
+    }
+    
+    const mediaType = file.type.startsWith('video/') ? 'video' : 'image';
+    const ext = file.name.split('.').pop() || (mediaType === 'video' ? 'mp4' : 'png');
+    const filename = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}.${ext}`;
+    const key = `social/${filename}`;
+    
+    const arrayBuffer = await file.arrayBuffer();
+    await bucket.put(key, arrayBuffer, {
+      httpMetadata: { contentType: file.type }
+    });
+    
+    const url = `https://pub-2cda1a4823c0475989f9c94ad76e930a.r2.dev/${key}`;
+    
+    // Save to DB
+    const result = await db.prepare(`
+      INSERT INTO media (account_type, filename, original_filename, media_type, file_size, url, r2_key, pillar_id)
+      VALUES ('shopshot', ?, ?, ?, ?, ?, ?, ?)
+    `).bind(filename, file.name, mediaType, file.size, url, key, pillarId || null).run();
+    
+    return c.json({ 
+      success: true, 
+      mediaId: result.meta.last_row_id,
+      url,
+      filename,
+      mediaType
+    });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// Delete media
+app.delete('/api/social/media/:id', async (c) => {
+  const user = c.get('user') as any;
+  if (!user || user.role !== 'admin') {
+    return c.json({ success: false, error: 'Admin access required' }, 403);
+  }
+  
+  const db = c.env.SOCIAL_DB;
+  const bucket = c.env.SOCIAL_MEDIA_BUCKET;
+  const mediaId = c.req.param('id');
+  
+  try {
+    const media = await db.prepare('SELECT r2_key FROM media WHERE id = ?').bind(mediaId).first() as any;
+    
+    if (media?.r2_key && bucket) {
+      await bucket.delete(media.r2_key);
+    }
+    
+    await db.prepare('DELETE FROM media WHERE id = ?').bind(mediaId).run();
+    return c.json({ success: true });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// Generate caption using AI
+app.post('/api/social/generate-caption', async (c) => {
+  const user = c.get('user') as any;
+  if (!user || user.role !== 'admin') {
+    return c.json({ success: false, error: 'Admin access required' }, 403);
+  }
+  
+  const socialDb = c.env.SOCIAL_DB;
+  const geminiKey = c.env.GEMINI_API_KEY;
+  
+  if (!geminiKey) {
+    return c.json({ success: false, error: 'Gemini API not configured' }, 500);
+  }
+  
+  try {
+    const { platform, topic, pillar, cta } = await c.req.json();
+    
+    // Get voice profile
+    const voice = await socialDb.prepare('SELECT * FROM voice_profiles WHERE account_type = ?').bind('shopshot').first() as any;
+    
+    // Get brand knowledge
+    const knowledge = await socialDb.prepare('SELECT section, content FROM brand_knowledge WHERE priority = 1').all() as any;
+    const knowledgeText = (knowledge.results || []).map((k: any) => `${k.section}: ${k.content}`).join('\n\n');
+    
+    // Platform specs
+    const platformSpecs: Record<string, { maxChars: number; name: string; format: string }> = {
+      instagram: { maxChars: 2200, name: 'Instagram', format: '1:1 square' },
+      twitter: { maxChars: 280, name: 'X/Twitter', format: '16:9 landscape' },
+      youtube: { maxChars: 5000, name: 'YouTube Shorts', format: '9:16 vertical video description' }
+    };
+    
+    const spec = platformSpecs[platform] || platformSpecs.instagram;
+    
+    const prompt = `You are a social media copywriter for ShopShot, an AI product photography tool.
+
+BRAND VOICE:
+${voice?.voice_description || 'Direct, confident, data-backed, no corporate speak'}
+
+TONE: ${voice?.tone || 'Direct, confident, slightly witty'}
+STYLE: ${voice?.style || 'Short punchy sentences. Specific numbers. British spelling.'}
+
+BRAND KNOWLEDGE:
+${knowledgeText}
+
+ABSOLUTE RULES:
+- NO emojis
+- NO em dashes (use regular hyphens)
+- NO exclamation marks unless genuine surprise
+- NO buzzwords: revolutionary, game-changing, disrupting, unlock potential
+- British spelling
+- Be specific with numbers (£0.80 vs £500, 25 seconds vs 3 weeks)
+
+PLATFORM: ${spec.name}
+MAX CHARACTERS: ${spec.maxChars}
+FORMAT: ${spec.format}
+
+TOPIC: ${topic}
+${pillar ? `CONTENT PILLAR: ${pillar}` : ''}
+${cta ? `CALL TO ACTION: ${cta}` : ''}
+
+Write a single caption for this platform. Output ONLY the caption text, nothing else.`;
+
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.8,
+          maxOutputTokens: 500
+        }
+      })
+    });
+    
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Gemini API error: ${error}`);
+    }
+    
+    const data = await response.json() as any;
+    let caption = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    
+    // Post-process: remove quotes, em dashes, trim
+    caption = caption.replace(/^["']|["']$/g, '').replace(/\u2014/g, '-').trim();
+    
+    // Log generation
+    await socialDb.prepare(`
+      INSERT INTO ai_generations (type, platform, prompt, result, model)
+      VALUES ('caption', ?, ?, ?, 'gemini-2.0-flash')
+    `).bind(platform, topic, caption).run();
+    
+    return c.json({ success: true, caption });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// Enhance prompt using AI
+app.post('/api/social/enhance-prompt', async (c) => {
+  const user = c.get('user') as any;
+  if (!user || user.role !== 'admin') {
+    return c.json({ success: false, error: 'Admin access required' }, 403);
+  }
+  
+  const socialDb = c.env.SOCIAL_DB;
+  const geminiKey = c.env.GEMINI_API_KEY;
+  
+  if (!geminiKey) {
+    return c.json({ success: false, error: 'Gemini API not configured' }, 500);
+  }
+  
+  try {
+    const { prompt: userPrompt, pillar } = await c.req.json();
+    
+    // Get brand knowledge
+    const knowledge = await socialDb.prepare('SELECT section, content FROM brand_knowledge WHERE priority = 1').all() as any;
+    const knowledgeText = (knowledge.results || []).map((k: any) => `${k.section}: ${k.content}`).join('\n\n');
+    
+    const prompt = `You are enhancing a content prompt for ShopShot social media.
+
+BRAND KNOWLEDGE:
+${knowledgeText}
+
+USER'S ROUGH IDEA: "${userPrompt}"
+${pillar ? `CONTENT PILLAR: ${pillar}` : ''}
+
+Enhance this into a specific, actionable content brief. Add:
+- Specific ShopShot details (prices, features, stats)
+- A hook angle (question, bold claim, problem statement, personal story)
+- Suggested visual direction
+
+Output ONLY the enhanced prompt as a single paragraph. Be specific. No generic advice.`;
+
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.9,
+          maxOutputTokens: 300
+        }
+      })
+    });
+    
+    if (!response.ok) {
+      throw new Error('Gemini API error');
+    }
+    
+    const data = await response.json() as any;
+    const enhanced = data.candidates?.[0]?.content?.parts?.[0]?.text || userPrompt;
+    
+    return c.json({ success: true, enhanced: enhanced.trim() });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// Publish post via GetLate
+app.post('/api/social/publish/:id', async (c) => {
+  const user = c.get('user') as any;
+  if (!user || user.role !== 'admin') {
+    return c.json({ success: false, error: 'Admin access required' }, 403);
+  }
+  
+  const socialDb = c.env.SOCIAL_DB;
+  const lateApiKey = c.env.LATE_API_KEY;
+  
+  if (!lateApiKey) {
+    return c.json({ success: false, error: 'Late API not configured' }, 500);
+  }
+  
+  const postId = c.req.param('id');
+  
+  try {
+    const { publishNow, scheduledFor } = await c.req.json();
+    
+    // Get post details
+    const post = await socialDb.prepare('SELECT * FROM posts WHERE id = ?').bind(postId).first() as any;
+    if (!post) {
+      return c.json({ success: false, error: 'Post not found' }, 404);
+    }
+    
+    // Get platform connections
+    const connections = await socialDb.prepare('SELECT * FROM platform_connections WHERE account_type = ?').bind('shopshot').all() as any;
+    const platformMap: Record<string, string> = {};
+    (connections.results || []).forEach((p: any) => {
+      platformMap[p.platform] = p.social_network_key;
+    });
+    
+    const platforms = JSON.parse(post.platforms || '[]');
+    const results: any[] = [];
+    
+    for (const platform of platforms) {
+      const accountId = platformMap[platform];
+      if (!accountId) {
+        results.push({ platform, success: false, error: 'Platform not connected' });
+        continue;
+      }
+      
+      try {
+        const postData: any = {
+          content: post.caption,
+          platforms: [{ platform, accountId }],
+          timezone: 'Europe/London'
+        };
+        
+        if (post.media_url) {
+          postData.media_urls = [post.media_url];
+          postData.mediaItems = [{ type: post.media_type, url: post.media_url }];
+        }
+        
+        if (publishNow) {
+          postData.publishNow = true;
+        } else if (scheduledFor) {
+          postData.scheduledFor = scheduledFor;
+        } else {
+          // Default to post's scheduled time
+          postData.scheduledFor = `${post.date}T${post.scheduled_time}:00.000Z`;
+        }
+        
+        // Handle reels
+        if (platform === 'instagram' && post.media_type === 'video') {
+          postData.post_options = { instagram: { type: 'reel' } };
+        }
+        
+        const response = await fetch('https://getlate.dev/api/v1/posts', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${lateApiKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(postData)
+        });
+        
+        const responseData = await response.json() as any;
+        
+        if (response.ok) {
+          // Add to publish queue
+          await socialDb.prepare(`
+            INSERT INTO publish_queue (post_id, platform, status, late_post_id)
+            VALUES (?, ?, 'published', ?)
+          `).bind(postId, platform, responseData.id || responseData.postId).run();
+          
+          results.push({ platform, success: true, postId: responseData.id });
+        } else {
+          await socialDb.prepare(`
+            INSERT INTO publish_queue (post_id, platform, status, error_message)
+            VALUES (?, ?, 'failed', ?)
+          `).bind(postId, platform, responseData.error || 'Unknown error').run();
+          
+          results.push({ platform, success: false, error: responseData.error });
+        }
+      } catch (err: any) {
+        results.push({ platform, success: false, error: err.message });
+      }
+    }
+    
+    // Update post status
+    const allSuccess = results.every(r => r.success);
+    const newStatus = publishNow 
+      ? (allSuccess ? 'published' : 'failed')
+      : 'scheduled';
+    
+    await socialDb.prepare('UPDATE posts SET status = ?, publish_results = ? WHERE id = ?')
+      .bind(newStatus, JSON.stringify(results), postId).run();
+    
+    return c.json({ success: allSuccess, results });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// Get dashboard analytics
+app.get('/api/social/analytics', async (c) => {
+  const user = c.get('user') as any;
+  if (!user || user.role !== 'admin') {
+    return c.json({ success: false, error: 'Admin access required' }, 403);
+  }
+  
+  const db = c.env.SOCIAL_DB;
+  
+  try {
+    const [postsByStatus, postsByPillar, recentPosts, totalPosts] = await Promise.all([
+      db.prepare(`
+        SELECT status, COUNT(*) as count FROM posts GROUP BY status
+      `).all(),
+      db.prepare(`
+        SELECT p.name, p.color, COUNT(posts.id) as count 
+        FROM posts 
+        LEFT JOIN content_pillars p ON posts.pillar_id = p.id 
+        GROUP BY posts.pillar_id
+      `).all(),
+      db.prepare(`
+        SELECT date, COUNT(*) as count FROM posts 
+        WHERE date >= date('now', '-30 days')
+        GROUP BY date ORDER BY date
+      `).all(),
+      db.prepare('SELECT COUNT(*) as count FROM posts').first()
+    ]);
+    
+    return c.json({
+      success: true,
+      analytics: {
+        postsByStatus: postsByStatus.results || [],
+        postsByPillar: postsByPillar.results || [],
+        recentPosts: recentPosts.results || [],
+        totalPosts: (totalPosts as any)?.count || 0
+      }
+    });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
   }
 });
 
@@ -17929,7 +18594,1424 @@ function getAdminDashboardPage(user: any) {
 }
 
 // ============================================================================
-// SOCIAL STUDIO PAGE
+// SOCIAL COMMAND CENTRE PAGE
+// ============================================================================
+function getSocialCommandCentrePage(user: any) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Social Command Centre - ShopShot Admin</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { font-family: 'Inter', system-ui, sans-serif; box-sizing: border-box; }
+    body { background: #09090B; color: white; min-height: 100vh; }
+    
+    /* Header */
+    .admin-header {
+      background: linear-gradient(180deg, #18181B 0%, #09090B 100%);
+      border-bottom: 1px solid #27272A;
+      padding: 12px 24px;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+    .header-content {
+      max-width: 1800px;
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .header-left { display: flex; align-items: center; gap: 16px; }
+    .header-logo {
+      font-size: 18px;
+      font-weight: 800;
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      text-decoration: none;
+    }
+    .header-nav { display: flex; gap: 6px; }
+    .header-nav a {
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      color: #A1A1AA;
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+    .header-nav a:hover { background: #27272A; color: white; }
+    .header-nav a.active { background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%); color: white; }
+    
+    /* Main Layout */
+    .main-container {
+      max-width: 1800px;
+      margin: 0 auto;
+      padding: 20px;
+      display: grid;
+      grid-template-columns: 280px 1fr 320px;
+      gap: 20px;
+      min-height: calc(100vh - 60px);
+    }
+    
+    /* Sidebar */
+    .sidebar {
+      background: #18181B;
+      border: 1px solid #27272A;
+      border-radius: 12px;
+      padding: 16px;
+      height: fit-content;
+      position: sticky;
+      top: 80px;
+    }
+    .sidebar-section { margin-bottom: 20px; }
+    .sidebar-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #71717A;
+      margin-bottom: 10px;
+    }
+    
+    /* Calendar */
+    .calendar-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .calendar-nav { display: flex; gap: 4px; }
+    .calendar-nav button {
+      width: 28px;
+      height: 28px;
+      border: 1px solid #3F3F46;
+      background: transparent;
+      border-radius: 6px;
+      color: #A1A1AA;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .calendar-nav button:hover { background: #27272A; color: white; }
+    .calendar-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 2px;
+      font-size: 11px;
+    }
+    .calendar-day-header {
+      text-align: center;
+      padding: 4px;
+      color: #71717A;
+      font-weight: 600;
+    }
+    .calendar-day {
+      aspect-ratio: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      border-radius: 6px;
+      cursor: pointer;
+      position: relative;
+      font-size: 12px;
+    }
+    .calendar-day:hover { background: #27272A; }
+    .calendar-day.today { background: #3B82F620; border: 1px solid #3B82F6; }
+    .calendar-day.selected { background: #3B82F6; color: white; }
+    .calendar-day.other-month { color: #52525B; }
+    .calendar-day .dots {
+      display: flex;
+      gap: 2px;
+      position: absolute;
+      bottom: 2px;
+    }
+    .calendar-day .dot {
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+    }
+    
+    /* Pillars */
+    .pillar-list { display: flex; flex-direction: column; gap: 6px; }
+    .pillar-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      transition: all 0.15s;
+    }
+    .pillar-item:hover { background: #27272A; }
+    .pillar-item.active { background: #27272A; }
+    .pillar-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .pillar-name { flex: 1; font-weight: 500; }
+    .pillar-count {
+      font-size: 10px;
+      color: #71717A;
+      background: #27272A;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    
+    /* Main Content */
+    .main-content {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    
+    /* View Tabs */
+    .view-tabs {
+      display: flex;
+      gap: 4px;
+      background: #18181B;
+      padding: 4px;
+      border-radius: 8px;
+      width: fit-content;
+    }
+    .view-tab {
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      color: #A1A1AA;
+      cursor: pointer;
+      border: none;
+      background: transparent;
+      transition: all 0.15s;
+    }
+    .view-tab:hover { color: white; }
+    .view-tab.active { background: #27272A; color: white; }
+    
+    /* Content Creator */
+    .creator-card {
+      background: #18181B;
+      border: 1px solid #27272A;
+      border-radius: 12px;
+      padding: 20px;
+    }
+    .creator-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    .creator-title { font-size: 16px; font-weight: 700; }
+    
+    /* Form Controls */
+    .form-group { margin-bottom: 16px; }
+    .form-label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: #A1A1AA;
+      margin-bottom: 6px;
+    }
+    .form-input, .form-textarea, .form-select {
+      width: 100%;
+      padding: 10px 12px;
+      background: #09090B;
+      border: 1px solid #3F3F46;
+      border-radius: 8px;
+      color: white;
+      font-size: 14px;
+      transition: all 0.15s;
+    }
+    .form-input:focus, .form-textarea:focus, .form-select:focus {
+      outline: none;
+      border-color: #3B82F6;
+      box-shadow: 0 0 0 3px #3B82F620;
+    }
+    .form-textarea { resize: vertical; min-height: 100px; }
+    
+    /* Platform Selector */
+    .platform-grid { display: flex; gap: 8px; flex-wrap: wrap; }
+    .platform-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      border: 1px solid #3F3F46;
+      border-radius: 8px;
+      background: transparent;
+      color: #A1A1AA;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .platform-btn:hover { border-color: #52525B; color: white; }
+    .platform-btn.selected { border-color: #3B82F6; background: #3B82F620; color: white; }
+    .platform-btn i { font-size: 16px; }
+    .platform-btn.instagram i { color: #E1306C; }
+    .platform-btn.twitter i { color: #1DA1F2; }
+    .platform-btn.youtube i { color: #FF0000; }
+    
+    /* Action Buttons */
+    .btn {
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: all 0.15s;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      color: white;
+    }
+    .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
+    .btn-secondary {
+      background: #27272A;
+      color: white;
+      border: 1px solid #3F3F46;
+    }
+    .btn-secondary:hover { background: #3F3F46; }
+    .btn-ghost {
+      background: transparent;
+      color: #A1A1AA;
+    }
+    .btn-ghost:hover { color: white; background: #27272A; }
+    .btn-danger { background: #DC2626; color: white; }
+    .btn-danger:hover { background: #B91C1C; }
+    
+    /* Schedule Grid */
+    .schedule-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+    .schedule-slot {
+      background: #09090B;
+      border: 1px solid #27272A;
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .schedule-slot-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .schedule-slot-time {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: #71717A;
+    }
+    .schedule-slot-status {
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    .schedule-slot-status.planned { background: #3B82F620; color: #3B82F6; }
+    .schedule-slot-status.created { background: #22C55E20; color: #22C55E; }
+    .schedule-slot-status.scheduled { background: #F9731620; color: #F97316; }
+    .schedule-slot-status.published { background: #A855F720; color: #A855F7; }
+    .schedule-slot-topic {
+      font-size: 13px;
+      font-weight: 500;
+      margin-bottom: 4px;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .schedule-slot-platforms {
+      display: flex;
+      gap: 4px;
+      margin-top: 8px;
+    }
+    .schedule-slot-platforms i {
+      font-size: 12px;
+      color: #71717A;
+    }
+    
+    /* Right Panel */
+    .right-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .panel-card {
+      background: #18181B;
+      border: 1px solid #27272A;
+      border-radius: 12px;
+      padding: 16px;
+    }
+    .panel-title {
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    /* Caption Preview */
+    .caption-preview {
+      background: #09090B;
+      border: 1px solid #27272A;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 13px;
+      line-height: 1.5;
+      max-height: 200px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+    }
+    .caption-preview.empty {
+      color: #52525B;
+      font-style: italic;
+    }
+    .caption-counter {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 8px;
+      font-size: 11px;
+      color: #71717A;
+    }
+    .caption-counter.warning { color: #F97316; }
+    .caption-counter.error { color: #DC2626; }
+    
+    /* Media Upload */
+    .media-upload-zone {
+      border: 2px dashed #3F3F46;
+      border-radius: 8px;
+      padding: 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .media-upload-zone:hover { border-color: #3B82F6; background: #3B82F610; }
+    .media-upload-zone.dragover { border-color: #3B82F6; background: #3B82F620; }
+    .media-upload-zone i { font-size: 32px; color: #52525B; margin-bottom: 8px; }
+    .media-upload-zone p { font-size: 12px; color: #71717A; }
+    
+    /* Media Preview */
+    .media-preview {
+      position: relative;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .media-preview img, .media-preview video {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+    .media-preview-remove {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      width: 28px;
+      height: 28px;
+      background: #00000080;
+      border: none;
+      border-radius: 50%;
+      color: white;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    /* Quick Stats */
+    .stats-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+    .stat-item {
+      background: #09090B;
+      border-radius: 8px;
+      padding: 12px;
+      text-align: center;
+    }
+    .stat-value { font-size: 20px; font-weight: 700; }
+    .stat-label { font-size: 10px; color: #71717A; text-transform: uppercase; }
+    
+    /* Toast */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      padding: 12px 20px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      z-index: 1000;
+      transform: translateY(100px);
+      opacity: 0;
+      transition: all 0.3s;
+    }
+    .toast.show { transform: translateY(0); opacity: 1; }
+    .toast.success { background: #22C55E; color: white; }
+    .toast.error { background: #DC2626; color: white; }
+    .toast.info { background: #3B82F6; color: white; }
+    
+    /* Loading Spinner */
+    .spinner {
+      width: 20px;
+      height: 20px;
+      border: 2px solid #ffffff40;
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    
+    /* Modal */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: #00000080;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      opacity: 0;
+      visibility: hidden;
+      transition: all 0.2s;
+    }
+    .modal-overlay.show { opacity: 1; visibility: visible; }
+    .modal {
+      background: #18181B;
+      border: 1px solid #27272A;
+      border-radius: 16px;
+      padding: 24px;
+      max-width: 500px;
+      width: 90%;
+      max-height: 80vh;
+      overflow-y: auto;
+      transform: scale(0.95);
+      transition: transform 0.2s;
+    }
+    .modal-overlay.show .modal { transform: scale(1); }
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+    .modal-title { font-size: 18px; font-weight: 700; }
+    .modal-close {
+      width: 32px;
+      height: 32px;
+      background: transparent;
+      border: none;
+      color: #71717A;
+      cursor: pointer;
+      border-radius: 6px;
+    }
+    .modal-close:hover { background: #27272A; color: white; }
+    
+    /* Responsive */
+    @media (max-width: 1400px) {
+      .main-container { grid-template-columns: 240px 1fr 280px; }
+    }
+    @media (max-width: 1200px) {
+      .main-container { grid-template-columns: 1fr; }
+      .sidebar { display: none; }
+      .right-panel { order: -1; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Header -->
+  <header class="admin-header">
+    <div class="header-content">
+      <div class="header-left">
+        <a href="/" class="header-logo">ShopShot</a>
+        <nav class="header-nav">
+          <a href="/admin">Dashboard</a>
+          <a href="/admin/social" class="active">Social</a>
+          <a href="/app">App</a>
+        </nav>
+      </div>
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <span style="font-size: 13px; color: #A1A1AA;">${user.email}</span>
+        <a href="/api/auth/logout" class="btn btn-ghost" style="padding: 6px 12px;">
+          <i class="fas fa-sign-out-alt"></i>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <div class="main-container">
+    <!-- Left Sidebar -->
+    <aside class="sidebar">
+      <!-- Mini Calendar -->
+      <div class="sidebar-section">
+        <div class="calendar-header">
+          <span id="calendar-month" style="font-weight: 600; font-size: 13px;">December 2025</span>
+          <div class="calendar-nav">
+            <button onclick="changeMonth(-1)"><i class="fas fa-chevron-left"></i></button>
+            <button onclick="changeMonth(1)"><i class="fas fa-chevron-right"></i></button>
+          </div>
+        </div>
+        <div class="calendar-grid" id="calendar-grid"></div>
+      </div>
+      
+      <!-- Content Pillars -->
+      <div class="sidebar-section">
+        <div class="sidebar-title">Content Pillars</div>
+        <div class="pillar-list" id="pillar-list"></div>
+      </div>
+      
+      <!-- Quick Actions -->
+      <div class="sidebar-section">
+        <div class="sidebar-title">Quick Actions</div>
+        <button class="btn btn-primary" style="width: 100%; margin-bottom: 8px;" onclick="openCreateModal()">
+          <i class="fas fa-plus"></i> New Post
+        </button>
+        <button class="btn btn-secondary" style="width: 100%;" onclick="openMediaLibrary()">
+          <i class="fas fa-images"></i> Media Library
+        </button>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <!-- View Tabs -->
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div class="view-tabs">
+          <button class="view-tab active" data-view="schedule" onclick="switchView('schedule')">
+            <i class="fas fa-calendar-alt"></i> Schedule
+          </button>
+          <button class="view-tab" data-view="create" onclick="switchView('create')">
+            <i class="fas fa-pen"></i> Create
+          </button>
+          <button class="view-tab" data-view="posts" onclick="switchView('posts')">
+            <i class="fas fa-list"></i> All Posts
+          </button>
+        </div>
+        <div id="selected-date-display" style="font-size: 14px; color: #A1A1AA;"></div>
+      </div>
+
+      <!-- Schedule View -->
+      <div id="view-schedule" class="view-content">
+        <div class="creator-card">
+          <div class="creator-header">
+            <div class="creator-title" id="schedule-date-title">Today's Schedule</div>
+            <div style="display: flex; gap: 8px;">
+              <button class="btn btn-ghost" onclick="navigateDay(-1)"><i class="fas fa-chevron-left"></i></button>
+              <button class="btn btn-secondary" onclick="goToToday()">Today</button>
+              <button class="btn btn-ghost" onclick="navigateDay(1)"><i class="fas fa-chevron-right"></i></button>
+            </div>
+          </div>
+          <div class="schedule-grid" id="schedule-slots"></div>
+        </div>
+      </div>
+
+      <!-- Create View -->
+      <div id="view-create" class="view-content" style="display: none;">
+        <div class="creator-card">
+          <div class="creator-header">
+            <div class="creator-title">Create Content</div>
+          </div>
+          
+          <!-- Topic Input -->
+          <div class="form-group">
+            <label class="form-label">Topic / Prompt</label>
+            <div style="display: flex; gap: 8px;">
+              <textarea id="topic-input" class="form-textarea" placeholder="What's this post about? E.g., 'Compare ShopShot speed vs traditional photography'" rows="3"></textarea>
+            </div>
+            <button class="btn btn-ghost" style="margin-top: 8px;" onclick="enhancePrompt()">
+              <i class="fas fa-magic"></i> Enhance with AI
+            </button>
+          </div>
+          
+          <!-- Pillar Select -->
+          <div class="form-group">
+            <label class="form-label">Content Pillar</label>
+            <select id="pillar-select" class="form-select">
+              <option value="">Select pillar...</option>
+            </select>
+          </div>
+          
+          <!-- CTA Input -->
+          <div class="form-group">
+            <label class="form-label">Call to Action (optional)</label>
+            <input type="text" id="cta-input" class="form-input" placeholder="E.g., 'Try free at shopshot.co.uk'">
+          </div>
+          
+          <!-- Platform Selection -->
+          <div class="form-group">
+            <label class="form-label">Platforms</label>
+            <div class="platform-grid" id="platform-grid">
+              <button class="platform-btn instagram selected" data-platform="instagram" onclick="togglePlatform('instagram')">
+                <i class="fab fa-instagram"></i> Instagram
+              </button>
+              <button class="platform-btn twitter selected" data-platform="twitter" onclick="togglePlatform('twitter')">
+                <i class="fab fa-x-twitter"></i> X/Twitter
+              </button>
+              <button class="platform-btn youtube" data-platform="youtube" onclick="togglePlatform('youtube')">
+                <i class="fab fa-youtube"></i> YouTube
+              </button>
+            </div>
+          </div>
+          
+          <!-- Schedule -->
+          <div class="form-group">
+            <label class="form-label">Schedule</label>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;">
+              <input type="date" id="schedule-date" class="form-input">
+              <select id="schedule-time-slot" class="form-select">
+                <option value="morning">Morning (8:00 AM)</option>
+                <option value="noon">Noon (12:30 PM)</option>
+                <option value="evening">Evening (7:00 PM)</option>
+              </select>
+              <input type="time" id="schedule-time" class="form-input" value="08:00">
+            </div>
+          </div>
+          
+          <!-- Generate Buttons -->
+          <div style="display: flex; gap: 12px; margin-top: 20px;">
+            <button class="btn btn-primary" onclick="generateCaptions()" id="generate-btn">
+              <i class="fas fa-sparkles"></i> Generate Captions
+            </button>
+            <button class="btn btn-secondary" onclick="saveDraft()">
+              <i class="fas fa-save"></i> Save Draft
+            </button>
+          </div>
+        </div>
+        
+        <!-- Generated Captions -->
+        <div id="generated-captions" class="creator-card" style="display: none;">
+          <div class="creator-header">
+            <div class="creator-title">Generated Captions</div>
+            <button class="btn btn-ghost" onclick="regenerateAll()">
+              <i class="fas fa-sync-alt"></i> Regenerate All
+            </button>
+          </div>
+          <div id="captions-container"></div>
+        </div>
+      </div>
+
+      <!-- Posts View -->
+      <div id="view-posts" class="view-content" style="display: none;">
+        <div class="creator-card">
+          <div class="creator-header">
+            <div class="creator-title">All Posts</div>
+            <div style="display: flex; gap: 8px;">
+              <select id="posts-filter-status" class="form-select" style="width: auto;" onchange="loadPosts()">
+                <option value="">All Status</option>
+                <option value="draft">Draft</option>
+                <option value="scheduled">Scheduled</option>
+                <option value="published">Published</option>
+                <option value="failed">Failed</option>
+              </select>
+            </div>
+          </div>
+          <div id="posts-list" style="display: flex; flex-direction: column; gap: 12px;"></div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Right Panel -->
+    <aside class="right-panel">
+      <!-- Media Upload -->
+      <div class="panel-card">
+        <div class="panel-title"><i class="fas fa-image"></i> Media</div>
+        <div id="media-preview-container">
+          <div class="media-upload-zone" id="media-drop-zone" onclick="document.getElementById('media-input').click()">
+            <i class="fas fa-cloud-upload-alt"></i>
+            <p>Drop image or video here</p>
+            <p style="font-size: 10px; margin-top: 4px;">or click to browse</p>
+          </div>
+        </div>
+        <input type="file" id="media-input" accept="image/*,video/*" style="display: none;" onchange="handleMediaUpload(event)">
+      </div>
+      
+      <!-- Caption Preview -->
+      <div class="panel-card">
+        <div class="panel-title"><i class="fas fa-align-left"></i> Caption Preview</div>
+        <div id="caption-preview" class="caption-preview empty">Generated caption will appear here...</div>
+        <div class="caption-counter" id="caption-counter">
+          <span>0 characters</span>
+          <span id="platform-limit">Instagram: 2200 max</span>
+        </div>
+      </div>
+      
+      <!-- Quick Stats -->
+      <div class="panel-card">
+        <div class="panel-title"><i class="fas fa-chart-bar"></i> This Week</div>
+        <div class="stats-grid">
+          <div class="stat-item">
+            <div class="stat-value" id="stat-scheduled">0</div>
+            <div class="stat-label">Scheduled</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value" id="stat-published">0</div>
+            <div class="stat-label">Published</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value" id="stat-drafts">0</div>
+            <div class="stat-label">Drafts</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value" id="stat-total">0</div>
+            <div class="stat-label">Total</div>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="toast"></div>
+
+  <!-- Create Post Modal -->
+  <div id="create-modal" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title">Schedule Post</div>
+        <button class="modal-close" onclick="closeModal('create-modal')"><i class="fas fa-times"></i></button>
+      </div>
+      <div id="modal-content"></div>
+    </div>
+  </div>
+
+  <script>
+    // State
+    const state = {
+      selectedDate: new Date(),
+      currentMonth: new Date(),
+      pillars: [],
+      roadmap: {},
+      posts: [],
+      selectedPlatforms: ['instagram', 'twitter'],
+      currentMediaUrl: null,
+      currentMediaType: 'image',
+      generatedCaptions: {}
+    };
+
+    const PLATFORM_SPECS = {
+      instagram: { maxChars: 2200, name: 'Instagram', icon: 'fab fa-instagram', color: '#E1306C' },
+      twitter: { maxChars: 280, name: 'X/Twitter', icon: 'fab fa-x-twitter', color: '#1DA1F2' },
+      youtube: { maxChars: 5000, name: 'YouTube', icon: 'fab fa-youtube', color: '#FF0000' }
+    };
+
+    const TIME_SLOTS = {
+      morning: '08:00',
+      noon: '12:30',
+      evening: '19:00'
+    };
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', async () => {
+      await Promise.all([
+        loadPillars(),
+        loadAnalytics()
+      ]);
+      renderCalendar();
+      selectDate(new Date());
+      initDragDrop();
+      
+      // Set default date
+      document.getElementById('schedule-date').value = formatDate(new Date());
+    });
+
+    // API Functions
+    async function api(endpoint, method = 'GET', body = null) {
+      const opts = { method, headers: { 'Content-Type': 'application/json' } };
+      if (body) opts.body = JSON.stringify(body);
+      const res = await fetch(endpoint, opts);
+      return res.json();
+    }
+
+    // Load Data
+    async function loadPillars() {
+      const data = await api('/api/social/pillars');
+      if (data.success) {
+        state.pillars = data.pillars;
+        renderPillars();
+        populatePillarSelect();
+      }
+    }
+
+    async function loadRoadmap(start, end) {
+      const data = await api(\`/api/social/roadmap?start=\${start}&end=\${end}\`);
+      if (data.success) {
+        state.roadmap = {};
+        data.roadmap.forEach(item => {
+          const key = \`\${item.date}-\${item.time_slot}\`;
+          state.roadmap[key] = item;
+        });
+      }
+    }
+
+    async function loadPosts() {
+      const status = document.getElementById('posts-filter-status')?.value || '';
+      const data = await api(\`/api/social/posts?status=\${status}\`);
+      if (data.success) {
+        state.posts = data.posts;
+        renderPostsList();
+      }
+    }
+
+    async function loadAnalytics() {
+      const data = await api('/api/social/analytics');
+      if (data.success) {
+        const stats = data.analytics;
+        const byStatus = {};
+        stats.postsByStatus.forEach(s => byStatus[s.status] = s.count);
+        
+        document.getElementById('stat-scheduled').textContent = byStatus.scheduled || 0;
+        document.getElementById('stat-published').textContent = byStatus.published || 0;
+        document.getElementById('stat-drafts').textContent = byStatus.draft || 0;
+        document.getElementById('stat-total').textContent = stats.totalPosts || 0;
+      }
+    }
+
+    // Render Functions
+    function renderCalendar() {
+      const grid = document.getElementById('calendar-grid');
+      const month = state.currentMonth;
+      const today = new Date();
+      
+      document.getElementById('calendar-month').textContent = 
+        month.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+      
+      const firstDay = new Date(month.getFullYear(), month.getMonth(), 1);
+      const lastDay = new Date(month.getFullYear(), month.getMonth() + 1, 0);
+      const startDay = firstDay.getDay() || 7;
+      
+      let html = ['S','M','T','W','T','F','S'].map(d => 
+        \`<div class="calendar-day-header">\${d}</div>\`
+      ).join('');
+      
+      // Previous month days
+      const prevMonth = new Date(month.getFullYear(), month.getMonth(), 0);
+      for (let i = startDay - 1; i > 0; i--) {
+        const day = prevMonth.getDate() - i + 1;
+        html += \`<div class="calendar-day other-month">\${day}</div>\`;
+      }
+      
+      // Current month days
+      for (let day = 1; day <= lastDay.getDate(); day++) {
+        const date = new Date(month.getFullYear(), month.getMonth(), day);
+        const dateStr = formatDate(date);
+        const isToday = dateStr === formatDate(today);
+        const isSelected = dateStr === formatDate(state.selectedDate);
+        
+        html += \`
+          <div class="calendar-day\${isToday ? ' today' : ''}\${isSelected ? ' selected' : ''}" 
+               onclick="selectDate(new Date('\${dateStr}'))">
+            \${day}
+          </div>
+        \`;
+      }
+      
+      grid.innerHTML = html;
+    }
+
+    function renderPillars() {
+      const list = document.getElementById('pillar-list');
+      list.innerHTML = state.pillars.map(p => \`
+        <div class="pillar-item" data-pillar="\${p.id}">
+          <div class="pillar-dot" style="background: \${p.color}"></div>
+          <span class="pillar-name">\${p.name}</span>
+          <span class="pillar-count">\${p.short_code}</span>
+        </div>
+      \`).join('');
+    }
+
+    function populatePillarSelect() {
+      const select = document.getElementById('pillar-select');
+      select.innerHTML = '<option value="">Select pillar...</option>' +
+        state.pillars.map(p => \`<option value="\${p.id}">\${p.name}</option>\`).join('');
+    }
+
+    function renderScheduleSlots() {
+      const container = document.getElementById('schedule-slots');
+      const dateStr = formatDate(state.selectedDate);
+      
+      const slots = ['morning', 'noon', 'evening'].map(slot => {
+        const key = \`\${dateStr}-\${slot}\`;
+        const item = state.roadmap[key];
+        const time = TIME_SLOTS[slot];
+        
+        return \`
+          <div class="schedule-slot" onclick="openSlotEditor('\${slot}')">
+            <div class="schedule-slot-header">
+              <span class="schedule-slot-time">\${slot} (\${time})</span>
+              \${item ? \`<span class="schedule-slot-status \${item.status}">\${item.status}</span>\` : ''}
+            </div>
+            \${item ? \`
+              <div class="schedule-slot-topic">\${item.topic}</div>
+              <div class="schedule-slot-platforms">
+                \${JSON.parse(item.platforms || '[]').map(p => 
+                  \`<i class="\${PLATFORM_SPECS[p]?.icon || 'fas fa-globe'}"></i>\`
+                ).join('')}
+              </div>
+            \` : \`
+              <div style="color: #52525B; font-size: 12px; font-style: italic;">
+                <i class="fas fa-plus" style="margin-right: 4px;"></i> Click to add content
+              </div>
+            \`}
+          </div>
+        \`;
+      });
+      
+      container.innerHTML = slots.join('');
+      
+      // Update title
+      const title = document.getElementById('schedule-date-title');
+      const today = formatDate(new Date());
+      if (dateStr === today) {
+        title.textContent = "Today's Schedule";
+      } else {
+        title.textContent = state.selectedDate.toLocaleDateString('en-GB', { 
+          weekday: 'long', day: 'numeric', month: 'long' 
+        });
+      }
+    }
+
+    function renderPostsList() {
+      const container = document.getElementById('posts-list');
+      
+      if (state.posts.length === 0) {
+        container.innerHTML = '<div style="text-align: center; padding: 40px; color: #52525B;">No posts found</div>';
+        return;
+      }
+      
+      container.innerHTML = state.posts.map(post => \`
+        <div style="background: #09090B; border: 1px solid #27272A; border-radius: 8px; padding: 12px; display: flex; gap: 12px; align-items: flex-start;">
+          <div style="flex: 1;">
+            <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 4px;">
+              <span class="schedule-slot-status \${post.status}">\${post.status}</span>
+              <span style="font-size: 11px; color: #71717A;">\${post.date} \${post.scheduled_time}</span>
+            </div>
+            <div style="font-size: 13px; margin-bottom: 8px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
+              \${post.caption || post.topic || 'No caption'}
+            </div>
+            <div style="display: flex; gap: 8px;">
+              \${JSON.parse(post.platforms || '[]').map(p => 
+                \`<i class="\${PLATFORM_SPECS[p]?.icon}" style="color: \${PLATFORM_SPECS[p]?.color}; font-size: 14px;"></i>\`
+              ).join('')}
+            </div>
+          </div>
+          <div style="display: flex; gap: 4px;">
+            <button class="btn btn-ghost" style="padding: 6px 8px;" onclick="editPost(\${post.id})">
+              <i class="fas fa-edit"></i>
+            </button>
+            <button class="btn btn-ghost" style="padding: 6px 8px; color: #DC2626;" onclick="deletePost(\${post.id})">
+              <i class="fas fa-trash"></i>
+            </button>
+          </div>
+        </div>
+      \`).join('');
+    }
+
+    // Actions
+    function selectDate(date) {
+      state.selectedDate = date;
+      renderCalendar();
+      
+      const start = formatDate(new Date(date.getFullYear(), date.getMonth(), 1));
+      const end = formatDate(new Date(date.getFullYear(), date.getMonth() + 1, 0));
+      loadRoadmap(start, end).then(() => renderScheduleSlots());
+      
+      document.getElementById('schedule-date').value = formatDate(date);
+      document.getElementById('selected-date-display').textContent = 
+        date.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+    }
+
+    function changeMonth(delta) {
+      state.currentMonth = new Date(
+        state.currentMonth.getFullYear(),
+        state.currentMonth.getMonth() + delta,
+        1
+      );
+      renderCalendar();
+    }
+
+    function navigateDay(delta) {
+      const newDate = new Date(state.selectedDate);
+      newDate.setDate(newDate.getDate() + delta);
+      selectDate(newDate);
+    }
+
+    function goToToday() {
+      state.currentMonth = new Date();
+      selectDate(new Date());
+    }
+
+    function switchView(view) {
+      document.querySelectorAll('.view-tab').forEach(t => t.classList.remove('active'));
+      document.querySelector(\`[data-view="\${view}"]\`).classList.add('active');
+      
+      document.querySelectorAll('.view-content').forEach(v => v.style.display = 'none');
+      document.getElementById(\`view-\${view}\`).style.display = 'block';
+      
+      if (view === 'posts') loadPosts();
+    }
+
+    function togglePlatform(platform) {
+      const btn = document.querySelector(\`[data-platform="\${platform}"]\`);
+      const idx = state.selectedPlatforms.indexOf(platform);
+      
+      if (idx > -1) {
+        state.selectedPlatforms.splice(idx, 1);
+        btn.classList.remove('selected');
+      } else {
+        state.selectedPlatforms.push(platform);
+        btn.classList.add('selected');
+      }
+      
+      updatePlatformLimit();
+    }
+
+    function updatePlatformLimit() {
+      const platform = state.selectedPlatforms[0] || 'instagram';
+      const spec = PLATFORM_SPECS[platform];
+      document.getElementById('platform-limit').textContent = \`\${spec.name}: \${spec.maxChars} max\`;
+    }
+
+    // Time slot change handler
+    document.getElementById('schedule-time-slot')?.addEventListener('change', (e) => {
+      document.getElementById('schedule-time').value = TIME_SLOTS[e.target.value];
+    });
+
+    // Caption Generation
+    async function generateCaptions() {
+      const topic = document.getElementById('topic-input').value.trim();
+      if (!topic) {
+        showToast('Please enter a topic', 'error');
+        return;
+      }
+      
+      const pillarId = document.getElementById('pillar-select').value;
+      const cta = document.getElementById('cta-input').value;
+      const pillar = state.pillars.find(p => p.id == pillarId)?.name;
+      
+      const btn = document.getElementById('generate-btn');
+      btn.disabled = true;
+      btn.innerHTML = '<div class="spinner"></div> Generating...';
+      
+      state.generatedCaptions = {};
+      const container = document.getElementById('captions-container');
+      container.innerHTML = '';
+      
+      for (const platform of state.selectedPlatforms) {
+        try {
+          const data = await api('/api/social/generate-caption', 'POST', { platform, topic, pillar, cta });
+          
+          if (data.success) {
+            state.generatedCaptions[platform] = data.caption;
+            
+            const spec = PLATFORM_SPECS[platform];
+            const charCount = data.caption.length;
+            const isOver = charCount > spec.maxChars;
+            
+            container.innerHTML += \`
+              <div style="margin-bottom: 16px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <i class="\${spec.icon}" style="color: \${spec.color};"></i>
+                    <span style="font-weight: 600; font-size: 13px;">\${spec.name}</span>
+                  </div>
+                  <span style="font-size: 11px; color: \${isOver ? '#DC2626' : '#71717A'};">
+                    \${charCount}/\${spec.maxChars}
+                  </span>
+                </div>
+                <textarea class="form-textarea" id="caption-\${platform}" 
+                  style="min-height: 80px;" 
+                  oninput="updateCaptionPreview('\${platform}')">\${data.caption}</textarea>
+                <div style="display: flex; gap: 8px; margin-top: 8px;">
+                  <button class="btn btn-ghost" onclick="regenerateCaption('\${platform}')">
+                    <i class="fas fa-sync-alt"></i> Regenerate
+                  </button>
+                  <button class="btn btn-ghost" onclick="copyCaption('\${platform}')">
+                    <i class="fas fa-copy"></i> Copy
+                  </button>
+                </div>
+              </div>
+            \`;
+          }
+        } catch (err) {
+          container.innerHTML += \`
+            <div style="color: #DC2626; padding: 12px; background: #DC262620; border-radius: 8px; margin-bottom: 12px;">
+              Failed to generate for \${platform}: \${err.message}
+            </div>
+          \`;
+        }
+      }
+      
+      document.getElementById('generated-captions').style.display = 'block';
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-sparkles"></i> Generate Captions';
+      
+      // Update preview with first caption
+      if (state.selectedPlatforms.length > 0) {
+        updateCaptionPreview(state.selectedPlatforms[0]);
+      }
+    }
+
+    async function regenerateCaption(platform) {
+      const topic = document.getElementById('topic-input').value;
+      const pillarId = document.getElementById('pillar-select').value;
+      const cta = document.getElementById('cta-input').value;
+      const pillar = state.pillars.find(p => p.id == pillarId)?.name;
+      
+      const textarea = document.getElementById(\`caption-\${platform}\`);
+      textarea.disabled = true;
+      textarea.value = 'Regenerating...';
+      
+      const data = await api('/api/social/generate-caption', 'POST', { platform, topic, pillar, cta });
+      
+      if (data.success) {
+        textarea.value = data.caption;
+        state.generatedCaptions[platform] = data.caption;
+        updateCaptionPreview(platform);
+      } else {
+        textarea.value = 'Error: ' + data.error;
+      }
+      textarea.disabled = false;
+    }
+
+    function updateCaptionPreview(platform) {
+      const textarea = document.getElementById(\`caption-\${platform}\`);
+      const preview = document.getElementById('caption-preview');
+      const counter = document.getElementById('caption-counter');
+      const spec = PLATFORM_SPECS[platform];
+      
+      if (textarea) {
+        const text = textarea.value;
+        preview.textContent = text;
+        preview.classList.remove('empty');
+        
+        const count = text.length;
+        counter.querySelector('span:first-child').textContent = \`\${count} characters\`;
+        
+        if (count > spec.maxChars) {
+          counter.className = 'caption-counter error';
+        } else if (count > spec.maxChars * 0.9) {
+          counter.className = 'caption-counter warning';
+        } else {
+          counter.className = 'caption-counter';
+        }
+      }
+    }
+
+    function copyCaption(platform) {
+      const textarea = document.getElementById(\`caption-\${platform}\`);
+      navigator.clipboard.writeText(textarea.value);
+      showToast('Copied to clipboard', 'success');
+    }
+
+    async function enhancePrompt() {
+      const input = document.getElementById('topic-input');
+      const pillarId = document.getElementById('pillar-select').value;
+      const pillar = state.pillars.find(p => p.id == pillarId)?.name;
+      
+      if (!input.value.trim()) {
+        showToast('Enter a topic first', 'error');
+        return;
+      }
+      
+      input.disabled = true;
+      const original = input.value;
+      input.value = 'Enhancing...';
+      
+      const data = await api('/api/social/enhance-prompt', 'POST', { 
+        prompt: original, 
+        pillar 
+      });
+      
+      if (data.success) {
+        input.value = data.enhanced;
+        showToast('Prompt enhanced', 'success');
+      } else {
+        input.value = original;
+        showToast('Enhancement failed', 'error');
+      }
+      input.disabled = false;
+    }
+
+    // Media Upload
+    function initDragDrop() {
+      const zone = document.getElementById('media-drop-zone');
+      
+      ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(event => {
+        zone.addEventListener(event, e => {
+          e.preventDefault();
+          e.stopPropagation();
+        });
+      });
+      
+      ['dragenter', 'dragover'].forEach(event => {
+        zone.addEventListener(event, () => zone.classList.add('dragover'));
+      });
+      
+      ['dragleave', 'drop'].forEach(event => {
+        zone.addEventListener(event, () => zone.classList.remove('dragover'));
+      });
+      
+      zone.addEventListener('drop', e => {
+        const file = e.dataTransfer.files[0];
+        if (file) uploadMedia(file);
+      });
+    }
+
+    function handleMediaUpload(event) {
+      const file = event.target.files[0];
+      if (file) uploadMedia(file);
+    }
+
+    async function uploadMedia(file) {
+      const container = document.getElementById('media-preview-container');
+      container.innerHTML = '<div style="text-align: center; padding: 20px;"><div class="spinner" style="margin: 0 auto;"></div><p style="margin-top: 8px; font-size: 12px; color: #71717A;">Uploading...</p></div>';
+      
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const res = await fetch('/api/social/media/upload', {
+        method: 'POST',
+        body: formData
+      });
+      
+      const data = await res.json();
+      
+      if (data.success) {
+        state.currentMediaUrl = data.url;
+        state.currentMediaType = data.mediaType;
+        
+        container.innerHTML = \`
+          <div class="media-preview">
+            \${data.mediaType === 'video' 
+              ? \`<video src="\${data.url}" controls style="width: 100%;"></video>\`
+              : \`<img src="\${data.url}" alt="Preview">\`
+            }
+            <button class="media-preview-remove" onclick="removeMedia()">
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+        \`;
+        showToast('Media uploaded', 'success');
+      } else {
+        container.innerHTML = \`
+          <div class="media-upload-zone" id="media-drop-zone" onclick="document.getElementById('media-input').click()">
+            <i class="fas fa-cloud-upload-alt"></i>
+            <p>Drop image or video here</p>
+          </div>
+        \`;
+        showToast('Upload failed: ' + data.error, 'error');
+      }
+    }
+
+    function removeMedia() {
+      state.currentMediaUrl = null;
+      state.currentMediaType = 'image';
+      document.getElementById('media-preview-container').innerHTML = \`
+        <div class="media-upload-zone" id="media-drop-zone" onclick="document.getElementById('media-input').click()">
+          <i class="fas fa-cloud-upload-alt"></i>
+          <p>Drop image or video here</p>
+        </div>
+      \`;
+      initDragDrop();
+    }
+
+    // Save/Publish
+    async function saveDraft() {
+      const topic = document.getElementById('topic-input').value;
+      const date = document.getElementById('schedule-date').value;
+      const timeSlot = document.getElementById('schedule-time-slot').value;
+      const time = document.getElementById('schedule-time').value;
+      const pillarId = document.getElementById('pillar-select').value;
+      
+      // Get the first generated caption or use topic
+      const caption = Object.values(state.generatedCaptions)[0] || topic;
+      
+      const data = await api('/api/social/posts', 'POST', {
+        date,
+        scheduled_time: time,
+        time_slot: timeSlot,
+        media_type: state.currentMediaType,
+        media_url: state.currentMediaUrl,
+        caption,
+        platforms: state.selectedPlatforms,
+        pillar_id: pillarId || null,
+        topic
+      });
+      
+      if (data.success) {
+        showToast('Draft saved', 'success');
+        loadAnalytics();
+      } else {
+        showToast('Save failed: ' + data.error, 'error');
+      }
+    }
+
+    async function deletePost(id) {
+      if (!confirm('Delete this post?')) return;
+      
+      const data = await api(\`/api/social/posts/\${id}\`, 'DELETE');
+      if (data.success) {
+        showToast('Post deleted', 'success');
+        loadPosts();
+        loadAnalytics();
+      } else {
+        showToast('Delete failed', 'error');
+      }
+    }
+
+    function openSlotEditor(slot) {
+      document.getElementById('schedule-time-slot').value = slot;
+      document.getElementById('schedule-time').value = TIME_SLOTS[slot];
+      switchView('create');
+    }
+
+    // Modals
+    function openCreateModal() {
+      switchView('create');
+    }
+
+    function openMediaLibrary() {
+      showToast('Media library coming soon', 'info');
+    }
+
+    function closeModal(id) {
+      document.getElementById(id).classList.remove('show');
+    }
+
+    // Utils
+    function formatDate(date) {
+      return date.toISOString().split('T')[0];
+    }
+
+    function showToast(message, type = 'info') {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.className = \`toast \${type} show\`;
+      setTimeout(() => toast.classList.remove('show'), 3000);
+    }
+  </script>
+</body>
+</html>`;
+}
+
+// ============================================================================
+// SOCIAL STUDIO PAGE (LEGACY)
 // ============================================================================
 function getSocialStudioPage(user: any) {
   return `<!DOCTYPE html>

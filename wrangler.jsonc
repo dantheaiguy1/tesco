@@ -11,12 +11,21 @@
       "binding": "TESCO_DB",
       "database_name": "tesco-image-generator-db",
       "database_id": "7418ff05-a1c5-41d5-8238-4c1373e2b4f6"
+    },
+    {
+      "binding": "SOCIAL_DB",
+      "database_name": "shopshot-social-db",
+      "database_id": "ac5ea0a6-cb8d-4d14-b132-a0c0693322ec"
     }
   ],
   "r2_buckets": [
     {
       "binding": "VIDEO_BUCKET",
       "bucket_name": "shopshot-videos"
+    },
+    {
+      "binding": "SOCIAL_MEDIA_BUCKET",
+      "bucket_name": "shopshot-social-media"
     }
   ]
 }
