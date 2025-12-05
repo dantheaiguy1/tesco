@@ -3603,6 +3603,31 @@ app.post('/api/billing/webhook', async (c) => {
                 updated_at = CURRENT_TIMESTAMP
               WHERE id = ?
             `).bind(planType, session.subscription, userId).run();
+            
+            // Trigger Loops event for paid user onboarding sequence
+            if (c.env.LOOPS_API_KEY) {
+              const user = await db.prepare('SELECT email, name FROM users WHERE id = ?').bind(userId).first() as any;
+              if (user?.email) {
+                // Update contact properties in Loops
+                fetch('https://app.loops.so/api/v1/contacts/update', {
+                  method: 'PUT',
+                  headers: {
+                    'Authorization': `Bearer ${c.env.LOOPS_API_KEY}`,
+                    'Content-Type': 'application/json'
+                  },
+                  body: JSON.stringify({
+                    email: user.email,
+                    userGroup: 'paid_user',
+                    subscriptionPlan: planType
+                  })
+                }).catch(err => console.error('Loops contact update failed:', err));
+                
+                // Trigger paid user sequence
+                triggerLoopsEvent(c.env.LOOPS_API_KEY, user.email, 'user_subscribed').catch(err => {
+                  console.error('Failed to trigger Loops subscription event:', err);
+                });
+              }
+            }
           } else if (checkoutType === 'topup') {
             // Add credits for credit pack purchase
             const packKey = `PACK_${packAmount}` as keyof typeof CREDITS.PACKS.CHEAPER;
