@@ -3514,7 +3514,8 @@ app.post('/api/billing/create-checkout', async (c) => {
     cancel_url: `${origin}/pricing?checkout=canceled`,
     client_reference_id: user.id,
     'metadata[user_id]': user.id,
-    'metadata[type]': type === 'pack' ? 'topup' : type
+    'metadata[type]': type === 'pack' ? 'topup' : type,
+    allow_promotion_codes: 'true' // Enable discount codes like FIRST20
   };
   
   // Add credit pack metadata if applicable
