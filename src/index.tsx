@@ -2823,14 +2823,19 @@ app.post('/api/auth/verify-email', async (c) => {
     }
     
     // Add to Loops email marketing (triggers welcome sequence)
+    console.log('[Loops Debug] API Key exists:', !!c.env.LOOPS_API_KEY);
     if (c.env.LOOPS_API_KEY) {
-      addContactToLoops(c.env.LOOPS_API_KEY, email, user.name, 'shopshot_signup').catch(err => {
-        console.error('Failed to add contact to Loops:', err);
-      });
-      // Trigger the signup event for sequence
-      triggerLoopsEvent(c.env.LOOPS_API_KEY, email, 'user_signup').catch(err => {
-        console.error('Failed to trigger Loops event:', err);
-      });
+      console.log('[Loops Debug] Attempting to add contact:', email);
+      try {
+        const loopsResult = await addContactToLoops(c.env.LOOPS_API_KEY, email, user.name, 'shopshot_signup');
+        console.log('[Loops Debug] Contact add result:', loopsResult);
+        const eventResult = await triggerLoopsEvent(c.env.LOOPS_API_KEY, email, 'user_signup');
+        console.log('[Loops Debug] Event trigger result:', eventResult);
+      } catch (err) {
+        console.error('[Loops Debug] Error:', err);
+      }
+    } else {
+      console.log('[Loops Debug] LOOPS_API_KEY not found in environment');
     }
     
     // Create session
@@ -3609,24 +3614,31 @@ app.post('/api/billing/webhook', async (c) => {
             if (c.env.LOOPS_API_KEY) {
               const user = await db.prepare('SELECT email, name FROM users WHERE id = ?').bind(userId).first() as any;
               if (user?.email) {
-                // Update contact properties in Loops
-                fetch('https://app.loops.so/api/v1/contacts/update', {
-                  method: 'PUT',
-                  headers: {
-                    'Authorization': `Bearer ${c.env.LOOPS_API_KEY}`,
-                    'Content-Type': 'application/json'
-                  },
-                  body: JSON.stringify({
-                    email: user.email,
-                    userGroup: 'paid_user',
-                    subscriptionPlan: planType
-                  })
-                }).catch(err => console.error('Loops contact update failed:', err));
-                
-                // Trigger paid user sequence
-                triggerLoopsEvent(c.env.LOOPS_API_KEY, user.email, 'user_subscribed').catch(err => {
-                  console.error('Failed to trigger Loops subscription event:', err);
-                });
+                console.log('[Loops Debug] Subscription - updating contact:', user.email, 'plan:', planType);
+                try {
+                  // Update contact properties in Loops
+                  const userGroup = planType === 'pro' ? 'pro_user' : 'standard_user';
+                  const updateResult = await fetch('https://app.loops.so/api/v1/contacts/update', {
+                    method: 'PUT',
+                    headers: {
+                      'Authorization': `Bearer ${c.env.LOOPS_API_KEY}`,
+                      'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                      email: user.email,
+                      userGroup: userGroup,
+                      subscriptionPlan: planType
+                    })
+                  });
+                  console.log('[Loops Debug] Contact update status:', updateResult.status);
+                  
+                  // Trigger plan-specific sequence
+                  const eventName = planType === 'pro' ? 'user_subscribed_pro' : 'user_subscribed_standard';
+                  const eventResult = await triggerLoopsEvent(c.env.LOOPS_API_KEY, user.email, eventName);
+                  console.log('[Loops Debug]', eventName, 'event result:', eventResult);
+                } catch (err) {
+                  console.error('[Loops Debug] Subscription event error:', err);
+                }
               }
             }
           } else if (checkoutType === 'topup') {
