@@ -21810,6 +21810,54 @@ function getVideoGeneratorPage(user: any) {
     }
     @keyframes spin { to { transform: rotate(360deg); } }
     
+    /* Step-by-step progress styles */
+    .step-item {
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: rgba(255,255,255,0.02);
+      border: 1px solid rgba(255,255,255,0.05);
+      transition: all 0.3s ease;
+    }
+    .step-item.active {
+      background: rgba(255,107,53,0.1);
+      border-color: rgba(255,107,53,0.3);
+    }
+    .step-item.completed {
+      background: rgba(16,185,129,0.1);
+      border-color: rgba(16,185,129,0.2);
+    }
+    .step-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      transition: all 0.3s ease;
+    }
+    .step-icon.pending {
+      background: rgba(255,255,255,0.1);
+      color: rgba(255,255,255,0.4);
+    }
+    .step-icon.active {
+      background: linear-gradient(135deg, #FF6B35 0%, #F7931E 100%);
+      color: white;
+      animation: pulse-glow 1.5s ease-in-out infinite;
+    }
+    .step-icon.completed {
+      background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+      color: white;
+    }
+    .step-icon.error {
+      background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%);
+      color: white;
+    }
+    @keyframes pulse-glow {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(255,107,53,0.4); }
+      50% { box-shadow: 0 0 0 8px rgba(255,107,53,0); }
+    }
+    
     .video-history-item {
       display: flex;
       gap: 16px;
@@ -21904,16 +21952,135 @@ function getVideoGeneratorPage(user: any) {
           </button>
         </form>
         
-        <!-- Generation Progress -->
+        <!-- Generation Progress - Step by Step Visual -->
         <div id="progress-section" class="mt-6" style="display:none;">
-          <div class="flex items-center justify-between mb-2">
-            <span class="text-sm text-gray-400" id="progress-status">Generating script...</span>
-            <span class="text-sm text-orange-400" id="progress-time">0:00</span>
+          <!-- Header with timer -->
+          <div class="flex items-center justify-between mb-4">
+            <span class="text-sm font-semibold text-white flex items-center gap-2">
+              <div class="w-2 h-2 bg-orange-400 rounded-full animate-pulse"></div>
+              Video Generation in Progress
+            </span>
+            <span class="text-sm font-mono text-orange-400" id="progress-time">0:00</span>
           </div>
-          <div class="progress-bar">
-            <div class="progress-bar-fill" id="progress-fill" style="width: 0%"></div>
+          
+          <!-- Overall Progress Bar -->
+          <div class="mb-4">
+            <div class="progress-bar h-2">
+              <div class="progress-bar-fill" id="progress-fill" style="width: 0%"></div>
+            </div>
+            <div class="flex justify-between mt-1">
+              <span class="text-xs text-gray-500" id="progress-percent">0%</span>
+              <span class="text-xs text-gray-500">Est: 3-4 min</span>
+            </div>
           </div>
-          <p class="text-xs text-gray-500 mt-2">Estimated time: 3-4 minutes</p>
+          
+          <!-- Step-by-Step Flow -->
+          <div class="space-y-2 mt-4" id="progress-steps">
+            <!-- Step 1: Script Generation -->
+            <div class="step-item" id="step-script">
+              <div class="flex items-center gap-3">
+                <div class="step-icon pending" id="step-script-icon">
+                  <i class="fas fa-file-alt"></i>
+                </div>
+                <div class="flex-1">
+                  <div class="flex items-center justify-between">
+                    <span class="text-sm font-medium text-white">Generate Script</span>
+                    <span class="text-xs text-gray-500" id="step-script-time"></span>
+                  </div>
+                  <p class="text-xs text-gray-500">AI creates video script and shot list</p>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Step 2: Veo 3 Clips -->
+            <div class="step-item" id="step-veo3">
+              <div class="flex items-center gap-3">
+                <div class="step-icon pending" id="step-veo3-icon">
+                  <i class="fas fa-magic"></i>
+                </div>
+                <div class="flex-1">
+                  <div class="flex items-center justify-between">
+                    <span class="text-sm font-medium text-white">Generate Veo 3 Clips</span>
+                    <span class="text-xs text-gray-500" id="step-veo3-time"></span>
+                  </div>
+                  <p class="text-xs text-gray-500" id="step-veo3-detail">AI video generation (2-3 min per clip)</p>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Step 3: Stock Clips -->
+            <div class="step-item" id="step-stock">
+              <div class="flex items-center gap-3">
+                <div class="step-icon pending" id="step-stock-icon">
+                  <i class="fas fa-film"></i>
+                </div>
+                <div class="flex-1">
+                  <div class="flex items-center justify-between">
+                    <span class="text-sm font-medium text-white">Download Stock Footage</span>
+                    <span class="text-xs text-gray-500" id="step-stock-time"></span>
+                  </div>
+                  <p class="text-xs text-gray-500">Fetch B-roll from Pexels</p>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Step 4: Voiceover -->
+            <div class="step-item" id="step-voiceover">
+              <div class="flex items-center gap-3">
+                <div class="step-icon pending" id="step-voiceover-icon">
+                  <i class="fas fa-microphone"></i>
+                </div>
+                <div class="flex-1">
+                  <div class="flex items-center justify-between">
+                    <span class="text-sm font-medium text-white">Add Voiceover</span>
+                    <span class="text-xs text-gray-500" id="step-voiceover-time"></span>
+                  </div>
+                  <p class="text-xs text-gray-500">Generate AI voiceover audio</p>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Step 5: Assembly -->
+            <div class="step-item" id="step-assembly">
+              <div class="flex items-center gap-3">
+                <div class="step-icon pending" id="step-assembly-icon">
+                  <i class="fas fa-layer-group"></i>
+                </div>
+                <div class="flex-1">
+                  <div class="flex items-center justify-between">
+                    <span class="text-sm font-medium text-white">Assemble Final Video</span>
+                    <span class="text-xs text-gray-500" id="step-assembly-time"></span>
+                  </div>
+                  <p class="text-xs text-gray-500">Combine all clips + audio</p>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Step 6: Upload -->
+            <div class="step-item" id="step-upload">
+              <div class="flex items-center gap-3">
+                <div class="step-icon pending" id="step-upload-icon">
+                  <i class="fas fa-cloud-upload-alt"></i>
+                </div>
+                <div class="flex-1">
+                  <div class="flex items-center justify-between">
+                    <span class="text-sm font-medium text-white">Upload to Cloud</span>
+                    <span class="text-xs text-gray-500" id="step-upload-time"></span>
+                  </div>
+                  <p class="text-xs text-gray-500">Finalize and make available</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Current Status Detail -->
+          <div class="mt-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+            <div class="flex items-center gap-2">
+              <div class="spinner" style="width:14px;height:14px;border-width:2px;"></div>
+              <span class="text-sm text-blue-400" id="progress-status">Initializing...</span>
+            </div>
+            <p class="text-xs text-gray-500 mt-1" id="progress-detail">Starting video generation pipeline</p>
+          </div>
         </div>
         
         <!-- Cost Estimate -->
@@ -22104,13 +22271,18 @@ function getVideoGeneratorPage(user: any) {
       btnText.textContent = 'Generating...';
       btnSpinner.style.display = 'block';
       
-      // Show progress
+      // Show progress and reset step visuals
       document.getElementById('progress-section').style.display = 'block';
       document.getElementById('preview-placeholder').style.display = 'flex';
       document.getElementById('preview-container').style.display = 'none';
+      resetProgressSteps();
       
       startTime = Date.now();
+      stageStartTimes['script'] = Date.now(); // Script generation starts immediately
       progressInterval = setInterval(updateProgress, 1000);
+      
+      // Set initial step to script (active)
+      updateStepProgress('script', 5, 'Sending request to AI for script generation');
       
       try {
         const response = await fetch('/api/social/video/generate', {
@@ -22129,8 +22301,15 @@ function getVideoGeneratorPage(user: any) {
           
           // Check if video is still processing (async Cloud Run job)
           if (data.status === 'processing' && data.cloudRunJobId) {
-            showToast('Video generation started! This may take 2-5 minutes for Veo 3 clips...', 'success');
+            showToast('Video generation started! Veo 3 clips may take 2-5 minutes...', 'success');
             updateStatusBadge('generating');
+            
+            // Script is done, Cloud Run is starting - mark script as complete, start veo3
+            stageStartTimes['veo3'] = Date.now();
+            updateStepProgress('veo3', 15, 'Cloud Run job started - generating AI video clips');
+            
+            // Keep progress section visible and button disabled during polling
+            document.getElementById('progress-section').style.display = 'block';
             
             // Start polling for completion
             pollJobStatus(data.videoId, data.cloudRunJobId);
@@ -22154,34 +22333,170 @@ function getVideoGeneratorPage(user: any) {
         clearInterval(progressInterval);
         showToast('Network error: ' + error.message, 'error');
       } finally {
-        btn.disabled = false;
-        btnText.textContent = 'Generate Video';
-        btnSpinner.style.display = 'none';
-        document.getElementById('progress-section').style.display = 'none';
+        // Only reset button if NOT polling (polling keeps progress visible)
+        if (!currentVideoId || !currentVideoData?.cloudRunJobId) {
+          btn.disabled = false;
+          btnText.textContent = 'Generate Video';
+          btnSpinner.style.display = 'none';
+          document.getElementById('progress-section').style.display = 'none';
+        }
       }
     });
+    
+    // Track stage start times
+    let stageStartTimes = {};
+    let currentStage = 'script';
     
     function updateProgress() {
       const elapsed = Math.floor((Date.now() - startTime) / 1000);
       const minutes = Math.floor(elapsed / 60);
       const seconds = elapsed % 60;
       document.getElementById('progress-time').textContent = \`\${minutes}:\${seconds.toString().padStart(2, '0')}\`;
+    }
+    
+    // Update the step-by-step visual progress
+    function updateStepProgress(stage, progress, detail) {
+      // Stage mapping from Cloud Run to our steps
+      const stageToStep = {
+        'starting': 'script',
+        'script': 'script',
+        'veo3': 'veo3',
+        'stock_clips': 'stock',
+        'motion_graphics': 'stock', // combine with stock since motion graphics removed
+        'encoding': 'assembly',
+        'concatenating': 'assembly',
+        'adding_voiceover': 'voiceover',
+        'uploading': 'upload'
+      };
       
-      // Estimate progress (assume 3 minutes total)
-      const estimatedTotal = 180;
-      const progress = Math.min((elapsed / estimatedTotal) * 100, 95);
+      // Handle veo3_X_of_Y stages
+      let stepId = stageToStep[stage];
+      if (!stepId && stage && stage.startsWith('veo3_')) {
+        stepId = 'veo3';
+      }
+      if (!stepId) stepId = 'script';
+      
+      // Update progress bar
       document.getElementById('progress-fill').style.width = progress + '%';
+      document.getElementById('progress-percent').textContent = progress + '%';
+      
+      // Define step order
+      const stepOrder = ['script', 'veo3', 'stock', 'voiceover', 'assembly', 'upload'];
+      const currentIndex = stepOrder.indexOf(stepId);
+      
+      // Update each step's state
+      stepOrder.forEach((step, idx) => {
+        const stepEl = document.getElementById('step-' + step);
+        const iconEl = document.getElementById('step-' + step + '-icon');
+        
+        if (idx < currentIndex) {
+          // Completed
+          stepEl.className = 'step-item completed';
+          iconEl.className = 'step-icon completed';
+          iconEl.innerHTML = '<i class="fas fa-check"></i>';
+        } else if (idx === currentIndex) {
+          // Active
+          stepEl.className = 'step-item active';
+          iconEl.className = 'step-icon active';
+          // Keep original icon but with spinner
+          const icons = {
+            'script': 'fa-file-alt',
+            'veo3': 'fa-magic',
+            'stock': 'fa-film',
+            'voiceover': 'fa-microphone',
+            'assembly': 'fa-layer-group',
+            'upload': 'fa-cloud-upload-alt'
+          };
+          iconEl.innerHTML = '<i class="fas ' + icons[step] + '"></i>';
+          
+          // Track start time for this stage
+          if (!stageStartTimes[step]) {
+            stageStartTimes[step] = Date.now();
+          }
+        } else {
+          // Pending
+          stepEl.className = 'step-item';
+          iconEl.className = 'step-icon pending';
+        }
+        
+        // Update time for completed/active steps
+        const timeEl = document.getElementById('step-' + step + '-time');
+        if (timeEl && stageStartTimes[step]) {
+          if (idx < currentIndex) {
+            // Completed - show total time taken
+            const nextStep = stepOrder[idx + 1];
+            if (stageStartTimes[nextStep]) {
+              const duration = Math.floor((stageStartTimes[nextStep] - stageStartTimes[step]) / 1000);
+              timeEl.textContent = formatDuration(duration);
+            }
+          } else if (idx === currentIndex) {
+            // Active - show elapsed time
+            const elapsed = Math.floor((Date.now() - stageStartTimes[step]) / 1000);
+            timeEl.textContent = formatDuration(elapsed);
+          }
+        }
+      });
       
       // Update status text
-      if (elapsed < 10) {
-        document.getElementById('progress-status').textContent = 'Generating script with AI...';
-      } else if (elapsed < 60) {
-        document.getElementById('progress-status').textContent = 'Creating video clips with Veo 3...';
-      } else if (elapsed < 120) {
-        document.getElementById('progress-status').textContent = 'Rendering motion graphics...';
+      const statusMessages = {
+        'script': 'Generating AI script and shot list...',
+        'veo3': 'Creating AI video clips with Veo 3...',
+        'stock': 'Downloading stock footage from Pexels...',
+        'voiceover': 'Generating AI voiceover audio...',
+        'assembly': 'Assembling and encoding final video...',
+        'upload': 'Uploading video to cloud storage...'
+      };
+      document.getElementById('progress-status').textContent = statusMessages[stepId] || 'Processing...';
+      
+      // Update detail text
+      if (detail) {
+        document.getElementById('progress-detail').textContent = detail;
       } else {
-        document.getElementById('progress-status').textContent = 'Assembling final video...';
+        const defaultDetails = {
+          'script': 'AI is analyzing your topic and creating the video structure',
+          'veo3': 'Google Veo 3 is generating unique video content - this takes 2-3 min per clip',
+          'stock': 'Finding and downloading relevant B-roll footage',
+          'voiceover': 'ElevenLabs is generating professional voiceover',
+          'assembly': 'FFmpeg is combining all clips with transitions and audio',
+          'upload': 'Uploading final video to cloud for playback'
+        };
+        document.getElementById('progress-detail').textContent = defaultDetails[stepId] || '';
       }
+      
+      // Special handling for Veo 3 stage with clip details
+      if (stepId === 'veo3' && stage && stage.startsWith('veo3_')) {
+        const parts = stage.split('_');
+        if (parts.length >= 4) {
+          const clipNum = parts[1];
+          const totalClips = parts[3];
+          document.getElementById('step-veo3-detail').textContent = 
+            'Generating clip ' + clipNum + ' of ' + totalClips + ' (2-3 min each)';
+        }
+      }
+    }
+    
+    function formatDuration(seconds) {
+      if (seconds < 60) return seconds + 's';
+      const mins = Math.floor(seconds / 60);
+      const secs = seconds % 60;
+      return mins + ':' + secs.toString().padStart(2, '0');
+    }
+    
+    // Reset all steps to pending state
+    function resetProgressSteps() {
+      stageStartTimes = {};
+      currentStage = 'script';
+      const steps = ['script', 'veo3', 'stock', 'voiceover', 'assembly', 'upload'];
+      steps.forEach(step => {
+        const stepEl = document.getElementById('step-' + step);
+        const iconEl = document.getElementById('step-' + step + '-icon');
+        const timeEl = document.getElementById('step-' + step + '-time');
+        if (stepEl) stepEl.className = 'step-item';
+        if (iconEl) iconEl.className = 'step-icon pending';
+        if (timeEl) timeEl.textContent = '';
+      });
+      document.getElementById('progress-fill').style.width = '0%';
+      document.getElementById('progress-percent').textContent = '0%';
     }
     
     // Poll Cloud Run job until complete
@@ -22196,22 +22511,29 @@ function getVideoGeneratorPage(user: any) {
           const data = await response.json();
           
           if (data.status === 'completed' && data.videoUrl) {
-            // Video is ready!
+            // Video is ready! Mark all steps as complete
             clearInterval(progressInterval);
-            document.getElementById('preview-placeholder').style.display = 'none';
-            document.getElementById('preview-container').style.display = 'block';
-            document.getElementById('preview-video').src = data.videoUrl;
-            document.getElementById('progress-section').style.display = 'none';
             
-            const btn = document.getElementById('generate-btn');
-            btn.disabled = false;
-            document.getElementById('btn-text').textContent = 'Generate Video';
-            document.getElementById('btn-spinner').style.display = 'none';
+            // Briefly show 100% complete then hide
+            updateStepProgress('upload', 100, 'Video ready!');
             
-            updateStatusBadge('preview');
-            showToast('Video generated successfully!', 'success');
-            loadHistory();
-            loadStats();
+            // Short delay to show completion, then transition to preview
+            setTimeout(() => {
+              document.getElementById('preview-placeholder').style.display = 'none';
+              document.getElementById('preview-container').style.display = 'block';
+              document.getElementById('preview-video').src = data.videoUrl;
+              document.getElementById('progress-section').style.display = 'none';
+              
+              const btn = document.getElementById('generate-btn');
+              btn.disabled = false;
+              document.getElementById('btn-text').textContent = 'Generate Video';
+              document.getElementById('btn-spinner').style.display = 'none';
+              
+              updateStatusBadge('preview');
+              showToast('Video generated successfully!', 'success');
+              loadHistory();
+              loadStats();
+            }, 1000);
             return;
           }
           
@@ -22227,23 +22549,23 @@ function getVideoGeneratorPage(user: any) {
             return;
           }
           
-          // Still processing - update progress display
-          if (data.stage) {
-            const stageNames = {
-              'veo3': 'Generating Veo 3 clips...',
-              'stock_clips': 'Downloading stock footage...',
-              'motion_graphics': 'Creating motion graphics...',
-              'encoding': 'Encoding video clips...',
-              'concatenating': 'Assembling video...',
-              'adding_voiceover': 'Adding voiceover...',
-              'uploading': 'Uploading final video...'
-            };
-            const stageName = data.stage.startsWith('veo3_') ? \`Generating Veo 3 clip \${data.stage.split('_')[1]}...\` : (stageNames[data.stage] || data.stage);
-            document.getElementById('progress-status').textContent = stageName;
+          // Still processing - update the visual step progress
+          if (data.stage || data.progress !== undefined) {
+            // Build detail string for Veo 3 stage
+            let detail = null;
+            if (data.stage && data.stage.startsWith('veo3_') && data.veo3Poll) {
+              detail = 'Poll attempt ' + data.veo3Poll + ' - waiting for Google Veo 3 API response';
+            }
+            
+            updateStepProgress(
+              data.stage || 'starting', 
+              data.progress || 0, 
+              detail
+            );
           }
-          if (data.progress) {
-            document.getElementById('progress-fill').style.width = data.progress + '%';
-          }
+          
+          // Update elapsed time
+          updateProgress();
           
           // Continue polling if under max attempts
           if (attempt < maxAttempts) {
