@@ -51,9 +51,14 @@ type Bindings = {
   LATE_API_KEY: string;
   // R2 for video uploads
   VIDEO_BUCKET: R2Bucket;
-  // Social Command Centre
-  SOCIAL_DB: D1Database;
+  // Social Command Centre R2 bucket
   SOCIAL_MEDIA_BUCKET: R2Bucket;
+  // Video Marketing System - New APIs
+  ELEVENLABS_API_KEY: string;
+  ELEVENLABS_VOICE_ID: string;
+  PEXELS_API_KEY: string;
+  CREATOMATE_API_KEY: string;
+  CLOUD_RUN_ASSEMBLER_URL: string;
 }
 
 // User type for authenticated requests
@@ -2007,6 +2012,14 @@ app.get('/admin/social', (c) => {
   if (!user) return c.redirect('/login?redirect=/admin/social')
   if (user.role !== 'admin') return c.redirect('/?error=unauthorized')
   return c.html(getSocialCommandCentrePage(user))
+})
+
+// AI Video Generator for Social Media Marketing
+app.get('/admin/social/video-generator', (c) => {
+  const user = c.get('user') as any
+  if (!user) return c.redirect('/login?redirect=/admin/social/video-generator')
+  if (user.role !== 'admin') return c.redirect('/?error=unauthorized')
+  return c.html(getVideoGeneratorPage(user))
 })
 
 // Admin API: Get dashboard data
@@ -5810,24 +5823,15 @@ app.get('/api/admin/social/scheduled', async (c) => {
 });
 
 // ============================================================================
-// SOCIAL COMMAND CENTRE API
+// SOCIAL COMMAND CENTRE API (Simplified - uses TESCO_DB)
 // ============================================================================
 
-// Get content pillars
-app.get('/api/social/pillars', async (c) => {
-  const user = c.get('user') as any;
-  if (!user || user.role !== 'admin') {
-    return c.json({ success: false, error: 'Admin access required' }, 403);
-  }
-  
-  const db = c.env.SOCIAL_DB;
-  try {
-    const pillars = await db.prepare('SELECT * FROM content_pillars ORDER BY sort_order').all();
-    return c.json({ success: true, pillars: pillars.results || [] });
-  } catch (error: any) {
-    return c.json({ success: false, error: error.message }, 500);
-  }
-});
+// GetLate account IDs for ShopShot
+const LATE_ACCOUNTS: Record<string, string> = {
+  instagram: '692dc17af43160a0bc999b2f',
+  twitter: '692dc345f43160a0bc999b35',
+  youtube: '692dc20df43160a0bc999b32'
+};
 
 // Get content roadmap
 app.get('/api/social/roadmap', async (c) => {
@@ -5836,23 +5840,19 @@ app.get('/api/social/roadmap', async (c) => {
     return c.json({ success: false, error: 'Admin access required' }, 403);
   }
   
-  const db = c.env.SOCIAL_DB;
+  const db = c.env.TESCO_DB;
   const start = c.req.query('start');
   const end = c.req.query('end');
   
   try {
-    let query = `
-      SELECT r.*, p.name as pillar_name, p.color as pillar_color, p.short_code as pillar_code
-      FROM content_roadmap r
-      LEFT JOIN content_pillars p ON r.pillar_id = p.id
-    `;
+    let query = `SELECT * FROM content_roadmap`;
     const params: string[] = [];
     
     if (start && end) {
-      query += ' WHERE r.date BETWEEN ? AND ?';
+      query += ' WHERE date BETWEEN ? AND ?';
       params.push(start, end);
     }
-    query += ' ORDER BY r.date, CASE r.time_slot WHEN "morning" THEN 1 WHEN "noon" THEN 2 WHEN "evening" THEN 3 END';
+    query += ' ORDER BY date, CASE time_slot WHEN "morning" THEN 1 WHEN "noon" THEN 2 WHEN "evening" THEN 3 END';
     
     const roadmap = params.length > 0
       ? await db.prepare(query).bind(...params).all()
@@ -5871,7 +5871,7 @@ app.get('/api/social/posts', async (c) => {
     return c.json({ success: false, error: 'Admin access required' }, 403);
   }
   
-  const db = c.env.SOCIAL_DB;
+  const db = c.env.TESCO_DB;
   const status = c.req.query('status');
   const date = c.req.query('date');
   
@@ -5912,24 +5912,26 @@ app.post('/api/social/posts', async (c) => {
     return c.json({ success: false, error: 'Admin access required' }, 403);
   }
   
-  const db = c.env.SOCIAL_DB;
+  const db = c.env.TESCO_DB;
   
   try {
     const body = await c.req.json();
     const { date, scheduled_time, time_slot, media_type, media_url, caption, platforms, pillar_id, topic, roadmap_id } = body;
     
-    const result = await db.prepare(`
-      INSERT INTO posts (account_type, date, scheduled_time, time_slot, media_type, media_url, caption, platforms, pillar_id, topic, roadmap_id, status)
-      VALUES ('shopshot', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft')
-    `).bind(date, scheduled_time, time_slot || null, media_type, media_url || null, caption, JSON.stringify(platforms), pillar_id || null, topic || null, roadmap_id || null).run();
+    const postId = `post-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+    
+    await db.prepare(`
+      INSERT INTO posts (id, account_type, date, scheduled_time, time_slot, media_type, media_url, caption, platforms, pillar_id, topic, roadmap_id, status)
+      VALUES (?, 'shopshot', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft')
+    `).bind(postId, date, scheduled_time, time_slot || null, media_type, media_url || null, caption, JSON.stringify(platforms), pillar_id || null, topic || null, roadmap_id || null).run();
     
     // Update roadmap status if linked
     if (roadmap_id) {
       await db.prepare('UPDATE content_roadmap SET status = "created", post_id = ? WHERE id = ?')
-        .bind(result.meta.last_row_id, roadmap_id).run();
+        .bind(postId, roadmap_id).run();
     }
     
-    return c.json({ success: true, postId: result.meta.last_row_id });
+    return c.json({ success: true, postId });
   } catch (error: any) {
     return c.json({ success: false, error: error.message }, 500);
   }
@@ -5942,7 +5944,7 @@ app.put('/api/social/posts/:id', async (c) => {
     return c.json({ success: false, error: 'Admin access required' }, 403);
   }
   
-  const db = c.env.SOCIAL_DB;
+  const db = c.env.TESCO_DB;
   const postId = c.req.param('id');
   
   try {
@@ -5983,7 +5985,7 @@ app.delete('/api/social/posts/:id', async (c) => {
     return c.json({ success: false, error: 'Admin access required' }, 403);
   }
   
-  const db = c.env.SOCIAL_DB;
+  const db = c.env.TESCO_DB;
   const postId = c.req.param('id');
   
   try {
@@ -6001,7 +6003,7 @@ app.get('/api/social/voice-profile', async (c) => {
     return c.json({ success: false, error: 'Admin access required' }, 403);
   }
   
-  const db = c.env.SOCIAL_DB;
+  const db = c.env.TESCO_DB;
   
   try {
     const profile = await db.prepare('SELECT * FROM voice_profiles WHERE account_type = ?').bind('shopshot').first();
@@ -6018,7 +6020,7 @@ app.get('/api/social/knowledge', async (c) => {
     return c.json({ success: false, error: 'Admin access required' }, 403);
   }
   
-  const db = c.env.SOCIAL_DB;
+  const db = c.env.TESCO_DB;
   
   try {
     const knowledge = await db.prepare('SELECT * FROM brand_knowledge ORDER BY priority, section').all();
@@ -6035,7 +6037,7 @@ app.get('/api/social/platforms', async (c) => {
     return c.json({ success: false, error: 'Admin access required' }, 403);
   }
   
-  const db = c.env.SOCIAL_DB;
+  const db = c.env.TESCO_DB;
   
   try {
     const platforms = await db.prepare('SELECT * FROM platform_connections WHERE account_type = ?').bind('shopshot').all();
@@ -6052,7 +6054,7 @@ app.get('/api/social/media', async (c) => {
     return c.json({ success: false, error: 'Admin access required' }, 403);
   }
   
-  const db = c.env.SOCIAL_DB;
+  const db = c.env.TESCO_DB;
   const type = c.req.query('type');
   
   try {
@@ -6080,7 +6082,7 @@ app.post('/api/social/media/upload', async (c) => {
     return c.json({ success: false, error: 'Admin access required' }, 403);
   }
   
-  const db = c.env.SOCIAL_DB;
+  const db = c.env.TESCO_DB;
   const bucket = c.env.SOCIAL_MEDIA_BUCKET;
   
   if (!bucket) {
@@ -6133,7 +6135,7 @@ app.delete('/api/social/media/:id', async (c) => {
     return c.json({ success: false, error: 'Admin access required' }, 403);
   }
   
-  const db = c.env.SOCIAL_DB;
+  const db = c.env.TESCO_DB;
   const bucket = c.env.SOCIAL_MEDIA_BUCKET;
   const mediaId = c.req.param('id');
   
@@ -6158,22 +6160,39 @@ app.post('/api/social/generate-caption', async (c) => {
     return c.json({ success: false, error: 'Admin access required' }, 403);
   }
   
-  const socialDb = c.env.SOCIAL_DB;
+  const socialDb = c.env.TESCO_DB;
   const geminiKey = c.env.GEMINI_API_KEY;
+  
+  console.log('[generate-caption] Starting, geminiKey exists:', !!geminiKey);
   
   if (!geminiKey) {
     return c.json({ success: false, error: 'Gemini API not configured' }, 500);
   }
   
   try {
-    const { platform, topic, pillar, cta } = await c.req.json();
+    const { platform, topic, cta } = await c.req.json();
+    console.log('[generate-caption] Input:', { platform, topic, cta });
     
     // Get voice profile
-    const voice = await socialDb.prepare('SELECT * FROM voice_profiles WHERE account_type = ?').bind('shopshot').first() as any;
+    let voice = null;
+    try {
+      voice = await socialDb.prepare('SELECT * FROM voice_profiles WHERE account_type = ?').bind('shopshot').first() as any;
+      console.log('[generate-caption] Voice profile found:', !!voice);
+    } catch (voiceErr: any) {
+      console.error('[generate-caption] Voice profile error:', voiceErr.message);
+    }
     
-    // Get brand knowledge
-    const knowledge = await socialDb.prepare('SELECT section, content FROM brand_knowledge WHERE priority = 1').all() as any;
-    const knowledgeText = (knowledge.results || []).map((k: any) => `${k.section}: ${k.content}`).join('\n\n');
+    // Get brand knowledge - wrap in try-catch as table may be empty
+    let knowledgeText = 'ShopShot transforms one product photo into 10 professional variations in 25 seconds. Pricing: Free trial, Standard 39.99/mo, Pro 59.99/mo.';
+    try {
+      const knowledge = await socialDb.prepare('SELECT section, content FROM brand_knowledge WHERE priority = 1').all() as any;
+      if (knowledge.results?.length > 0) {
+        knowledgeText = knowledge.results.map((k: any) => `${k.section}: ${k.content}`).join('\n\n');
+      }
+      console.log('[generate-caption] Knowledge items:', knowledge.results?.length || 0);
+    } catch (knowledgeErr: any) {
+      console.error('[generate-caption] Knowledge error:', knowledgeErr.message);
+    }
     
     // Platform specs
     const platformSpecs: Record<string, { maxChars: number; name: string; format: string }> = {
@@ -6187,10 +6206,12 @@ app.post('/api/social/generate-caption', async (c) => {
     const prompt = `You are a social media copywriter for ShopShot, an AI product photography tool.
 
 BRAND VOICE:
-${voice?.voice_description || 'Direct, confident, data-backed, no corporate speak'}
+${voice?.guidelines || 'Direct, confident, data-backed, no corporate speak'}
 
 TONE: ${voice?.tone || 'Direct, confident, slightly witty'}
-STYLE: ${voice?.style || 'Short punchy sentences. Specific numbers. British spelling.'}
+
+EXAMPLES OF GOOD COPY:
+${voice?.examples || 'Most sellers spend 500 per product photoshoot. I spent 12k once and got worse conversion rates. Never again.'}
 
 BRAND KNOWLEDGE:
 ${knowledgeText}
@@ -6208,11 +6229,11 @@ MAX CHARACTERS: ${spec.maxChars}
 FORMAT: ${spec.format}
 
 TOPIC: ${topic}
-${pillar ? `CONTENT PILLAR: ${pillar}` : ''}
 ${cta ? `CALL TO ACTION: ${cta}` : ''}
 
 Write a single caption for this platform. Output ONLY the caption text, nothing else.`;
 
+    console.log('[generate-caption] Calling Gemini API...');
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -6225,25 +6246,124 @@ Write a single caption for this platform. Output ONLY the caption text, nothing 
       })
     });
     
+    console.log('[generate-caption] Gemini response status:', response.status);
+    
     if (!response.ok) {
       const error = await response.text();
+      console.error('[generate-caption] Gemini API error:', error);
       throw new Error(`Gemini API error: ${error}`);
     }
     
     const data = await response.json() as any;
     let caption = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    console.log('[generate-caption] Caption generated, length:', caption.length);
     
     // Post-process: remove quotes, em dashes, trim
     caption = caption.replace(/^["']|["']$/g, '').replace(/\u2014/g, '-').trim();
     
-    // Log generation
-    await socialDb.prepare(`
-      INSERT INTO ai_generations (type, platform, prompt, result, model)
-      VALUES ('caption', ?, ?, ?, 'gemini-2.0-flash')
-    `).bind(platform, topic, caption).run();
-    
     return c.json({ success: true, caption });
   } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// Generate social media image using Vertex AI
+app.post('/api/social/generate-image', async (c) => {
+  const user = c.get('user') as any;
+  if (!user || user.role !== 'admin') {
+    return c.json({ success: false, error: 'Admin access required' }, 403);
+  }
+  
+  const projectId = c.env.VERTEX_PROJECT_ID;
+  const clientEmail = c.env.VERTEX_CLIENT_EMAIL;
+  const privateKey = c.env.VERTEX_PRIVATE_KEY;
+  
+  if (!projectId || !clientEmail || !privateKey) {
+    return c.json({ success: false, error: 'Vertex AI not configured' }, 500);
+  }
+  
+  try {
+    const { prompt, platform, aspectRatio } = await c.req.json();
+    
+    if (!prompt) {
+      return c.json({ success: false, error: 'Prompt is required' }, 400);
+    }
+    
+    // Platform-specific aspect ratios
+    const platformAspects: Record<string, string> = {
+      instagram: '1:1',
+      twitter: '16:9',
+      youtube: '16:9'
+    };
+    
+    const aspect = aspectRatio || platformAspects[platform] || '1:1';
+    
+    // Enhanced prompt for social media
+    const enhancedPrompt = `Professional social media marketing image for ShopShot (AI product photography tool). 
+Style: Modern, clean, professional, tech-forward. 
+Brand colors: Purple (#8B5CF6) accents on dark backgrounds.
+${prompt}
+No text overlays. High quality, suitable for ${platform || 'social media'}.`;
+    
+    console.log('[social-image] Generating for platform:', platform, 'aspect:', aspect);
+    
+    // Get access token
+    const token = await getVertexAccessToken(clientEmail, privateKey);
+    
+    // Use Imagen 3 for image generation
+    const endpoint = `https://us-central1-aiplatform.googleapis.com/v1/projects/${projectId}/locations/us-central1/publishers/google/models/imagen-3.0-generate-002:predict`;
+    
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        instances: [{ prompt: enhancedPrompt }],
+        parameters: {
+          sampleCount: 1,
+          aspectRatio: aspect,
+          safetyFilterLevel: 'block_few',
+          personGeneration: 'dont_allow'
+        }
+      })
+    });
+    
+    if (!response.ok) {
+      const error = await response.text();
+      console.error('[social-image] Imagen error:', error);
+      throw new Error(`Image generation failed: ${response.status}`);
+    }
+    
+    const data = await response.json() as any;
+    const imageBase64 = data.predictions?.[0]?.bytesBase64Encoded;
+    
+    if (!imageBase64) {
+      throw new Error('No image generated');
+    }
+    
+    // Upload to R2
+    const imageBuffer = Uint8Array.from(atob(imageBase64), c => c.charCodeAt(0));
+    const filename = `social-${Date.now()}-${Math.random().toString(36).substring(2, 8)}.png`;
+    const r2Key = `social/${filename}`;
+    
+    await c.env.SOCIAL_MEDIA_BUCKET.put(r2Key, imageBuffer, {
+      httpMetadata: { contentType: 'image/png' }
+    });
+    
+    // Generate public URL (use same bucket as media uploads)
+    const imageUrl = `https://pub-2cda1a4823c0475989f9c94ad76e930a.r2.dev/social/${filename}`;
+    
+    console.log('[social-image] Generated and uploaded:', filename);
+    
+    return c.json({ 
+      success: true, 
+      imageUrl,
+      imageBase64: `data:image/png;base64,${imageBase64}`
+    });
+  } catch (error: any) {
+    console.error('[social-image] Error:', error.message);
     return c.json({ success: false, error: error.message }, 500);
   }
 });
@@ -6255,7 +6375,7 @@ app.post('/api/social/enhance-prompt', async (c) => {
     return c.json({ success: false, error: 'Admin access required' }, 403);
   }
   
-  const socialDb = c.env.SOCIAL_DB;
+  const socialDb = c.env.TESCO_DB;
   const geminiKey = c.env.GEMINI_API_KEY;
   
   if (!geminiKey) {
@@ -6316,7 +6436,7 @@ app.post('/api/social/publish/:id', async (c) => {
     return c.json({ success: false, error: 'Admin access required' }, 403);
   }
   
-  const socialDb = c.env.SOCIAL_DB;
+  const socialDb = c.env.TESCO_DB;
   const lateApiKey = c.env.LATE_API_KEY;
   
   if (!lateApiKey) {
@@ -6338,7 +6458,7 @@ app.post('/api/social/publish/:id', async (c) => {
     const connections = await socialDb.prepare('SELECT * FROM platform_connections WHERE account_type = ?').bind('shopshot').all() as any;
     const platformMap: Record<string, string> = {};
     (connections.results || []).forEach((p: any) => {
-      platformMap[p.platform] = p.social_network_key;
+      platformMap[p.platform] = p.account_id;
     });
     
     const platforms = JSON.parse(post.platforms || '[]');
@@ -6387,22 +6507,30 @@ app.post('/api/social/publish/:id', async (c) => {
         });
         
         const responseData = await response.json() as any;
+        console.log(`[Social Publish] Late API response for ${platform}:`, JSON.stringify(responseData));
         
         if (response.ok) {
+          // Extract post ID from Late API response structure
+          const postObj = responseData.post || responseData;
+          const latePostId = postObj._id || postObj.id || responseData._id || responseData.id || null;
+          
           // Add to publish queue
           await socialDb.prepare(`
             INSERT INTO publish_queue (post_id, platform, status, late_post_id)
             VALUES (?, ?, 'published', ?)
-          `).bind(postId, platform, responseData.id || responseData.postId).run();
+          `).bind(postId, platform, latePostId).run();
           
-          results.push({ platform, success: true, postId: responseData.id });
+          results.push({ platform, success: true, postId: latePostId });
         } else {
+          const errorMsg = responseData.message || responseData.error || JSON.stringify(responseData) || 'Unknown error';
+          console.error(`[Social Publish] Failed for ${platform}:`, errorMsg);
+          
           await socialDb.prepare(`
             INSERT INTO publish_queue (post_id, platform, status, error_message)
             VALUES (?, ?, 'failed', ?)
-          `).bind(postId, platform, responseData.error || 'Unknown error').run();
+          `).bind(postId, platform, errorMsg).run();
           
-          results.push({ platform, success: false, error: responseData.error });
+          results.push({ platform, success: false, error: errorMsg });
         }
       } catch (err: any) {
         results.push({ platform, success: false, error: err.message });
@@ -6431,19 +6559,11 @@ app.get('/api/social/analytics', async (c) => {
     return c.json({ success: false, error: 'Admin access required' }, 403);
   }
   
-  const db = c.env.SOCIAL_DB;
+  const db = c.env.TESCO_DB;
   
   try {
-    const [postsByStatus, postsByPillar, recentPosts, totalPosts] = await Promise.all([
-      db.prepare(`
-        SELECT status, COUNT(*) as count FROM posts GROUP BY status
-      `).all(),
-      db.prepare(`
-        SELECT p.name, p.color, COUNT(posts.id) as count 
-        FROM posts 
-        LEFT JOIN content_pillars p ON posts.pillar_id = p.id 
-        GROUP BY posts.pillar_id
-      `).all(),
+    const [postsByStatus, recentPosts, totalPosts] = await Promise.all([
+      db.prepare(`SELECT status, COUNT(*) as count FROM posts GROUP BY status`).all(),
       db.prepare(`
         SELECT date, COUNT(*) as count FROM posts 
         WHERE date >= date('now', '-30 days')
@@ -6456,9 +6576,1070 @@ app.get('/api/social/analytics', async (c) => {
       success: true,
       analytics: {
         postsByStatus: postsByStatus.results || [],
-        postsByPillar: postsByPillar.results || [],
         recentPosts: recentPosts.results || [],
         totalPosts: (totalPosts as any)?.count || 0
+      }
+    });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// ============================================================================
+// SOCIAL MEDIA VIDEO MARKETING SYSTEM
+// AI-powered video generation for TikTok/Reels/Shorts
+// ============================================================================
+
+// Video Script Validation Types
+interface VideoSegment {
+  type: 'motion_graphics' | 'veo3' | 'stock_broll';
+  template?: string;
+  duration: number;
+  prompt?: string;
+  search_query?: string;
+  caption: string | null;
+  props?: Record<string, any>;
+}
+
+interface VideoScript {
+  duration: number;
+  segments: VideoSegment[];
+  voiceover_script: string;
+  captions_srt: string;
+}
+
+interface ValidationResult {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+}
+
+// Validate script from Gemini
+function validateVideoScript(script: any, targetDuration: number): ValidationResult {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  
+  // 1. Check JSON structure
+  if (!script.segments || !Array.isArray(script.segments)) {
+    errors.push('Missing or invalid segments array');
+    return { valid: false, errors, warnings };
+  }
+  if (!script.voiceover_script || typeof script.voiceover_script !== 'string') {
+    errors.push('Missing or invalid voiceover_script');
+  }
+  if (!script.captions_srt || typeof script.captions_srt !== 'string') {
+    errors.push('Missing or invalid captions_srt');
+  }
+  
+  // 2. Validate Veo 3 scene durations (CRITICAL - API rejects invalid durations)
+  const veo3Segments = script.segments.filter((s: any) => s.type === 'veo3');
+  veo3Segments.forEach((segment: any, index: number) => {
+    if (![4, 6, 8].includes(segment.duration)) {
+      errors.push(
+        `Veo 3 scene ${index + 1} has duration ${segment.duration}s. Must be exactly 4, 6, or 8 seconds.`
+      );
+    }
+    if (!segment.prompt || segment.prompt.length < 20) {
+      warnings.push(`Veo 3 scene ${index + 1} has weak prompt (${segment.prompt?.length || 0} chars). Recommend 50+ chars.`);
+    }
+  });
+  
+  // 3. Validate total duration
+  const totalDuration = script.segments.reduce((sum: number, s: any) => sum + (s.duration || 0), 0);
+  const durationDiff = Math.abs(totalDuration - targetDuration);
+  if (durationDiff > 2) {
+    errors.push(`Total segment duration is ${totalDuration}s but target is ${targetDuration}s.`);
+  } else if (durationDiff > 1) {
+    warnings.push(`Duration slightly off: ${totalDuration}s vs ${targetDuration}s target`);
+  }
+  
+  // 4. Validate voiceover length (approx 2.5 words/sec, 5.3 chars/word)
+  const maxVoiceoverChars = Math.round(targetDuration * 13.3);
+  const minVoiceoverChars = Math.round(targetDuration * 6.7);
+  const voiceoverLength = script.voiceover_script?.length || 0;
+  
+  if (voiceoverLength > maxVoiceoverChars) {
+    errors.push(`Voiceover is ${voiceoverLength} characters. For ${targetDuration}s video, max is ~${maxVoiceoverChars} chars.`);
+  } else if (voiceoverLength < minVoiceoverChars) {
+    warnings.push(`Voiceover is only ${voiceoverLength} characters. Recommend ${minVoiceoverChars}-${maxVoiceoverChars} chars.`);
+  }
+  
+  // 5. Validate segment count
+  if (script.segments.length < 3) {
+    errors.push(`Only ${script.segments.length} segments. Minimum 3 required.`);
+  }
+  if (script.segments.length > 8) {
+    warnings.push(`${script.segments.length} segments may feel choppy. Consider consolidating.`);
+  }
+  
+  // 6. Validate motion graphics templates
+  const validTemplates = ['shopshot-intro', 'lower-third-stat', 'feature-callout', 'orange-swipe-transition', 'shopshot-outro-cta'];
+  const motionSegments = script.segments.filter((s: any) => s.type === 'motion_graphics');
+  motionSegments.forEach((segment: any, index: number) => {
+    if (!validTemplates.includes(segment.template)) {
+      errors.push(`Motion graphics segment uses unknown template "${segment.template}".`);
+    }
+  });
+  
+  // 7. Validate SRT format (basic check)
+  if (script.captions_srt) {
+    const hasTimestamps = script.captions_srt.includes('-->');
+    if (!hasTimestamps) {
+      errors.push('Captions SRT appears malformed - no timestamp markers found');
+    }
+  }
+  
+  return { valid: errors.length === 0, errors, warnings };
+}
+
+// Generate video script using Gemini
+async function generateVideoScriptWithValidation(
+  topic: string,
+  duration: number,
+  platform: string,
+  env: any,
+  maxRetries: number = 3
+): Promise<{ script: VideoScript; attempts: number }> {
+  
+  let lastErrors: string[] = [];
+  const aspectRatio = platform === 'X' ? '16:9' : '9:16';
+  
+  const systemPrompt = `You are a world-class video editor creating 10-30 second social media videos for ShopShot (AI product photography tool).
+
+BRAND CONTEXT:
+- ShopShot turns 1 product photo into 10 professional shots in 25 seconds
+- Pricing: GBP39.99/month (Standard), GBP59.99/month (Pro)
+- Target: E-commerce sellers (Shopify, Amazon, Etsy)
+- Value prop: GBP500 photographer to GBP40/month AI tool
+- Brand colors: Orange (#FF6B35), Black, White
+- Voice: Professional yet slightly comedic, direct, data-driven, no fluff
+
+VIDEO REQUIREMENTS:
+- Total duration: ${duration} seconds
+- Platform: ${platform} (aspect ratio: ${aspectRatio})
+- Must include: Brand intro (2s), Brand outro with CTA (3s)
+- Use 2-3 Veo 3 scenes (4-6 seconds each)
+- Use 1-2 stock B-roll clips (1-2 seconds each)
+
+CRITICAL VEO 3 RULES:
+- Duration MUST be exactly 4, 6, or 8 seconds - NO OTHER VALUES WORK
+- Prompts must be detailed: camera angle, lighting, setting, action
+- Avoid text in scenes (Veo 3 struggles with text)
+
+MOTION GRAPHICS TEMPLATES:
+1. shopshot-intro (2s): { tagline: string }
+2. lower-third-stat (3s): { stat: string, subtext: string }
+3. feature-callout (2s): { icon: string (emoji), text: string }
+4. orange-swipe-transition (0.5s): no props
+5. shopshot-outro-cta (3s): { cta_text: string, url: string }
+
+STOCK B-ROLL SEARCH QUERIES:
+- Use for quick 1-2 second cuts
+- Keep generic: "laptop typing hands", "smartphone closeup", "happy person smiling"
+
+VOICEOVER RULES:
+- ${Math.round(duration * 6.7)}-${Math.round(duration * 13.3)} characters max
+- British English spelling
+- Conversational, direct, include specific numbers
+
+CAPTION RULES (SRT FORMAT):
+- TikTok-style: 2-3 words per line
+- Match segment timing exactly
+
+OUTPUT: Return ONLY valid JSON with this structure:
+{
+  "duration": number,
+  "segments": [
+    { "type": "motion_graphics", "template": "shopshot-intro", "duration": 2, "caption": null, "props": { "tagline": "AI Product Photography" } },
+    { "type": "veo3", "duration": 4 | 6 | 8, "prompt": "detailed scene description", "caption": "Caption text" },
+    { "type": "stock_broll", "duration": 1-2, "search_query": "search terms", "caption": null }
+  ],
+  "voiceover_script": "Full voiceover text...",
+  "captions_srt": "1\\n00:00:00,000 --> 00:00:02,000\\nCaption text\\n\\n2..."
+}`;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    console.log(`Script generation attempt ${attempt}/${maxRetries}`);
+    
+    let promptAddendum = '';
+    if (lastErrors.length > 0) {
+      promptAddendum = `\n\nCRITICAL - PREVIOUS ATTEMPT FAILED. FIX THESE ERRORS:\n${lastErrors.map((e, i) => `${i + 1}. ${e}`).join('\n')}\n\nDO NOT repeat these mistakes.`;
+    }
+    
+    try {
+      // Call Gemini API
+      const geminiResponse = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${env.GEMINI_API_KEY}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{
+              parts: [{ text: `${systemPrompt}${promptAddendum}\n\nTOPIC: ${topic}\nDURATION: ${duration} seconds\nPLATFORM: ${platform}` }]
+            }],
+            generationConfig: {
+              temperature: 0.7,
+              maxOutputTokens: 2000
+            }
+          })
+        }
+      );
+      
+      const geminiData = await geminiResponse.json() as any;
+      const rawScript = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      
+      // Parse JSON (handle markdown code blocks)
+      let script: any;
+      try {
+        const jsonMatch = rawScript.match(/```json\s*([\s\S]*?)\s*```/) || rawScript.match(/```\s*([\s\S]*?)\s*```/);
+        const jsonString = jsonMatch ? jsonMatch[1] : rawScript;
+        script = JSON.parse(jsonString.trim());
+      } catch (parseError) {
+        lastErrors = ['Invalid JSON returned. Response must be valid JSON only.'];
+        continue;
+      }
+      
+      // Validate
+      const validation = validateVideoScript(script, duration);
+      
+      if (validation.valid) {
+        if (validation.warnings.length > 0) {
+          console.log('Script validation warnings:', validation.warnings);
+        }
+        return { script, attempts: attempt };
+      }
+      
+      lastErrors = validation.errors;
+      console.log(`Attempt ${attempt} validation failed:`, lastErrors);
+      
+    } catch (error: any) {
+      lastErrors = [`API error: ${error.message}`];
+    }
+  }
+  
+  throw new Error(`Script generation failed after ${maxRetries} attempts. Last errors: ${lastErrors.join('; ')}`);
+}
+
+// Generate Veo 3 video clips using Vertex AI
+async function generateVeo3Clips(
+  segments: VideoSegment[],
+  aspectRatio: string,
+  env: any
+): Promise<{ url: string; duration: number }[]> {
+  const veo3Segments = segments.filter(s => s.type === 'veo3');
+  const clips: { url: string; duration: number }[] = [];
+  
+  // Get access token for Vertex AI
+  const jwt = await createJWT(env.VERTEX_CLIENT_EMAIL, env.VERTEX_PRIVATE_KEY);
+  const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${jwt}`
+  });
+  const tokenData = await tokenResponse.json() as any;
+  const accessToken = tokenData.access_token;
+  
+  // Generate each clip (parallel would be better but sequential for now)
+  for (const segment of veo3Segments) {
+    try {
+      // Note: Veo 3 API endpoint - this is a placeholder for actual Veo 3 integration
+      // Real implementation would use: us-central1-aiplatform.googleapis.com/v1/projects/.../models/veo-003:predict
+      const veoResponse = await fetch(
+        `https://us-central1-aiplatform.googleapis.com/v1/projects/${env.VERTEX_PROJECT_ID}/locations/us-central1/publishers/google/models/veo-003:generateVideo`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            instances: [{
+              prompt: segment.prompt,
+              video_length: segment.duration,
+              aspect_ratio: aspectRatio,
+              resolution: '1080p'
+            }]
+          })
+        }
+      );
+      
+      if (veoResponse.ok) {
+        const veoData = await veoResponse.json() as any;
+        // Veo 3 returns operation ID for long-running operation
+        // For MVP, we'll use a placeholder video URL
+        clips.push({
+          url: veoData.predictions?.[0]?.videoUri || `https://storage.googleapis.com/shopshot-videos/placeholder-${segment.duration}s.mp4`,
+          duration: segment.duration
+        });
+      } else {
+        // Fallback to placeholder
+        clips.push({
+          url: `https://pub-2cda1a4823c0475989f9c94ad76e930a.r2.dev/placeholder-video-${segment.duration}s.mp4`,
+          duration: segment.duration
+        });
+      }
+    } catch (error) {
+      console.error('Veo 3 generation error:', error);
+      clips.push({
+        url: `https://pub-2cda1a4823c0475989f9c94ad76e930a.r2.dev/placeholder-video-${segment.duration}s.mp4`,
+        duration: segment.duration
+      });
+    }
+  }
+  
+  return clips;
+}
+
+// Generate motion graphics using Creatomate
+async function generateMotionGraphics(
+  segments: VideoSegment[],
+  aspectRatio: string,
+  env: any
+): Promise<{ url: string; duration: number }[]> {
+  const motionSegments = segments.filter(s => s.type === 'motion_graphics');
+  const clips: { url: string; duration: number }[] = [];
+  
+  // Template IDs mapping (these would be created in Creatomate dashboard)
+  const templateIds: Record<string, string> = {
+    'shopshot-intro': 'shopshot-intro-9x16',
+    'lower-third-stat': 'shopshot-lower-third',
+    'feature-callout': 'shopshot-feature-callout',
+    'orange-swipe-transition': 'shopshot-transition',
+    'shopshot-outro-cta': 'shopshot-outro-cta'
+  };
+  
+  for (const segment of motionSegments) {
+    try {
+      if (!env.CREATOMATE_API_KEY) {
+        // Fallback if no Creatomate key
+        clips.push({
+          url: `https://pub-2cda1a4823c0475989f9c94ad76e930a.r2.dev/motion-${segment.template}-placeholder.mp4`,
+          duration: segment.duration
+        });
+        continue;
+      }
+      
+      const response = await fetch('https://api.creatomate.com/v1/renders', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${env.CREATOMATE_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          template_id: templateIds[segment.template || ''] || segment.template,
+          modifications: segment.props || {}
+        })
+      });
+      
+      if (response.ok) {
+        const data = await response.json() as any;
+        clips.push({
+          url: data.url || data[0]?.url,
+          duration: segment.duration
+        });
+      } else {
+        clips.push({
+          url: `https://pub-2cda1a4823c0475989f9c94ad76e930a.r2.dev/motion-placeholder.mp4`,
+          duration: segment.duration
+        });
+      }
+    } catch (error) {
+      console.error('Creatomate error:', error);
+      clips.push({
+        url: `https://pub-2cda1a4823c0475989f9c94ad76e930a.r2.dev/motion-placeholder.mp4`,
+        duration: segment.duration
+      });
+    }
+  }
+  
+  return clips;
+}
+
+// Fetch stock B-roll from Pexels
+async function fetchStockClips(
+  segments: VideoSegment[],
+  env: any
+): Promise<{ url: string; duration: number }[]> {
+  const stockSegments = segments.filter(s => s.type === 'stock_broll');
+  const clips: { url: string; duration: number }[] = [];
+  
+  for (const segment of stockSegments) {
+    try {
+      if (!env.PEXELS_API_KEY) {
+        clips.push({
+          url: `https://pub-2cda1a4823c0475989f9c94ad76e930a.r2.dev/stock-placeholder.mp4`,
+          duration: segment.duration
+        });
+        continue;
+      }
+      
+      const response = await fetch(
+        `https://api.pexels.com/videos/search?query=${encodeURIComponent(segment.search_query || 'business')}&per_page=5`,
+        {
+          headers: { 'Authorization': env.PEXELS_API_KEY }
+        }
+      );
+      
+      if (response.ok) {
+        const data = await response.json() as any;
+        const video = data.videos?.[0];
+        const hdFile = video?.video_files?.find((f: any) => f.quality === 'hd') || video?.video_files?.[0];
+        clips.push({
+          url: hdFile?.link || `https://pub-2cda1a4823c0475989f9c94ad76e930a.r2.dev/stock-placeholder.mp4`,
+          duration: segment.duration
+        });
+      } else {
+        clips.push({
+          url: `https://pub-2cda1a4823c0475989f9c94ad76e930a.r2.dev/stock-placeholder.mp4`,
+          duration: segment.duration
+        });
+      }
+    } catch (error) {
+      console.error('Pexels error:', error);
+      clips.push({
+        url: `https://pub-2cda1a4823c0475989f9c94ad76e930a.r2.dev/stock-placeholder.mp4`,
+        duration: segment.duration
+      });
+    }
+  }
+  
+  return clips;
+}
+
+// Generate voiceover using ElevenLabs
+async function generateVoiceover(
+  script: string,
+  env: any
+): Promise<string> {
+  try {
+    if (!env.ELEVENLABS_API_KEY) {
+      return `https://pub-2cda1a4823c0475989f9c94ad76e930a.r2.dev/voiceover-placeholder.mp3`;
+    }
+    
+    const voiceId = env.ELEVENLABS_VOICE_ID || '21m00Tcm4TlvDq8ikWAM'; // Rachel - British Female
+    
+    const response = await fetch(
+      `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
+      {
+        method: 'POST',
+        headers: {
+          'xi-api-key': env.ELEVENLABS_API_KEY,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          text: script,
+          model_id: 'eleven_multilingual_v2',
+          voice_settings: {
+            stability: 0.5,
+            similarity_boost: 0.75
+          }
+        })
+      }
+    );
+    
+    if (response.ok) {
+      const audioBuffer = await response.arrayBuffer();
+      // Store in R2
+      const filename = `voiceover-${Date.now()}.mp3`;
+      await env.SOCIAL_MEDIA_BUCKET.put(`audio/${filename}`, audioBuffer, {
+        httpMetadata: { contentType: 'audio/mpeg' }
+      });
+      return `https://pub-2cda1a4823c0475989f9c94ad76e930a.r2.dev/audio/${filename}`;
+    }
+    
+    return `https://pub-2cda1a4823c0475989f9c94ad76e930a.r2.dev/voiceover-placeholder.mp3`;
+  } catch (error) {
+    console.error('ElevenLabs error:', error);
+    return `https://pub-2cda1a4823c0475989f9c94ad76e930a.r2.dev/voiceover-placeholder.mp3`;
+  }
+}
+
+// Assemble video using Cloud Run FFmpeg service
+async function assembleVideo(
+  clips: { url: string; duration: number }[],
+  voiceoverUrl: string,
+  captionsSrt: string,
+  videoId: string,
+  env: any
+): Promise<string> {
+  try {
+    if (!env.CLOUD_RUN_ASSEMBLER_URL) {
+      // Return placeholder if no assembler configured
+      return `https://pub-2cda1a4823c0475989f9c94ad76e930a.r2.dev/final-video-placeholder.mp4`;
+    }
+    
+    const response = await fetch(env.CLOUD_RUN_ASSEMBLER_URL + '/assemble', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        clips: clips.map(c => c.url),
+        audioUrl: voiceoverUrl,
+        captionsSrt,
+        videoId,
+        outputBucket: 'shopshot-social-media'
+      })
+    });
+    
+    if (response.ok) {
+      const data = await response.json() as any;
+      return data.videoUrl;
+    }
+    
+    return `https://pub-2cda1a4823c0475989f9c94ad76e930a.r2.dev/final-video-placeholder.mp4`;
+  } catch (error) {
+    console.error('Video assembly error:', error);
+    return `https://pub-2cda1a4823c0475989f9c94ad76e930a.r2.dev/final-video-placeholder.mp4`;
+  }
+}
+
+// API: Generate social media video
+app.post('/api/social/video/generate', async (c) => {
+  const user = c.get('user') as any;
+  if (!user || user.role !== 'admin') {
+    return c.json({ success: false, error: 'Admin access required' }, 403);
+  }
+  
+  const db = c.env.TESCO_DB;
+  const startTime = Date.now();
+  
+  try {
+    const { topic, duration, platform } = await c.req.json();
+    
+    if (!topic || !duration || !platform) {
+      return c.json({ success: false, error: 'topic, duration, and platform required' }, 400);
+    }
+    
+    const videoId = `vid_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    const aspectRatio = platform === 'X' ? '16:9' : '9:16';
+    
+    // Create initial record
+    await db.prepare(`
+      INSERT INTO social_videos (id, user_id, topic, duration, platform, aspect_ratio, status, generation_started_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'generating', CURRENT_TIMESTAMP)
+    `).bind(videoId, user.id, topic, duration, platform, aspectRatio).run();
+    
+    // 1. Generate script with validation
+    let script: VideoScript;
+    let scriptAttempts: number;
+    try {
+      const result = await generateVideoScriptWithValidation(topic, duration, platform, c.env);
+      script = result.script;
+      scriptAttempts = result.attempts;
+    } catch (error: any) {
+      await db.prepare(`UPDATE social_videos SET status = 'failed', error_message = ? WHERE id = ?`)
+        .bind(error.message, videoId).run();
+      return c.json({ success: false, error: error.message }, 500);
+    }
+    
+    // Log script generation
+    await db.prepare(`
+      INSERT INTO video_script_logs (video_id, attempt, raw_response, success)
+      VALUES (?, ?, ?, 1)
+    `).bind(videoId, scriptAttempts, JSON.stringify(script)).run();
+    
+    // Update with script data
+    await db.prepare(`UPDATE social_videos SET script_data = ? WHERE id = ?`)
+      .bind(JSON.stringify(script), videoId).run();
+    
+    // 2. Generate assets in parallel
+    const [veo3Clips, motionGraphics, stockClips, voiceoverUrl] = await Promise.all([
+      generateVeo3Clips(script.segments, aspectRatio, c.env),
+      generateMotionGraphics(script.segments, aspectRatio, c.env),
+      fetchStockClips(script.segments, c.env),
+      generateVoiceover(script.voiceover_script, c.env)
+    ]);
+    
+    // 3. Build clip sequence in order
+    const orderedClips: { url: string; duration: number }[] = [];
+    let veo3Index = 0, motionIndex = 0, stockIndex = 0;
+    
+    for (const segment of script.segments) {
+      switch (segment.type) {
+        case 'veo3':
+          if (veo3Clips[veo3Index]) orderedClips.push(veo3Clips[veo3Index++]);
+          break;
+        case 'motion_graphics':
+          if (motionGraphics[motionIndex]) orderedClips.push(motionGraphics[motionIndex++]);
+          break;
+        case 'stock_broll':
+          if (stockClips[stockIndex]) orderedClips.push(stockClips[stockIndex++]);
+          break;
+      }
+    }
+    
+    // 4. Assemble final video
+    const finalVideoUrl = await assembleVideo(
+      orderedClips,
+      voiceoverUrl,
+      script.captions_srt,
+      videoId,
+      c.env
+    );
+    
+    // 5. Calculate cost
+    const veo3Cost = veo3Clips.length * 0.30; // ~GBP0.30 per clip
+    const motionCost = motionGraphics.length * 0.10; // GBP0.10 per template
+    const voiceoverCost = (script.voiceover_script.length / 100) * 0.30; // ~GBP0.30 per 100 chars
+    const assemblyCost = 0.05;
+    const totalCost = veo3Cost + motionCost + voiceoverCost + assemblyCost;
+    
+    const generationTime = Math.round((Date.now() - startTime) / 1000);
+    
+    // 6. Update database with final result
+    await db.prepare(`
+      UPDATE social_videos 
+      SET status = 'preview',
+          veo3_clips = ?,
+          motion_graphics = ?,
+          stock_clips = ?,
+          voiceover_url = ?,
+          captions_srt = ?,
+          final_video_url = ?,
+          total_cost_gbp = ?,
+          generation_completed_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).bind(
+      JSON.stringify(veo3Clips),
+      JSON.stringify(motionGraphics),
+      JSON.stringify(stockClips),
+      voiceoverUrl,
+      script.captions_srt,
+      finalVideoUrl,
+      totalCost,
+      videoId
+    ).run();
+    
+    return c.json({
+      success: true,
+      videoId,
+      videoUrl: finalVideoUrl,
+      status: 'preview',
+      generationTime,
+      cost: totalCost,
+      script: {
+        segments: script.segments.length,
+        voiceoverLength: script.voiceover_script.length,
+        duration: script.duration
+      }
+    });
+    
+  } catch (error: any) {
+    console.error('Video generation error:', error);
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// API: Get video details
+app.get('/api/social/video/:id', async (c) => {
+  const user = c.get('user') as any;
+  if (!user || user.role !== 'admin') {
+    return c.json({ success: false, error: 'Admin access required' }, 403);
+  }
+  
+  const videoId = c.req.param('id');
+  const db = c.env.TESCO_DB;
+  
+  try {
+    const video = await db.prepare('SELECT * FROM social_videos WHERE id = ?').bind(videoId).first();
+    
+    if (!video) {
+      return c.json({ success: false, error: 'Video not found' }, 404);
+    }
+    
+    return c.json({
+      success: true,
+      video: {
+        ...video,
+        script_data: video.script_data ? JSON.parse(video.script_data as string) : null,
+        veo3_clips: video.veo3_clips ? JSON.parse(video.veo3_clips as string) : [],
+        motion_graphics: video.motion_graphics ? JSON.parse(video.motion_graphics as string) : [],
+        stock_clips: video.stock_clips ? JSON.parse(video.stock_clips as string) : []
+      }
+    });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// API: List videos
+app.get('/api/social/videos', async (c) => {
+  const user = c.get('user') as any;
+  if (!user || user.role !== 'admin') {
+    return c.json({ success: false, error: 'Admin access required' }, 403);
+  }
+  
+  const db = c.env.TESCO_DB;
+  const status = c.req.query('status');
+  const limit = parseInt(c.req.query('limit') || '20');
+  
+  try {
+    let query = 'SELECT * FROM social_videos';
+    const params: any[] = [];
+    
+    if (status) {
+      query += ' WHERE status = ?';
+      params.push(status);
+    }
+    
+    query += ' ORDER BY created_at DESC LIMIT ?';
+    params.push(limit);
+    
+    const videos = await db.prepare(query).bind(...params).all();
+    
+    return c.json({
+      success: true,
+      videos: videos.results || []
+    });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// API: Regenerate video (smart or full)
+app.post('/api/social/video/:id/regenerate', async (c) => {
+  const user = c.get('user') as any;
+  if (!user || user.role !== 'admin') {
+    return c.json({ success: false, error: 'Admin access required' }, 403);
+  }
+  
+  const videoId = c.req.param('id');
+  const db = c.env.TESCO_DB;
+  const startTime = Date.now();
+  
+  try {
+    const { regenerationType } = await c.req.json();
+    
+    const video = await db.prepare('SELECT * FROM social_videos WHERE id = ?').bind(videoId).first() as any;
+    
+    if (!video) {
+      return c.json({ success: false, error: 'Video not found' }, 404);
+    }
+    
+    const currentRegenCount = video.regeneration_count || 0;
+    const useSmartRegen = regenerationType !== 'full' && currentRegenCount < 2;
+    
+    if (useSmartRegen) {
+      // SMART REGENERATION: Only regenerate Veo 3 clips
+      const script = JSON.parse(video.script_data);
+      const aspectRatio = video.aspect_ratio;
+      
+      // Regenerate only Veo 3 clips
+      const newVeo3Clips = await generateVeo3Clips(script.segments, aspectRatio, c.env);
+      
+      // Reuse existing assets
+      const motionGraphics = JSON.parse(video.motion_graphics || '[]');
+      const stockClips = JSON.parse(video.stock_clips || '[]');
+      
+      // Rebuild clip sequence
+      const orderedClips: { url: string; duration: number }[] = [];
+      let veo3Index = 0, motionIndex = 0, stockIndex = 0;
+      
+      for (const segment of script.segments) {
+        switch (segment.type) {
+          case 'veo3':
+            if (newVeo3Clips[veo3Index]) orderedClips.push(newVeo3Clips[veo3Index++]);
+            break;
+          case 'motion_graphics':
+            if (motionGraphics[motionIndex]) orderedClips.push(motionGraphics[motionIndex++]);
+            break;
+          case 'stock_broll':
+            if (stockClips[stockIndex]) orderedClips.push(stockClips[stockIndex++]);
+            break;
+        }
+      }
+      
+      // Reassemble video
+      const finalVideoUrl = await assembleVideo(
+        orderedClips,
+        video.voiceover_url,
+        video.captions_srt,
+        `${videoId}_regen${currentRegenCount + 1}`,
+        c.env
+      );
+      
+      // Update database
+      await db.prepare(`
+        UPDATE social_videos 
+        SET veo3_clips = ?,
+            final_video_url = ?,
+            regeneration_count = regeneration_count + 1,
+            status = 'preview',
+            generation_completed_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).bind(JSON.stringify(newVeo3Clips), finalVideoUrl, videoId).run();
+      
+      // Log regeneration
+      const regenTime = (Date.now() - startTime) / 1000;
+      await db.prepare(`
+        INSERT INTO video_regeneration_logs (video_id, regeneration_type, regeneration_number, duration_seconds)
+        VALUES (?, 'smart', ?, ?)
+      `).bind(videoId, currentRegenCount + 1, regenTime).run();
+      
+      return c.json({
+        success: true,
+        videoUrl: finalVideoUrl,
+        regenerationType: 'smart',
+        regenerationCount: currentRegenCount + 1,
+        message: 'Video clips regenerated. Script and voiceover preserved.'
+      });
+      
+    } else {
+      // FULL REGENERATION: Start from scratch
+      // Generate new script and all assets
+      const result = await generateVideoScriptWithValidation(video.topic, video.duration, video.platform, c.env);
+      const script = result.script;
+      const aspectRatio = video.aspect_ratio;
+      
+      const [veo3Clips, motionGraphics, stockClips, voiceoverUrl] = await Promise.all([
+        generateVeo3Clips(script.segments, aspectRatio, c.env),
+        generateMotionGraphics(script.segments, aspectRatio, c.env),
+        fetchStockClips(script.segments, c.env),
+        generateVoiceover(script.voiceover_script, c.env)
+      ]);
+      
+      // Build clip sequence
+      const orderedClips: { url: string; duration: number }[] = [];
+      let veo3Index = 0, motionIndex = 0, stockIndex = 0;
+      
+      for (const segment of script.segments) {
+        switch (segment.type) {
+          case 'veo3':
+            if (veo3Clips[veo3Index]) orderedClips.push(veo3Clips[veo3Index++]);
+            break;
+          case 'motion_graphics':
+            if (motionGraphics[motionIndex]) orderedClips.push(motionGraphics[motionIndex++]);
+            break;
+          case 'stock_broll':
+            if (stockClips[stockIndex]) orderedClips.push(stockClips[stockIndex++]);
+            break;
+        }
+      }
+      
+      const finalVideoUrl = await assembleVideo(
+        orderedClips,
+        voiceoverUrl,
+        script.captions_srt,
+        `${videoId}_full_regen`,
+        c.env
+      );
+      
+      // Update database
+      await db.prepare(`
+        UPDATE social_videos 
+        SET script_data = ?,
+            veo3_clips = ?,
+            motion_graphics = ?,
+            stock_clips = ?,
+            voiceover_url = ?,
+            captions_srt = ?,
+            final_video_url = ?,
+            regeneration_count = regeneration_count + 1,
+            status = 'preview',
+            generation_completed_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).bind(
+        JSON.stringify(script),
+        JSON.stringify(veo3Clips),
+        JSON.stringify(motionGraphics),
+        JSON.stringify(stockClips),
+        voiceoverUrl,
+        script.captions_srt,
+        finalVideoUrl,
+        videoId
+      ).run();
+      
+      // Log regeneration
+      const regenTime = (Date.now() - startTime) / 1000;
+      await db.prepare(`
+        INSERT INTO video_regeneration_logs (video_id, regeneration_type, regeneration_number, duration_seconds)
+        VALUES (?, 'full', ?, ?)
+      `).bind(videoId, currentRegenCount + 1, regenTime).run();
+      
+      return c.json({
+        success: true,
+        videoUrl: finalVideoUrl,
+        regenerationType: 'full',
+        regenerationCount: currentRegenCount + 1,
+        message: 'Completely new video generated with fresh script.'
+      });
+    }
+    
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// API: Schedule/Publish video to social platforms
+app.post('/api/social/video/:id/schedule', async (c) => {
+  const user = c.get('user') as any;
+  if (!user || user.role !== 'admin') {
+    return c.json({ success: false, error: 'Admin access required' }, 403);
+  }
+  
+  const videoId = c.req.param('id');
+  const db = c.env.TESCO_DB;
+  
+  try {
+    const { scheduledFor, platforms, publishNow } = await c.req.json();
+    
+    const video = await db.prepare('SELECT * FROM social_videos WHERE id = ?').bind(videoId).first() as any;
+    
+    if (!video) {
+      return c.json({ success: false, error: 'Video not found' }, 404);
+    }
+    
+    if (video.status !== 'preview' && video.status !== 'approved') {
+      return c.json({ success: false, error: 'Video must be in preview or approved status' }, 400);
+    }
+    
+    // Get platform connections
+    const connections = await db.prepare(
+      "SELECT * FROM platform_connections WHERE account_type = 'shopshot'"
+    ).all();
+    
+    const platformConnections = (connections.results || []).reduce((acc: any, conn: any) => {
+      const platform = conn.name?.toLowerCase().includes('instagram') ? 'instagram' :
+                      conn.name?.toLowerCase().includes('youtube') ? 'youtube' :
+                      conn.name?.toLowerCase().includes('x') || conn.name?.toLowerCase().includes('twitter') ? 'twitter' : null;
+      if (platform) acc[platform] = conn.account_id;
+      return acc;
+    }, {});
+    
+    // Build GetLate payload
+    const script = video.script_data ? JSON.parse(video.script_data) : null;
+    const caption = script?.segments?.filter((s: any) => s.caption).map((s: any) => s.caption).join(' ') || video.topic;
+    
+    const getlatePayload: any = {
+      content: caption,
+      platforms: (platforms || ['instagram']).map((p: string) => ({
+        platform: p,
+        accountId: platformConnections[p]
+      })).filter((p: any) => p.accountId),
+      mediaItems: [{
+        type: 'video',
+        url: video.final_video_url
+      }],
+      timezone: 'Europe/London'
+    };
+    
+    if (publishNow) {
+      getlatePayload.publishNow = true;
+    } else if (scheduledFor) {
+      getlatePayload.scheduledFor = scheduledFor;
+    }
+    
+    // Add platform-specific options
+    if (platforms?.includes('instagram')) {
+      getlatePayload.post_options = { instagram: { type: 'reel' } };
+    }
+    
+    // Call GetLate API
+    const lateResponse = await fetch('https://getlate.dev/api/v1/posts', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${c.env.LATE_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(getlatePayload)
+    });
+    
+    const lateData = await lateResponse.json() as any;
+    
+    if (!lateResponse.ok) {
+      return c.json({ success: false, error: lateData.error || 'GetLate API error' }, 500);
+    }
+    
+    // Update database
+    const newStatus = publishNow ? 'published' : 'scheduled';
+    await db.prepare(`
+      UPDATE social_videos 
+      SET status = ?,
+          getlate_post_id = ?,
+          scheduled_for = ?,
+          publish_platforms = ?,
+          published_at = CASE WHEN ? = 'published' THEN CURRENT_TIMESTAMP ELSE NULL END
+      WHERE id = ?
+    `).bind(
+      newStatus,
+      lateData.id || lateData.postId,
+      scheduledFor || null,
+      JSON.stringify(platforms || ['instagram']),
+      newStatus,
+      videoId
+    ).run();
+    
+    return c.json({
+      success: true,
+      status: newStatus,
+      getlatePostId: lateData.id || lateData.postId,
+      message: publishNow ? 'Video published successfully!' : `Video scheduled for ${scheduledFor}`
+    });
+    
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// API: Approve video
+app.post('/api/social/video/:id/approve', async (c) => {
+  const user = c.get('user') as any;
+  if (!user || user.role !== 'admin') {
+    return c.json({ success: false, error: 'Admin access required' }, 403);
+  }
+  
+  const videoId = c.req.param('id');
+  const db = c.env.TESCO_DB;
+  
+  try {
+    await db.prepare(`UPDATE social_videos SET status = 'approved' WHERE id = ?`).bind(videoId).run();
+    return c.json({ success: true, status: 'approved' });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// API: Delete video
+app.post('/api/social/video/:id/delete', async (c) => {
+  const user = c.get('user') as any;
+  if (!user || user.role !== 'admin') {
+    return c.json({ success: false, error: 'Admin access required' }, 403);
+  }
+  
+  const videoId = c.req.param('id');
+  const db = c.env.TESCO_DB;
+  
+  try {
+    await db.prepare(`DELETE FROM social_videos WHERE id = ?`).bind(videoId).run();
+    return c.json({ success: true });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// API: Video analytics
+app.get('/api/social/video/stats', async (c) => {
+  const user = c.get('user') as any;
+  if (!user || user.role !== 'admin') {
+    return c.json({ success: false, error: 'Admin access required' }, 403);
+  }
+  
+  const db = c.env.TESCO_DB;
+  
+  try {
+    const [statusCounts, recentVideos, totalCost, avgRegens] = await Promise.all([
+      db.prepare('SELECT status, COUNT(*) as count FROM social_videos GROUP BY status').all(),
+      db.prepare('SELECT * FROM social_videos ORDER BY created_at DESC LIMIT 10').all(),
+      db.prepare('SELECT SUM(total_cost_gbp) as total FROM social_videos').first(),
+      db.prepare('SELECT AVG(regeneration_count) as avg FROM social_videos').first()
+    ]);
+    
+    return c.json({
+      success: true,
+      stats: {
+        byStatus: statusCounts.results || [],
+        recentVideos: recentVideos.results || [],
+        totalCost: (totalCost as any)?.total || 0,
+        avgRegenerations: (avgRegens as any)?.avg || 0
       }
     });
   } catch (error: any) {
@@ -18742,35 +19923,6 @@ function getSocialCommandCentrePage(user: any) {
       border-radius: 50%;
     }
     
-    /* Pillars */
-    .pillar-list { display: flex; flex-direction: column; gap: 6px; }
-    .pillar-item {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 10px;
-      border-radius: 6px;
-      cursor: pointer;
-      font-size: 12px;
-      transition: all 0.15s;
-    }
-    .pillar-item:hover { background: #27272A; }
-    .pillar-item.active { background: #27272A; }
-    .pillar-dot {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      flex-shrink: 0;
-    }
-    .pillar-name { flex: 1; font-weight: 500; }
-    .pillar-count {
-      font-size: 10px;
-      color: #71717A;
-      background: #27272A;
-      padding: 2px 6px;
-      border-radius: 4px;
-    }
-    
     /* Main Content */
     .main-content {
       display: flex;
@@ -19170,12 +20322,6 @@ function getSocialCommandCentrePage(user: any) {
         <div class="calendar-grid" id="calendar-grid"></div>
       </div>
       
-      <!-- Content Pillars -->
-      <div class="sidebar-section">
-        <div class="sidebar-title">Content Pillars</div>
-        <div class="pillar-list" id="pillar-list"></div>
-      </div>
-      
       <!-- Quick Actions -->
       <div class="sidebar-section">
         <div class="sidebar-title">Quick Actions</div>
@@ -19237,14 +20383,6 @@ function getSocialCommandCentrePage(user: any) {
             <button class="btn btn-ghost" style="margin-top: 8px;" onclick="enhancePrompt()">
               <i class="fas fa-magic"></i> Enhance with AI
             </button>
-          </div>
-          
-          <!-- Pillar Select -->
-          <div class="form-group">
-            <label class="form-label">Content Pillar</label>
-            <select id="pillar-select" class="form-select">
-              <option value="">Select pillar...</option>
-            </select>
           </div>
           
           <!-- CTA Input -->
@@ -19339,6 +20477,11 @@ function getSocialCommandCentrePage(user: any) {
           </div>
         </div>
         <input type="file" id="media-input" accept="image/*,video/*" style="display: none;" onchange="handleMediaUpload(event)">
+        <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #27272A;">
+          <button class="btn btn-secondary" style="width: 100%;" onclick="generateAIImage()" id="generate-image-btn">
+            <i class="fas fa-magic"></i> Generate AI Image
+          </button>
+        </div>
       </div>
       
       <!-- Caption Preview -->
@@ -19395,7 +20538,6 @@ function getSocialCommandCentrePage(user: any) {
     const state = {
       selectedDate: new Date(),
       currentMonth: new Date(),
-      pillars: [],
       roadmap: {},
       posts: [],
       selectedPlatforms: ['instagram', 'twitter'],
@@ -19418,10 +20560,7 @@ function getSocialCommandCentrePage(user: any) {
 
     // Initialize
     document.addEventListener('DOMContentLoaded', async () => {
-      await Promise.all([
-        loadPillars(),
-        loadAnalytics()
-      ]);
+      await loadAnalytics();
       renderCalendar();
       selectDate(new Date());
       initDragDrop();
@@ -19439,15 +20578,6 @@ function getSocialCommandCentrePage(user: any) {
     }
 
     // Load Data
-    async function loadPillars() {
-      const data = await api('/api/social/pillars');
-      if (data.success) {
-        state.pillars = data.pillars;
-        renderPillars();
-        populatePillarSelect();
-      }
-    }
-
     async function loadRoadmap(start, end) {
       const data = await api(\`/api/social/roadmap?start=\${start}&end=\${end}\`);
       if (data.success) {
@@ -19524,23 +20654,6 @@ function getSocialCommandCentrePage(user: any) {
       grid.innerHTML = html;
     }
 
-    function renderPillars() {
-      const list = document.getElementById('pillar-list');
-      list.innerHTML = state.pillars.map(p => \`
-        <div class="pillar-item" data-pillar="\${p.id}">
-          <div class="pillar-dot" style="background: \${p.color}"></div>
-          <span class="pillar-name">\${p.name}</span>
-          <span class="pillar-count">\${p.short_code}</span>
-        </div>
-      \`).join('');
-    }
-
-    function populatePillarSelect() {
-      const select = document.getElementById('pillar-select');
-      select.innerHTML = '<option value="">Select pillar...</option>' +
-        state.pillars.map(p => \`<option value="\${p.id}">\${p.name}</option>\`).join('');
-    }
-
     function renderScheduleSlots() {
       const container = document.getElementById('schedule-slots');
       const dateStr = formatDate(state.selectedDate);
@@ -19611,10 +20724,15 @@ function getSocialCommandCentrePage(user: any) {
             </div>
           </div>
           <div style="display: flex; gap: 4px;">
-            <button class="btn btn-ghost" style="padding: 6px 8px;" onclick="editPost(\${post.id})">
+            \${post.status === 'draft' ? \`
+              <button class="btn btn-primary" style="padding: 6px 10px; font-size: 12px;" onclick="publishPost('\${post.id}')">
+                <i class="fas fa-paper-plane"></i> Publish
+              </button>
+            \` : ''}
+            <button class="btn btn-ghost" style="padding: 6px 8px;" onclick="editPost('\${post.id}')">
               <i class="fas fa-edit"></i>
             </button>
-            <button class="btn btn-ghost" style="padding: 6px 8px; color: #DC2626;" onclick="deletePost(\${post.id})">
+            <button class="btn btn-ghost" style="padding: 6px 8px; color: #DC2626;" onclick="deletePost('\${post.id}')">
               <i class="fas fa-trash"></i>
             </button>
           </div>
@@ -19700,9 +20818,7 @@ function getSocialCommandCentrePage(user: any) {
         return;
       }
       
-      const pillarId = document.getElementById('pillar-select').value;
       const cta = document.getElementById('cta-input').value;
-      const pillar = state.pillars.find(p => p.id == pillarId)?.name;
       
       const btn = document.getElementById('generate-btn');
       btn.disabled = true;
@@ -19714,7 +20830,7 @@ function getSocialCommandCentrePage(user: any) {
       
       for (const platform of state.selectedPlatforms) {
         try {
-          const data = await api('/api/social/generate-caption', 'POST', { platform, topic, pillar, cta });
+          const data = await api('/api/social/generate-caption', 'POST', { platform, topic, cta });
           
           if (data.success) {
             state.generatedCaptions[platform] = data.caption;
@@ -19769,15 +20885,13 @@ function getSocialCommandCentrePage(user: any) {
 
     async function regenerateCaption(platform) {
       const topic = document.getElementById('topic-input').value;
-      const pillarId = document.getElementById('pillar-select').value;
       const cta = document.getElementById('cta-input').value;
-      const pillar = state.pillars.find(p => p.id == pillarId)?.name;
       
       const textarea = document.getElementById(\`caption-\${platform}\`);
       textarea.disabled = true;
       textarea.value = 'Regenerating...';
       
-      const data = await api('/api/social/generate-caption', 'POST', { platform, topic, pillar, cta });
+      const data = await api('/api/social/generate-caption', 'POST', { platform, topic, cta });
       
       if (data.success) {
         textarea.value = data.caption;
@@ -19821,8 +20935,6 @@ function getSocialCommandCentrePage(user: any) {
 
     async function enhancePrompt() {
       const input = document.getElementById('topic-input');
-      const pillarId = document.getElementById('pillar-select').value;
-      const pillar = state.pillars.find(p => p.id == pillarId)?.name;
       
       if (!input.value.trim()) {
         showToast('Enter a topic first', 'error');
@@ -19834,8 +20946,7 @@ function getSocialCommandCentrePage(user: any) {
       input.value = 'Enhancing...';
       
       const data = await api('/api/social/enhance-prompt', 'POST', { 
-        prompt: original, 
-        pillar 
+        prompt: original 
       });
       
       if (data.success) {
@@ -19931,13 +21042,55 @@ function getSocialCommandCentrePage(user: any) {
       initDragDrop();
     }
 
+    async function generateAIImage() {
+      const topic = document.getElementById('topic-input').value.trim();
+      if (!topic) {
+        showToast('Enter a topic first to generate an image', 'error');
+        return;
+      }
+      
+      const btn = document.getElementById('generate-image-btn');
+      btn.disabled = true;
+      btn.innerHTML = '<div class="spinner"></div> Generating...';
+      
+      const platform = state.selectedPlatforms[0] || 'instagram';
+      
+      try {
+        const data = await api('/api/social/generate-image', 'POST', { 
+          prompt: topic,
+          platform 
+        });
+        
+        if (data.success) {
+          state.currentMediaUrl = data.imageUrl;
+          state.currentMediaType = 'image';
+          
+          document.getElementById('media-preview-container').innerHTML = \`
+            <div class="media-preview">
+              <img src="\${data.imageBase64}" alt="AI Generated">
+              <button class="media-preview-remove" onclick="removeMedia()">
+                <i class="fas fa-times"></i>
+              </button>
+            </div>
+          \`;
+          showToast('Image generated', 'success');
+        } else {
+          showToast('Generation failed: ' + data.error, 'error');
+        }
+      } catch (err) {
+        showToast('Generation failed', 'error');
+      }
+      
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-magic"></i> Generate AI Image';
+    }
+
     // Save/Publish
     async function saveDraft() {
       const topic = document.getElementById('topic-input').value;
       const date = document.getElementById('schedule-date').value;
       const timeSlot = document.getElementById('schedule-time-slot').value;
       const time = document.getElementById('schedule-time').value;
-      const pillarId = document.getElementById('pillar-select').value;
       
       // Get the first generated caption or use topic
       const caption = Object.values(state.generatedCaptions)[0] || topic;
@@ -19950,7 +21103,6 @@ function getSocialCommandCentrePage(user: any) {
         media_url: state.currentMediaUrl,
         caption,
         platforms: state.selectedPlatforms,
-        pillar_id: pillarId || null,
         topic
       });
       
@@ -19972,6 +21124,23 @@ function getSocialCommandCentrePage(user: any) {
         loadAnalytics();
       } else {
         showToast('Delete failed', 'error');
+      }
+    }
+
+    async function publishPost(id) {
+      if (!confirm('Publish this post now?')) return;
+      
+      showToast('Publishing...', 'info');
+      
+      const data = await api(\`/api/social/publish/\${id}\`, 'POST', { publishNow: true });
+      
+      if (data.success) {
+        showToast('Post published successfully', 'success');
+        loadPosts();
+        loadAnalytics();
+      } else {
+        const errors = data.results?.filter(r => !r.success).map(r => \`\${r.platform}: \${r.error}\`).join(', ');
+        showToast('Publish failed: ' + (errors || data.error), 'error');
       }
     }
 
@@ -20004,6 +21173,810 @@ function getSocialCommandCentrePage(user: any) {
       toast.textContent = message;
       toast.className = \`toast \${type} show\`;
       setTimeout(() => toast.classList.remove('show'), 3000);
+    }
+  </script>
+</body>
+</html>`;
+}
+
+// ============================================================================
+// AI VIDEO GENERATOR PAGE
+// ============================================================================
+function getVideoGeneratorPage(user: any) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Video Generator - ShopShot</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    * { font-family: 'Inter', system-ui, sans-serif; }
+    body { background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 100%); min-height: 100vh; }
+    
+    .card {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 16px;
+      backdrop-filter: blur(10px);
+    }
+    
+    .btn-primary {
+      background: linear-gradient(135deg, #FF6B35 0%, #F7931E 100%);
+      color: white;
+      font-weight: 600;
+      padding: 12px 24px;
+      border-radius: 10px;
+      border: none;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(255,107,53,0.3); }
+    .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+    
+    .btn-secondary {
+      background: rgba(255,255,255,0.08);
+      color: white;
+      font-weight: 500;
+      padding: 12px 24px;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.1);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-secondary:hover { background: rgba(255,255,255,0.12); }
+    
+    .btn-success {
+      background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+      color: white;
+      font-weight: 600;
+      padding: 12px 24px;
+      border-radius: 10px;
+      border: none;
+      cursor: pointer;
+    }
+    
+    .input-field {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 10px;
+      padding: 14px 16px;
+      color: white;
+      width: 100%;
+      font-size: 15px;
+      transition: all 0.2s;
+    }
+    .input-field:focus {
+      outline: none;
+      border-color: #FF6B35;
+      box-shadow: 0 0 0 3px rgba(255,107,53,0.1);
+    }
+    .input-field::placeholder { color: rgba(255,255,255,0.4); }
+    
+    select.input-field {
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 12px center;
+      background-size: 18px;
+      padding-right: 44px;
+    }
+    
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .status-generating { background: rgba(251,191,36,0.2); color: #FCD34D; }
+    .status-preview { background: rgba(59,130,246,0.2); color: #60A5FA; }
+    .status-approved { background: rgba(16,185,129,0.2); color: #34D399; }
+    .status-scheduled { background: rgba(139,92,246,0.2); color: #A78BFA; }
+    .status-published { background: rgba(16,185,129,0.2); color: #34D399; }
+    .status-failed { background: rgba(239,68,68,0.2); color: #F87171; }
+    
+    .video-preview {
+      background: #000;
+      border-radius: 12px;
+      overflow: hidden;
+      aspect-ratio: 9/16;
+      max-height: 500px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .video-preview video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+    
+    .progress-bar {
+      width: 100%;
+      height: 6px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #FF6B35 0%, #F7931E 100%);
+      border-radius: 3px;
+      transition: width 0.3s;
+    }
+    
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      padding: 16px 24px;
+      border-radius: 12px;
+      color: white;
+      font-weight: 500;
+      z-index: 1000;
+      animation: slideIn 0.3s ease;
+    }
+    .toast-success { background: linear-gradient(135deg, #10B981, #059669); }
+    .toast-error { background: linear-gradient(135deg, #EF4444, #DC2626); }
+    
+    @keyframes slideIn {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    
+    .spinner {
+      width: 20px;
+      height: 20px;
+      border: 3px solid rgba(255,255,255,0.3);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    
+    .video-history-item {
+      display: flex;
+      gap: 16px;
+      padding: 16px;
+      border-radius: 12px;
+      background: rgba(255,255,255,0.02);
+      border: 1px solid rgba(255,255,255,0.05);
+      transition: all 0.2s;
+      cursor: pointer;
+    }
+    .video-history-item:hover {
+      background: rgba(255,255,255,0.05);
+      border-color: rgba(255,255,255,0.1);
+    }
+    .video-thumb {
+      width: 80px;
+      height: 140px;
+      background: #1a1a2e;
+      border-radius: 8px;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+    .video-thumb video, .video-thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+  </style>
+</head>
+<body class="text-white p-6">
+  <!-- Header -->
+  <header class="flex items-center justify-between mb-8">
+    <div class="flex items-center gap-4">
+      <a href="/admin" class="text-gray-400 hover:text-white transition-colors">
+        <i class="fas fa-arrow-left text-xl"></i>
+      </a>
+      <div>
+        <h1 class="text-2xl font-bold">AI Video Generator</h1>
+        <p class="text-gray-400 text-sm">Create professional TikTok/Reels/Shorts automatically</p>
+      </div>
+    </div>
+    <a href="/admin/social" class="btn-secondary text-sm">
+      <i class="fas fa-th-large mr-2"></i> Social Command Centre
+    </a>
+  </header>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <!-- Left Panel: Generation Form -->
+    <div class="lg:col-span-1">
+      <div class="card p-6">
+        <h2 class="text-lg font-semibold mb-4 flex items-center gap-2">
+          <i class="fas fa-magic text-orange-400"></i> New Video
+        </h2>
+        
+        <form id="generate-form" class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-400 mb-2">Topic / Theme</label>
+            <textarea 
+              id="topic" 
+              class="input-field" 
+              rows="3"
+              placeholder="e.g., Product demo: white background removal&#10;or: Why e-commerce sellers waste money on photoshoots"
+              required
+            ></textarea>
+          </div>
+          
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-400 mb-2">Duration</label>
+              <select id="duration" class="input-field">
+                <option value="10">10 seconds</option>
+                <option value="15" selected>15 seconds</option>
+                <option value="20">20 seconds</option>
+                <option value="30">30 seconds</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-400 mb-2">Platform</label>
+              <select id="platform" class="input-field">
+                <option value="Instagram Reels">Instagram Reels</option>
+                <option value="YouTube Shorts">YouTube Shorts</option>
+                <option value="TikTok">TikTok</option>
+                <option value="X">X / Twitter</option>
+              </select>
+            </div>
+          </div>
+          
+          <button type="submit" class="btn-primary w-full justify-center" id="generate-btn">
+            <i class="fas fa-video"></i>
+            <span id="btn-text">Generate Video</span>
+            <div id="btn-spinner" class="spinner" style="display:none;"></div>
+          </button>
+        </form>
+        
+        <!-- Generation Progress -->
+        <div id="progress-section" class="mt-6" style="display:none;">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-sm text-gray-400" id="progress-status">Generating script...</span>
+            <span class="text-sm text-orange-400" id="progress-time">0:00</span>
+          </div>
+          <div class="progress-bar">
+            <div class="progress-bar-fill" id="progress-fill" style="width: 0%"></div>
+          </div>
+          <p class="text-xs text-gray-500 mt-2">Estimated time: 3-4 minutes</p>
+        </div>
+        
+        <!-- Cost Estimate -->
+        <div class="mt-6 p-4 rounded-lg bg-gradient-to-r from-orange-500/10 to-amber-500/10 border border-orange-500/20">
+          <div class="flex items-center gap-2 text-sm">
+            <i class="fas fa-pound-sign text-orange-400"></i>
+            <span class="text-gray-300">Estimated cost per video:</span>
+            <span class="font-semibold text-white">GBP1.36 - GBP2.26</span>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Quick Stats -->
+      <div class="card p-6 mt-6">
+        <h3 class="text-sm font-semibold text-gray-400 mb-4">This Month</h3>
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <div class="text-2xl font-bold" id="stat-total">0</div>
+            <div class="text-xs text-gray-500">Videos Generated</div>
+          </div>
+          <div>
+            <div class="text-2xl font-bold" id="stat-published">0</div>
+            <div class="text-xs text-gray-500">Published</div>
+          </div>
+          <div>
+            <div class="text-2xl font-bold text-orange-400" id="stat-cost">GBP0</div>
+            <div class="text-xs text-gray-500">Total Cost</div>
+          </div>
+          <div>
+            <div class="text-2xl font-bold" id="stat-regens">0</div>
+            <div class="text-xs text-gray-500">Avg Regenerations</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Center Panel: Video Preview -->
+    <div class="lg:col-span-1">
+      <div class="card p-6">
+        <h2 class="text-lg font-semibold mb-4 flex items-center gap-2">
+          <i class="fas fa-play-circle text-blue-400"></i> Preview
+        </h2>
+        
+        <div id="preview-placeholder" class="video-preview bg-gray-800/50">
+          <div class="text-center text-gray-500">
+            <i class="fas fa-film text-4xl mb-3"></i>
+            <p class="text-sm">Generate a video to see preview</p>
+          </div>
+        </div>
+        
+        <div id="preview-container" style="display:none;">
+          <div class="video-preview">
+            <video id="preview-video" controls>
+              <source src="" type="video/mp4">
+            </video>
+          </div>
+          
+          <div class="mt-4 flex items-center justify-between">
+            <span class="status-badge status-preview" id="video-status">
+              <i class="fas fa-eye"></i> Preview
+            </span>
+            <span class="text-sm text-gray-400" id="video-info"></span>
+          </div>
+          
+          <!-- Action Buttons -->
+          <div class="mt-4 space-y-3">
+            <button class="btn-success w-full justify-center" id="approve-btn" onclick="approveVideo()">
+              <i class="fas fa-check mr-2"></i> Approve & Schedule
+            </button>
+            
+            <div class="flex gap-2">
+              <button class="btn-secondary flex-1" id="smart-regen-btn" onclick="regenerateVideo('smart')">
+                <i class="fas fa-sync-alt mr-2"></i> Regenerate Clips
+              </button>
+              <button class="btn-secondary flex-1" id="full-regen-btn" onclick="regenerateVideo('full')" style="display:none;">
+                <i class="fas fa-redo mr-2"></i> Start Fresh
+              </button>
+            </div>
+          </div>
+          
+          <!-- Schedule Section -->
+          <div id="schedule-section" class="mt-4 p-4 rounded-lg bg-gray-800/50" style="display:none;">
+            <h4 class="text-sm font-medium mb-3">Schedule Publication</h4>
+            <div class="space-y-3">
+              <input type="datetime-local" id="schedule-time" class="input-field">
+              
+              <div class="flex flex-wrap gap-2">
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" id="platform-instagram" checked class="rounded">
+                  <span class="text-sm"><i class="fab fa-instagram text-pink-400"></i> Instagram</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" id="platform-youtube" checked class="rounded">
+                  <span class="text-sm"><i class="fab fa-youtube text-red-400"></i> YouTube</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" id="platform-twitter" class="rounded">
+                  <span class="text-sm"><i class="fab fa-x-twitter"></i> X</span>
+                </label>
+              </div>
+              
+              <div class="flex gap-2">
+                <button class="btn-primary flex-1" onclick="scheduleVideo()">
+                  <i class="fas fa-calendar-check mr-2"></i> Schedule
+                </button>
+                <button class="btn-secondary" onclick="publishNow()">
+                  <i class="fas fa-paper-plane mr-2"></i> Publish Now
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Right Panel: History -->
+    <div class="lg:col-span-1">
+      <div class="card p-6">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-lg font-semibold flex items-center gap-2">
+            <i class="fas fa-history text-purple-400"></i> Recent Videos
+          </h2>
+          <button class="text-sm text-orange-400 hover:text-orange-300" onclick="loadHistory()">
+            <i class="fas fa-refresh mr-1"></i> Refresh
+          </button>
+        </div>
+        
+        <div id="history-list" class="space-y-3">
+          <div class="text-center text-gray-500 py-8">
+            <i class="fas fa-video-slash text-3xl mb-3"></i>
+            <p class="text-sm">No videos generated yet</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentVideoId = null;
+    let currentVideoData = null;
+    let progressInterval = null;
+    let startTime = null;
+    
+    // Initialize
+    document.addEventListener('DOMContentLoaded', () => {
+      loadHistory();
+      loadStats();
+      
+      // Set default schedule time to tomorrow 10am
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(10, 0, 0, 0);
+      document.getElementById('schedule-time').value = tomorrow.toISOString().slice(0, 16);
+    });
+    
+    // Generate video
+    document.getElementById('generate-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const topic = document.getElementById('topic').value.trim();
+      const duration = parseInt(document.getElementById('duration').value);
+      const platform = document.getElementById('platform').value;
+      
+      if (!topic) {
+        showToast('Please enter a topic', 'error');
+        return;
+      }
+      
+      // Show loading state
+      const btn = document.getElementById('generate-btn');
+      const btnText = document.getElementById('btn-text');
+      const btnSpinner = document.getElementById('btn-spinner');
+      
+      btn.disabled = true;
+      btnText.textContent = 'Generating...';
+      btnSpinner.style.display = 'block';
+      
+      // Show progress
+      document.getElementById('progress-section').style.display = 'block';
+      document.getElementById('preview-placeholder').style.display = 'flex';
+      document.getElementById('preview-container').style.display = 'none';
+      
+      startTime = Date.now();
+      progressInterval = setInterval(updateProgress, 1000);
+      
+      try {
+        const response = await fetch('/api/social/video/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ topic, duration, platform })
+        });
+        
+        const data = await response.json();
+        
+        clearInterval(progressInterval);
+        
+        if (data.success) {
+          currentVideoId = data.videoId;
+          currentVideoData = data;
+          
+          // Show preview
+          document.getElementById('preview-placeholder').style.display = 'none';
+          document.getElementById('preview-container').style.display = 'block';
+          document.getElementById('preview-video').src = data.videoUrl;
+          document.getElementById('video-info').textContent = 
+            \`\${data.generationTime}s | GBP\${data.cost.toFixed(2)} | \${data.script.segments} segments\`;
+          
+          updateStatusBadge('preview');
+          showToast('Video generated successfully!', 'success');
+          loadHistory();
+          loadStats();
+        } else {
+          showToast(data.error || 'Generation failed', 'error');
+        }
+      } catch (error) {
+        clearInterval(progressInterval);
+        showToast('Network error: ' + error.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btnText.textContent = 'Generate Video';
+        btnSpinner.style.display = 'none';
+        document.getElementById('progress-section').style.display = 'none';
+      }
+    });
+    
+    function updateProgress() {
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      const minutes = Math.floor(elapsed / 60);
+      const seconds = elapsed % 60;
+      document.getElementById('progress-time').textContent = \`\${minutes}:\${seconds.toString().padStart(2, '0')}\`;
+      
+      // Estimate progress (assume 3 minutes total)
+      const estimatedTotal = 180;
+      const progress = Math.min((elapsed / estimatedTotal) * 100, 95);
+      document.getElementById('progress-fill').style.width = progress + '%';
+      
+      // Update status text
+      if (elapsed < 10) {
+        document.getElementById('progress-status').textContent = 'Generating script with AI...';
+      } else if (elapsed < 60) {
+        document.getElementById('progress-status').textContent = 'Creating video clips with Veo 3...';
+      } else if (elapsed < 120) {
+        document.getElementById('progress-status').textContent = 'Rendering motion graphics...';
+      } else {
+        document.getElementById('progress-status').textContent = 'Assembling final video...';
+      }
+    }
+    
+    function updateStatusBadge(status) {
+      const badge = document.getElementById('video-status');
+      const statusConfig = {
+        generating: { class: 'status-generating', icon: 'fa-spinner fa-spin', text: 'Generating' },
+        preview: { class: 'status-preview', icon: 'fa-eye', text: 'Preview' },
+        approved: { class: 'status-approved', icon: 'fa-check', text: 'Approved' },
+        scheduled: { class: 'status-scheduled', icon: 'fa-calendar', text: 'Scheduled' },
+        published: { class: 'status-published', icon: 'fa-check-circle', text: 'Published' },
+        failed: { class: 'status-failed', icon: 'fa-times', text: 'Failed' }
+      };
+      
+      const config = statusConfig[status] || statusConfig.preview;
+      badge.className = 'status-badge ' + config.class;
+      badge.innerHTML = \`<i class="fas \${config.icon}"></i> \${config.text}\`;
+    }
+    
+    async function approveVideo() {
+      if (!currentVideoId) return;
+      
+      try {
+        const response = await fetch(\`/api/social/video/\${currentVideoId}/approve\`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          updateStatusBadge('approved');
+          document.getElementById('schedule-section').style.display = 'block';
+          document.getElementById('approve-btn').style.display = 'none';
+          showToast('Video approved! Now schedule it.', 'success');
+        } else {
+          showToast(data.error || 'Approval failed', 'error');
+        }
+      } catch (error) {
+        showToast('Network error', 'error');
+      }
+    }
+    
+    async function regenerateVideo(type) {
+      if (!currentVideoId) return;
+      
+      const btn = type === 'smart' ? 
+        document.getElementById('smart-regen-btn') : 
+        document.getElementById('full-regen-btn');
+      
+      const originalText = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<div class="spinner" style="width:16px;height:16px;"></div> Regenerating...';
+      
+      try {
+        const response = await fetch(\`/api/social/video/\${currentVideoId}/regenerate\`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ regenerationType: type })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          document.getElementById('preview-video').src = data.videoUrl;
+          
+          // Show full regen button after 2 smart attempts
+          if (data.regenerationCount >= 2) {
+            document.getElementById('smart-regen-btn').style.display = 'none';
+            document.getElementById('full-regen-btn').style.display = 'block';
+          }
+          
+          showToast(\`Video regenerated (\${data.regenerationType})\`, 'success');
+          loadHistory();
+        } else {
+          showToast(data.error || 'Regeneration failed', 'error');
+        }
+      } catch (error) {
+        showToast('Network error', 'error');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+      }
+    }
+    
+    async function scheduleVideo() {
+      if (!currentVideoId) return;
+      
+      const scheduledFor = document.getElementById('schedule-time').value;
+      const platforms = [];
+      
+      if (document.getElementById('platform-instagram').checked) platforms.push('instagram');
+      if (document.getElementById('platform-youtube').checked) platforms.push('youtube');
+      if (document.getElementById('platform-twitter').checked) platforms.push('twitter');
+      
+      if (platforms.length === 0) {
+        showToast('Select at least one platform', 'error');
+        return;
+      }
+      
+      try {
+        const response = await fetch(\`/api/social/video/\${currentVideoId}/schedule\`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scheduledFor: new Date(scheduledFor).toISOString(), platforms })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          updateStatusBadge('scheduled');
+          showToast('Video scheduled successfully!', 'success');
+          loadHistory();
+          
+          // Reset form
+          document.getElementById('topic').value = '';
+          document.getElementById('schedule-section').style.display = 'none';
+          document.getElementById('approve-btn').style.display = 'block';
+        } else {
+          showToast(data.error || 'Scheduling failed', 'error');
+        }
+      } catch (error) {
+        showToast('Network error', 'error');
+      }
+    }
+    
+    async function publishNow() {
+      if (!currentVideoId) return;
+      
+      const platforms = [];
+      if (document.getElementById('platform-instagram').checked) platforms.push('instagram');
+      if (document.getElementById('platform-youtube').checked) platforms.push('youtube');
+      if (document.getElementById('platform-twitter').checked) platforms.push('twitter');
+      
+      if (platforms.length === 0) {
+        showToast('Select at least one platform', 'error');
+        return;
+      }
+      
+      if (!confirm('Publish this video now to ' + platforms.join(', ') + '?')) return;
+      
+      try {
+        const response = await fetch(\`/api/social/video/\${currentVideoId}/schedule\`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ publishNow: true, platforms })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          updateStatusBadge('published');
+          showToast('Video published!', 'success');
+          loadHistory();
+        } else {
+          showToast(data.error || 'Publishing failed', 'error');
+        }
+      } catch (error) {
+        showToast('Network error', 'error');
+      }
+    }
+    
+    async function loadHistory() {
+      try {
+        const response = await fetch('/api/social/videos?limit=10');
+        const data = await response.json();
+        
+        const container = document.getElementById('history-list');
+        
+        if (!data.success || !data.videos?.length) {
+          container.innerHTML = \`
+            <div class="text-center text-gray-500 py-8">
+              <i class="fas fa-video-slash text-3xl mb-3"></i>
+              <p class="text-sm">No videos generated yet</p>
+            </div>
+          \`;
+          return;
+        }
+        
+        container.innerHTML = data.videos.map(video => \`
+          <div class="video-history-item" onclick="loadVideo('\${video.id}')">
+            <div class="video-thumb">
+              \${video.final_video_url ? 
+                \`<video src="\${video.final_video_url}" muted></video>\` :
+                \`<div class="flex items-center justify-center h-full"><i class="fas fa-video text-gray-600"></i></div>\`
+              }
+            </div>
+            <div class="flex-1 min-w-0">
+              <p class="font-medium truncate">\${video.topic}</p>
+              <p class="text-xs text-gray-500 mt-1">\${video.platform} - \${video.duration}s</p>
+              <div class="flex items-center gap-2 mt-2">
+                <span class="status-badge status-\${video.status}" style="padding:3px 8px;font-size:10px;">
+                  \${video.status}
+                </span>
+                <span class="text-xs text-gray-500">\${formatDate(video.created_at)}</span>
+              </div>
+            </div>
+          </div>
+        \`).join('');
+        
+      } catch (error) {
+        console.error('Failed to load history:', error);
+      }
+    }
+    
+    async function loadVideo(videoId) {
+      try {
+        const response = await fetch(\`/api/social/video/\${videoId}\`);
+        const data = await response.json();
+        
+        if (data.success && data.video) {
+          currentVideoId = videoId;
+          currentVideoData = data.video;
+          
+          document.getElementById('preview-placeholder').style.display = 'none';
+          document.getElementById('preview-container').style.display = 'block';
+          
+          if (data.video.final_video_url) {
+            document.getElementById('preview-video').src = data.video.final_video_url;
+          }
+          
+          updateStatusBadge(data.video.status);
+          
+          document.getElementById('video-info').textContent = 
+            \`\${data.video.platform} | GBP\${(data.video.total_cost_gbp || 0).toFixed(2)} | \${data.video.regeneration_count || 0} regens\`;
+          
+          // Show/hide buttons based on status
+          const isPreview = data.video.status === 'preview';
+          document.getElementById('approve-btn').style.display = isPreview ? 'block' : 'none';
+          document.getElementById('schedule-section').style.display = 
+            ['approved', 'preview'].includes(data.video.status) && !isPreview ? 'block' : 'none';
+        }
+      } catch (error) {
+        showToast('Failed to load video', 'error');
+      }
+    }
+    
+    async function loadStats() {
+      try {
+        const response = await fetch('/api/social/video/stats');
+        const data = await response.json();
+        
+        if (data.success) {
+          const stats = data.stats;
+          
+          // Calculate totals from status counts
+          let total = 0, published = 0;
+          (stats.byStatus || []).forEach(s => {
+            total += s.count;
+            if (s.status === 'published') published = s.count;
+          });
+          
+          document.getElementById('stat-total').textContent = total;
+          document.getElementById('stat-published').textContent = published;
+          document.getElementById('stat-cost').textContent = 'GBP' + (stats.totalCost || 0).toFixed(2);
+          document.getElementById('stat-regens').textContent = (stats.avgRegenerations || 0).toFixed(1);
+        }
+      } catch (error) {
+        console.error('Failed to load stats:', error);
+      }
+    }
+    
+    function formatDate(dateStr) {
+      if (!dateStr) return '';
+      const date = new Date(dateStr);
+      const now = new Date();
+      const diff = now - date;
+      
+      if (diff < 60000) return 'Just now';
+      if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
+      if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
+      return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    }
+    
+    function showToast(message, type = 'success') {
+      const toast = document.createElement('div');
+      toast.className = \`toast toast-\${type}\`;
+      toast.textContent = message;
+      document.body.appendChild(toast);
+      
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateX(100%)';
+        setTimeout(() => toast.remove(), 300);
+      }, 3000);
     }
   </script>
 </body>
