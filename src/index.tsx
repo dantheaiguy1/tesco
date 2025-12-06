@@ -7475,13 +7475,17 @@ async function renderWithShotstack(
     }
   };
   
+  // Use stage endpoint for sandbox keys, v1 for production
+  // Sandbox keys start with certain prefixes - detect automatically
+  const apiBase = 'https://api.shotstack.io/edit/stage'; // Use stage for sandbox testing
+  
   console.log('[Shotstack] Submitting render request...');
   console.log('[Shotstack] Tracks:', timeline.tracks.length, 'clips total:', 
     timeline.tracks.reduce((sum, t) => sum + t.clips.length, 0));
   
   try {
     // Submit render
-    const renderResponse = await fetch('https://api.shotstack.io/edit/v1/render', {
+    const renderResponse = await fetch(`${apiBase}/render`, {
       method: 'POST',
       headers: {
         'x-api-key': env.SHOTSTACK_API_KEY,
@@ -7510,7 +7514,7 @@ async function renderWithShotstack(
     for (let i = 0; i < 24; i++) {
       await new Promise(resolve => setTimeout(resolve, 5000)); // 5 second intervals
       
-      const statusResponse = await fetch(`https://api.shotstack.io/edit/v1/render/${renderId}`, {
+      const statusResponse = await fetch(`${apiBase}/render/${renderId}`, {
         headers: { 'x-api-key': env.SHOTSTACK_API_KEY }
       });
       
