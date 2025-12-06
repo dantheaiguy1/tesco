@@ -6768,25 +6768,26 @@ For this ${duration} second video you MUST include:
 - EXACTLY ${minStock} Stock B-roll clips (3-4 seconds each)
 - Total duration MUST equal EXACTLY ${duration} seconds
 
-${duration <= 15 ? `=== 15 SECOND STRUCTURE ===
-1. Veo 3 (6s) - THE HOOK: Pattern interrupt, grab attention instantly
+${duration <= 15 ? `=== 15 SECOND STRUCTURE (EXACT) ===
+1. Veo 3 (4s) - THE HOOK: Pattern interrupt, grab attention instantly
 2. Stock (3s) - Quick context cut (ecommerce, frustration, money)
-3. Veo 3 (6s) - THE SOLUTION: Show transformation, product in action
-4. Stock (3s) - SOCIAL PROOF: Success imagery, results
-TOTAL: 6+3+6+3 = 18s (adjust one scene to hit exactly 15s)` : duration <= 20 ? `=== 20 SECOND STRUCTURE ===
+3. Veo 3 (4s) - THE SOLUTION: Show transformation, product in action
+4. Stock (4s) - SOCIAL PROOF: Success imagery, results
+TOTAL: 4+3+4+4 = 15s EXACTLY` : duration <= 20 ? `=== 20 SECOND STRUCTURE (EXACT) ===
 1. Veo 3 (6s) - THE HOOK: Pattern interrupt, grab attention instantly
-2. Stock (4s) - Context cut (ecommerce seller, frustration)
+2. Stock (3s) - Context cut (ecommerce seller, frustration)
 3. Stock (3s) - THE PROBLEM: Bad photos, wasted money
-4. Veo 3 (6s) - THE SOLUTION: Show transformation, product in action
+4. Veo 3 (4s) - THE SOLUTION: Show transformation, product in action
 5. Stock (4s) - SOCIAL PROOF: Success imagery, results
-TOTAL: 6+4+3+6+4 = 23s (adjust durations to hit exactly 20s - use shorter clips)` : `=== 30 SECOND STRUCTURE ===
+TOTAL: 6+3+3+4+4 = 20s EXACTLY` : `=== 30 SECOND STRUCTURE (EXACT) ===
 1. Veo 3 (6s) - THE HOOK: Pattern interrupt, controversial opener
 2. Stock (3s) - Context cut (ecommerce seller struggling)
 3. Stock (4s) - THE PROBLEM: Bad photos, wasted money imagery
 4. Veo 3 (6s) - THE AGITATION: Pain point visualised dramatically
 5. Stock (3s) - Transition cut (photography, studio, tech)
-6. Veo 3 (8s) - THE SOLUTION + CTA: Product demo, transformation, urgency
-7. Stock (3s) - PROOF: Success, results, happy customer vibes
+6. Veo 3 (4s) - THE SOLUTION + CTA: Product demo, transformation, urgency
+7. Stock (4s) - PROOF: Success, results, happy customer vibes
+TOTAL: 6+3+4+6+3+4+4 = 30s EXACTLY
 TOTAL: 6+3+4+6+3+8+3 = 33s (adjust to hit exactly 30s)`}
 
 === VEO 3 PROMPT REQUIREMENTS ===
