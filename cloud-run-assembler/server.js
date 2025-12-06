@@ -133,8 +133,9 @@ async function processVideoGeneration(jobId, params) {
     
     const allClips = [];
     
-    // 1. Generate Veo 3 clips
-    if (veo3Segments?.length && vertexCredentials) {
+    // 1. Generate Veo 3 clips (DISABLED FOR NOW - takes too long and blocks)
+    // TODO: Re-enable when we have proper async Veo 3 handling
+    if (veo3Segments?.length && vertexCredentials && false) { // Disabled
       jobs.set(jobId, { status: 'processing', stage: 'veo3', progress: 10 });
       for (let i = 0; i < veo3Segments.length; i++) {
         const seg = veo3Segments[i];
@@ -148,6 +149,9 @@ async function processVideoGeneration(jobId, params) {
           console.error(`Veo3 clip ${i} failed:`, e.message);
         }
       }
+    } else if (veo3Segments?.length) {
+      // Use placeholder for Veo 3 segments for now
+      console.log(`[Generate] Skipping ${veo3Segments.length} Veo3 segments (using stock/motion only)`);
     }
     
     // 2. Download stock clips
