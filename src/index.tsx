@@ -22891,40 +22891,50 @@ function getVideoGeneratorPage(user: any) {
       document.getElementById('progress-time').textContent = \`\${minutes}:\${seconds.toString().padStart(2, '0')}\`;
     }
     
-    // Update the step-by-step visual progress
+    // Update the step-by-step visual progress (Shotstack pipeline)
     function updateStepProgress(stage, progress, detail) {
-      // Stage mapping from Cloud Run to our steps
+      // Simplified step order for Shotstack pipeline (no veo3)
+      const stepOrder = ['script', 'stock', 'voiceover', 'assembly', 'upload'];
+      
+      // Stage mapping to steps
       const stageToStep = {
         'starting': 'script',
         'script': 'script',
-        'veo3': 'veo3',
+        'stock': 'stock',
         'stock_clips': 'stock',
-        'motion_graphics': 'stock', // combine with stock since motion graphics removed
-        'encoding': 'assembly',
-        'concatenating': 'assembly',
-        'adding_voiceover': 'voiceover',
-        'uploading': 'upload'
+        'voiceover': 'voiceover',
+        'assembly': 'assembly',
+        'render': 'assembly',
+        'upload': 'upload',
+        'complete': 'upload'
       };
       
-      // Handle veo3_X_of_Y stages
-      let stepId = stageToStep[stage];
-      if (!stepId && stage && stage.startsWith('veo3_')) {
-        stepId = 'veo3';
-      }
-      if (!stepId) stepId = 'script';
+      let stepId = stageToStep[stage] || 'script';
       
       // Update progress bar
-      document.getElementById('progress-fill').style.width = progress + '%';
-      document.getElementById('progress-percent').textContent = progress + '%';
+      const progressFill = document.getElementById('progress-fill');
+      const progressPercent = document.getElementById('progress-percent');
+      if (progressFill) progressFill.style.width = progress + '%';
+      if (progressPercent) progressPercent.textContent = progress + '%';
       
-      // Define step order
-      const stepOrder = ['script', 'veo3', 'stock', 'voiceover', 'assembly', 'upload'];
       const currentIndex = stepOrder.indexOf(stepId);
       
-      // Update each step's state
+      // Define icons for each step
+      const icons = {
+        'script': 'fa-file-alt',
+        'stock': 'fa-film',
+        'voiceover': 'fa-microphone',
+        'assembly': 'fa-bolt',
+        'upload': 'fa-check-circle'
+      };
+      
+      // Update each step's state (with null checks)
       stepOrder.forEach((step, idx) => {
         const stepEl = document.getElementById('step-' + step);
         const iconEl = document.getElementById('step-' + step + '-icon');
+        
+        // Skip if elements don't exist
+        if (!stepEl || !iconEl) return;
         
         if (idx < currentIndex) {
           // Completed
@@ -22935,15 +22945,6 @@ function getVideoGeneratorPage(user: any) {
           // Active
           stepEl.className = 'step-item active';
           iconEl.className = 'step-icon active';
-          // Keep original icon but with spinner
-          const icons = {
-            'script': 'fa-file-alt',
-            'veo3': 'fa-magic',
-            'stock': 'fa-film',
-            'voiceover': 'fa-microphone',
-            'assembly': 'fa-layer-group',
-            'upload': 'fa-cloud-upload-alt'
-          };
           iconEl.innerHTML = '<i class="fas ' + icons[step] + '"></i>';
           
           // Track start time for this stage
@@ -22974,33 +22975,35 @@ function getVideoGeneratorPage(user: any) {
         }
       });
       
-      // Update status text
+      // Update status text (Shotstack pipeline)
       const statusMessages = {
-        'script': 'Generating AI script and shot list...',
-        'veo3': 'Creating AI video clips with Veo 3...',
-        'stock': 'Downloading stock footage from Pexels...',
-        'voiceover': 'Generating AI voiceover audio...',
-        'assembly': 'Assembling and encoding final video...',
-        'upload': 'Uploading video to cloud storage...'
+        'script': 'Generating viral video script...',
+        'stock': 'Fetching HD stock clips from Pexels...',
+        'voiceover': 'Creating AI voiceover with ElevenLabs...',
+        'assembly': 'Rendering with Shotstack (fast cuts + captions)...',
+        'upload': 'Video ready!'
       };
-      document.getElementById('progress-status').textContent = statusMessages[stepId] || 'Processing...';
+      const progressStatus = document.getElementById('progress-status');
+      if (progressStatus) progressStatus.textContent = statusMessages[stepId] || 'Processing...';
       
       // Update detail text
-      if (detail) {
-        document.getElementById('progress-detail').textContent = detail;
-      } else {
-        const defaultDetails = {
-          'script': 'AI is analyzing your topic and creating the video structure',
-          'veo3': 'Google Veo 3 is generating unique video content - this takes 2-3 min per clip',
-          'stock': 'Finding and downloading relevant B-roll footage',
-          'voiceover': 'ElevenLabs is generating professional voiceover',
-          'assembly': 'FFmpeg is combining all clips with transitions and audio',
-          'upload': 'Uploading final video to cloud for playback'
-        };
-        document.getElementById('progress-detail').textContent = defaultDetails[stepId] || '';
+      const progressDetail = document.getElementById('progress-detail');
+      if (progressDetail) {
+        if (detail) {
+          progressDetail.textContent = detail;
+        } else {
+          const defaultDetails = {
+            'script': 'AI analyzing topic and creating shot list',
+            'stock': 'Finding relevant B-roll footage',
+            'voiceover': 'Generating professional British voiceover',
+            'assembly': 'Adding fast cuts, animated captions, transitions',
+            'upload': 'Your video is ready to preview'
+          };
+          progressDetail.textContent = defaultDetails[stepId] || '';
+        }
       }
       
-      // Special handling for Veo 3 stage with clip details
+      // Legacy Veo3 handling (not used in Shotstack pipeline but keep for compatibility)
       if (stepId === 'veo3' && stage && stage.startsWith('veo3_')) {
         const parts = stage.split('_');
         if (parts.length >= 4) {
