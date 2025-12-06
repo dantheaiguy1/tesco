@@ -6672,11 +6672,21 @@ function validateVideoScript(script: any, targetDuration: number): ValidationRes
     warnings.push(`${script.segments.length} segments may feel choppy. Consider consolidating.`);
   }
   
-  // 5b. Validate minimum Veo 3 scenes (balanced with stock clips)
-  // 15s = 2 veo3 + 2 stock, 30s = 3 veo3 + 4 stock
-  const minVeo3Scenes = targetDuration <= 15 ? 2 : 3;
+  // 5b. Validate minimum Veo 3 and stock clips (balanced approach)
+  // 10-15s = 2 veo3 + 2 stock, 20s = 2 veo3 + 3 stock, 30s = 3 veo3 + 4 stock
   const stockSegments = script.segments.filter((s: any) => s.type === 'stock_broll');
-  const minStockClips = targetDuration <= 15 ? 2 : 4;
+  let minVeo3Scenes: number, minStockClips: number;
+  
+  if (targetDuration <= 15) {
+    minVeo3Scenes = 2;
+    minStockClips = 2;
+  } else if (targetDuration <= 20) {
+    minVeo3Scenes = 2;
+    minStockClips = 3;
+  } else {
+    minVeo3Scenes = 3;
+    minStockClips = 4;
+  }
   
   if (veo3Segments.length < minVeo3Scenes) {
     errors.push(`Only ${veo3Segments.length} Veo 3 scenes. Need at least ${minVeo3Scenes} for ${targetDuration}s video.`);
@@ -6717,9 +6727,16 @@ async function generateVideoScriptWithValidation(
   let lastErrors: string[] = [];
   const aspectRatio = platform === 'X' ? '16:9' : '9:16';
   
-  // Balanced clip requirements: 15s = 2 veo3 + 2 stock, 30s = 3 veo3 + 4 stock
-  const minVeo3 = duration <= 15 ? 2 : 3;
-  const minStock = duration <= 15 ? 2 : 4;
+  // Balanced clip requirements based on duration
+  // 10-15s = 2 veo3 + 2 stock, 20s = 2 veo3 + 3 stock, 30s = 3 veo3 + 4 stock
+  let minVeo3: number, minStock: number;
+  if (duration <= 15) {
+    minVeo3 = 2; minStock = 2;
+  } else if (duration <= 20) {
+    minVeo3 = 2; minStock = 3;
+  } else {
+    minVeo3 = 3; minStock = 4;
+  }
   
   const systemPrompt = `You are a viral video scriptwriter who creates scroll-stopping ${platform} content. Your videos get millions of views because they're provocative, specific, and impossible to ignore.
 
@@ -6749,20 +6766,28 @@ Channel Alex Hormozi meets Gary Vee meets British wit:
 For this ${duration} second video you MUST include:
 - EXACTLY ${minVeo3} Veo 3 AI-generated scenes (4, 6, or 8 seconds each)
 - EXACTLY ${minStock} Stock B-roll clips (3-4 seconds each)
-- Total duration MUST equal ${duration} seconds
+- Total duration MUST equal EXACTLY ${duration} seconds
 
 ${duration <= 15 ? `=== 15 SECOND STRUCTURE ===
 1. Veo 3 (6s) - THE HOOK: Pattern interrupt, grab attention instantly
 2. Stock (3s) - Quick context cut (ecommerce, frustration, money)
 3. Veo 3 (6s) - THE SOLUTION: Show transformation, product in action
-4. Stock (3s) - SOCIAL PROOF: Success imagery, results` : `=== 30 SECOND STRUCTURE ===
+4. Stock (3s) - SOCIAL PROOF: Success imagery, results
+TOTAL: 6+3+6+3 = 18s (adjust one scene to hit exactly 15s)` : duration <= 20 ? `=== 20 SECOND STRUCTURE ===
+1. Veo 3 (6s) - THE HOOK: Pattern interrupt, grab attention instantly
+2. Stock (4s) - Context cut (ecommerce seller, frustration)
+3. Stock (3s) - THE PROBLEM: Bad photos, wasted money
+4. Veo 3 (6s) - THE SOLUTION: Show transformation, product in action
+5. Stock (4s) - SOCIAL PROOF: Success imagery, results
+TOTAL: 6+4+3+6+4 = 23s (adjust durations to hit exactly 20s - use shorter clips)` : `=== 30 SECOND STRUCTURE ===
 1. Veo 3 (6s) - THE HOOK: Pattern interrupt, controversial opener
 2. Stock (3s) - Context cut (ecommerce seller struggling)
 3. Stock (4s) - THE PROBLEM: Bad photos, wasted money imagery
 4. Veo 3 (6s) - THE AGITATION: Pain point visualised dramatically
 5. Stock (3s) - Transition cut (photography, studio, tech)
 6. Veo 3 (8s) - THE SOLUTION + CTA: Product demo, transformation, urgency
-7. Stock (3s) - PROOF: Success, results, happy customer vibes`}
+7. Stock (3s) - PROOF: Success, results, happy customer vibes
+TOTAL: 6+3+4+6+3+8+3 = 33s (adjust to hit exactly 30s)`}
 
 === VEO 3 PROMPT REQUIREMENTS ===
 Each Veo 3 prompt MUST be cinematic and detailed (60+ characters):
