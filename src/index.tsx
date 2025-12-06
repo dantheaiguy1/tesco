@@ -6744,8 +6744,8 @@ async function generateVideoScriptWithValidation(
 
 === THE PRODUCT ===
 ShopShot: AI product photography that turns 1 photo into 10 professional shots in 25 seconds.
-- Kills the need for GBP500+ photoshoots
-- GBP39.99/month (Standard) or GBP59.99/month (Pro)
+- Kills the need for five hundred pound photoshoots
+- Thirty nine pounds a month (Standard) or fifty nine pounds a month (Pro)
 - Target: Shopify, Amazon, Etsy sellers who are bleeding money on bad photos
 
 === YOUR WRITING STYLE ===
@@ -6759,7 +6759,7 @@ Channel Alex Hormozi meets Gary Vee meets British wit:
 
 === HOOK FORMULAS THAT WORK ===
 - "I spent GBP12k on product photos last year. Here's why that was idiotic..."
-- "This GBP40 tool replaced my GBP500/hour photographer"
+- "This forty quid tool replaced my five hundred pound an hour photographer"
 - "Stop. If you're still paying for product photoshoots in 2024, we need to talk."
 - "My conversion rate jumped 34% when I did this one thing..."
 - "The photography industry doesn't want you to know this..."
@@ -7400,16 +7400,21 @@ function buildShotstackTimeline(
         const startSec = parseInt(timeMatch[1]) * 3600 + parseInt(timeMatch[2]) * 60 + parseInt(timeMatch[3]) + parseInt(timeMatch[4]) / 1000;
         const endSec = parseInt(timeMatch[5]) * 3600 + parseInt(timeMatch[6]) * 60 + parseInt(timeMatch[7]) + parseInt(timeMatch[8]) / 1000;
         
+        // Modern TikTok-style captions - bold, high contrast, no overlap
         captionClips.push({
           asset: {
             type: 'html',
-            html: `<div style="width:100%;height:100%;display:flex;align-items:flex-end;justify-content:center;padding-bottom:${isPortrait ? '180px' : '80px'};"><div style="background:rgba(0,0,0,0.7);padding:${isPortrait ? '16px 24px' : '12px 20px'};border-radius:8px;max-width:${isPortrait ? '90%' : '70%'};"><p style="color:white;font-family:Arial,sans-serif;font-size:${isPortrait ? '32px' : '28px'};font-weight:bold;margin:0;text-align:center;text-shadow:2px 2px 4px rgba(0,0,0,0.8);line-height:1.3;">${captionText}</p></div></div>`,
+            html: `<div style="width:100%;height:100%;display:flex;align-items:flex-end;justify-content:center;padding-bottom:${isPortrait ? '200px' : '100px'};">
+              <div style="background:linear-gradient(135deg,rgba(255,107,0,0.95),rgba(255,60,0,0.95));padding:${isPortrait ? '18px 32px' : '14px 28px'};border-radius:12px;max-width:${isPortrait ? '85%' : '65%'};box-shadow:0 8px 32px rgba(0,0,0,0.4);">
+                <p style="color:white;font-family:'Inter','Helvetica Neue',Arial,sans-serif;font-size:${isPortrait ? '38px' : '32px'};font-weight:800;margin:0;text-align:center;text-transform:uppercase;letter-spacing:1px;line-height:1.2;">${captionText}</p>
+              </div>
+            </div>`,
             width: isPortrait ? 1080 : 1920,
             height: isPortrait ? 1920 : 1080
           },
           start: startSec,
-          length: Math.max(0.5, endSec - startSec),
-          transition: { in: 'fade', out: 'fade' }
+          length: Math.max(0.3, endSec - startSec - 0.1), // Slight gap to prevent overlap
+          transition: { in: 'fade' } // Only fade in, instant out to prevent overlap
         });
       }
     }
@@ -7567,17 +7572,24 @@ async function generateShotstackScript(
 
 === THE PRODUCT ===
 ShopShot: AI product photography that turns 1 photo into 10 professional shots in 25 seconds.
-- Kills the need for GBP500+ photoshoots
-- GBP39.99/month (Standard) or GBP59.99/month (Pro)
+- Kills the need for five hundred pound photoshoots
+- Thirty nine pounds a month (Standard) or fifty nine pounds a month (Pro)
 - Target: Shopify, Amazon, Etsy sellers
 
 === YOUR STYLE ===
 Alex Hormozi meets Gary Vee meets British wit:
 - Pattern interrupts (controversial opener)
-- Specific numbers ("GBP12,847" not "thousands")
 - Short punchy sentences
-- British spelling
+- British spelling (colour, realise)
 - End with urgency
+
+=== CRITICAL: MONEY/PRICING RULES ===
+NEVER write "GBP" or currency symbols in voiceover - speak prices phonetically!
+- WRONG: "GBP500" or "£500" 
+- RIGHT: "five hundred pounds" or "five hundred quid"
+- WRONG: "GBP39.99/month"
+- RIGHT: "forty quid a month" or "thirty nine pounds a month"
+Use specific numbers but SAY them as words for voiceover.
 
 === REQUIREMENTS ===
 Create a ${duration} second video with EXACTLY ${clipCount} stock B-roll clips.
@@ -7588,15 +7600,19 @@ Be SPECIFIC with Pexels queries:
 GOOD: "ecommerce product photography", "frustrated entrepreneur laptop", "professional photo studio"
 BAD: "business", "photos" (too generic)
 
+=== CAPTION STYLE ===
+Short, punchy, 2-4 words per caption. ALL CAPS for impact.
+Example: "STOP WASTING MONEY" not "Stop wasting money on photos"
+
 === OUTPUT FORMAT ===
 Return ONLY valid JSON:
 {
   "duration": ${duration},
   "segments": [
-    { "type": "stock_broll", "duration": 2|3|4, "search_query": "specific pexels search", "caption": "Short caption" }
+    { "type": "stock_broll", "duration": 2|3|4, "search_query": "specific pexels search", "caption": "SHORT CAPS" }
   ],
-  "voiceover_script": "Full British English voiceover (${Math.round(duration * 2.5)} words max)...",
-  "captions_srt": "1\\n00:00:00,000 --> 00:00:03,000\\nFirst line\\n\\n2\\n..."
+  "voiceover_script": "Full British English voiceover with phonetic prices (${Math.round(duration * 2.5)} words max)...",
+  "captions_srt": "1\\n00:00:00,000 --> 00:00:03,000\\nFIRST LINE\\n\\n2\\n..."
 }`;
 
   try {
