@@ -7372,61 +7372,98 @@ app.post('/api/social/video/generate', async (c) => {
     await db.prepare(`UPDATE social_videos SET script_data = ? WHERE id = ?`)
       .bind(JSON.stringify(script), videoId).run();
     
-    // 2. Generate assets in parallel
+    // 2. Generate non-Veo3 assets in Cloudflare (fast)
     console.log(`[Video Gen] Starting asset generation for ${videoId}...`);
     console.log(`[Video Gen] Script has ${script.segments.length} segments`);
     
-    const [veo3Clips, motionGraphics, stockClips, voiceoverUrl] = await Promise.all([
-      generateVeo3Clips(script.segments, aspectRatio, c.env),
+    const [motionGraphics, stockClips, voiceoverUrl] = await Promise.all([
       generateMotionGraphics(script.segments, aspectRatio, c.env),
       fetchStockClips(script.segments, c.env),
       generateVoiceover(script.voiceover_script, c.env)
     ]);
     
-    console.log(`[Video Gen] Assets generated:`);
-    console.log(`  - Veo3 clips: ${veo3Clips.length}, URLs: ${veo3Clips.map(c => c.url.substring(0, 50)).join(', ')}`);
+    console.log(`[Video Gen] Quick assets generated:`);
     console.log(`  - Motion graphics: ${motionGraphics.length}`);
     console.log(`  - Stock clips: ${stockClips.length}`);
     console.log(`  - Voiceover: ${voiceoverUrl.substring(0, 60)}...`);
     
-    // 3. Build clip sequence in order
-    const orderedClips: { url: string; duration: number }[] = [];
-    let veo3Index = 0, motionIndex = 0, stockIndex = 0;
+    // 3. Prepare data for Cloud Run (handles Veo 3 + assembly with no timeout)
+    const veo3Segments = script.segments
+      .filter(s => s.type === 'veo3')
+      .map((s, i) => ({ prompt: s.prompt, duration: s.duration, order: script.segments.indexOf(s) }));
     
-    for (const segment of script.segments) {
-      switch (segment.type) {
-        case 'veo3':
-          if (veo3Clips[veo3Index]) orderedClips.push(veo3Clips[veo3Index++]);
-          break;
-        case 'motion_graphics':
-          if (motionGraphics[motionIndex]) orderedClips.push(motionGraphics[motionIndex++]);
-          break;
-        case 'stock_broll':
-          if (stockClips[stockIndex]) orderedClips.push(stockClips[stockIndex++]);
-          break;
+    const stockClipData = stockClips.map((clip, i) => {
+      const segIndex = script.segments.findIndex((s, idx) => s.type === 'stock_broll' && script.segments.slice(0, idx).filter(x => x.type === 'stock_broll').length === i);
+      return { url: clip.url, order: segIndex >= 0 ? segIndex : 100 + i };
+    });
+    
+    const motionData = motionGraphics.map((clip, i) => {
+      const segIndex = script.segments.findIndex((s, idx) => s.type === 'motion_graphics' && script.segments.slice(0, idx).filter(x => x.type === 'motion_graphics').length === i);
+      return { url: clip.url, order: segIndex >= 0 ? segIndex : 200 + i };
+    });
+    
+    // 4. Call Cloud Run to generate Veo 3 clips + assemble (no timeout limit there!)
+    let finalVideoUrl = `https://pub-dc7e4f65e1c8497583a99e9ebe196cd3.r2.dev/final-video-placeholder.mp4`;
+    let veo3Clips: any[] = [];
+    
+    if (c.env.CLOUD_RUN_ASSEMBLER_URL) {
+      console.log(`[Video Gen] Calling Cloud Run for Veo 3 generation + assembly...`);
+      
+      // Get auth token for Cloud Run
+      const idToken = await getCloudRunToken(c.env);
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (idToken) headers['Authorization'] = `Bearer ${idToken}`;
+      
+      try {
+        const cloudRunResponse = await fetch(c.env.CLOUD_RUN_ASSEMBLER_URL + '/generate-video', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            veo3Segments,
+            stockClipUrls: stockClipData,
+            motionGraphicUrls: motionData,
+            voiceoverUrl,
+            aspectRatio,
+            videoId,
+            vertexCredentials: {
+              projectId: c.env.VERTEX_PROJECT_ID,
+              clientEmail: c.env.VERTEX_CLIENT_EMAIL,
+              privateKey: c.env.VERTEX_PRIVATE_KEY
+            }
+          })
+        });
+        
+        if (cloudRunResponse.ok) {
+          const result = await cloudRunResponse.json() as any;
+          finalVideoUrl = result.videoUrl;
+          veo3Clips = veo3Segments.map((s, i) => ({ url: 'generated-by-cloud-run', duration: s.duration, prompt: s.prompt, status: 'completed' }));
+          console.log(`[Video Gen] Cloud Run success: ${finalVideoUrl}`);
+        } else {
+          console.error(`[Video Gen] Cloud Run failed: ${cloudRunResponse.status}`);
+          // Fallback: assemble without Veo 3
+          const fallbackResponse = await fetch(c.env.CLOUD_RUN_ASSEMBLER_URL + '/assemble', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              clips: [...stockClipData, ...motionData].sort((a, b) => a.order - b.order).map(c => c.url),
+              voiceover: voiceoverUrl,
+              videoId
+            })
+          });
+          if (fallbackResponse.ok) {
+            const fallbackResult = await fallbackResponse.json() as any;
+            finalVideoUrl = fallbackResult.videoUrl;
+          }
+        }
+      } catch (cloudRunError) {
+        console.error(`[Video Gen] Cloud Run error:`, cloudRunError);
       }
+    } else {
+      console.log(`[Video Gen] No CLOUD_RUN_ASSEMBLER_URL - using placeholder`);
     }
     
-    // 4. Filter out any invalid URLs before assembly
-    const validClips = orderedClips.filter(clip => 
-      clip.url && 
-      !clip.url.startsWith('pending:') && 
-      (clip.url.startsWith('http://') || clip.url.startsWith('https://'))
-    );
-    
-    console.log(`[Video Gen] Valid clips for assembly: ${validClips.length}/${orderedClips.length}`);
-    
-    // 4. Assemble final video
-    const finalVideoUrl = await assembleVideo(
-      validClips.length > 0 ? validClips : orderedClips, // Fallback to all if filter removes everything
-      voiceoverUrl,
-      script.captions_srt,
-      videoId,
-      c.env
-    );
-    
     // 5. Calculate cost
-    const veo3Cost = veo3Clips.length * 0.30; // ~GBP0.30 per clip
+    const veo3Cost = veo3Segments.length * 0.30; // ~GBP0.30 per clip
     const motionCost = motionGraphics.length * 0.10; // GBP0.10 per template
     const voiceoverCost = (script.voiceover_script.length / 100) * 0.30; // ~GBP0.30 per 100 chars
     const assemblyCost = 0.05;
