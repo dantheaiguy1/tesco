@@ -1,127 +1,108 @@
-# ShopShot Video Assembler
+# ShopShot Video Assembler - Cloud Run Deployment
 
-FFmpeg-powered video assembly service for the ShopShot AI Video Marketing System.
+## Quick Deploy via Cloud Console
 
-## Features
+### Step 1: Create R2 API Token
+1. Go to Cloudflare Dashboard > R2 > Manage R2 API Tokens
+2. Create token with **Object Read & Write** permissions for `shopshot-videos` bucket
+3. Save the **Access Key ID** and **Secret Access Key**
 
-- **Full Assembly**: Concatenate clips, add voiceover audio, burn in captions
-- **Simple Concat**: Quick video concatenation without re-encoding
-- **Add Captions**: Burn SRT captions into existing videos
+### Step 2: Get Your R2 Account ID
+1. Go to Cloudflare Dashboard > R2
+2. Copy your Account ID from the URL or sidebar
 
-## Deployment to Google Cloud Run
+### Step 3: Deploy to Cloud Run
+1. Go to: https://console.cloud.google.com/run
+2. Click **"Create Service"**
+3. Select **"Continuously deploy from a repository"** OR **"Deploy one revision from an existing container image"**
 
-### Prerequisites
+#### Option A: Deploy from Source (Easiest)
+1. Click **"Set up with Cloud Build"**
+2. Connect your GitHub repo
+3. Select branch: `main`
+4. Build Type: **Dockerfile**
+5. Source location: `/cloud-run-assembler`
 
-1. Google Cloud project with billing enabled
-2. Cloud Run API enabled
-3. Cloud Storage bucket for output videos
-
-### Deploy
-
+#### Option B: Build and Deploy Manually
 ```bash
-# Set your project
-gcloud config set project YOUR_PROJECT_ID
-
-# Build and deploy
-gcloud builds submit --tag gcr.io/YOUR_PROJECT_ID/shopshot-video-assembler
-
-gcloud run deploy shopshot-video-assembler \
-  --image gcr.io/YOUR_PROJECT_ID/shopshot-video-assembler \
+# In cloud-run-assembler directory
+gcloud builds submit --tag gcr.io/YOUR_PROJECT_ID/shopshot-assembler
+gcloud run deploy shopshot-assembler \
+  --image gcr.io/YOUR_PROJECT_ID/shopshot-assembler \
   --platform managed \
   --region us-central1 \
   --allow-unauthenticated \
   --memory 2Gi \
-  --timeout 600s \
-  --cpu 2
+  --cpu 2 \
+  --timeout 300 \
+  --set-env-vars "R2_ACCOUNT_ID=YOUR_CF_ACCOUNT_ID,R2_BUCKET_NAME=shopshot-videos,R2_PUBLIC_URL=https://pub-dc7e4f65e1c8497583a99e9ebe196cd3.r2.dev"
 ```
 
-### Environment Variables
+### Step 4: Set Environment Variables
+In Cloud Run service settings, add these environment variables:
 
-Set these in Cloud Run or locally:
+| Variable | Value |
+|----------|-------|
+| `R2_ACCOUNT_ID` | Your Cloudflare Account ID |
+| `R2_ACCESS_KEY_ID` | R2 API Token Access Key |
+| `R2_SECRET_ACCESS_KEY` | R2 API Token Secret |
+| `R2_BUCKET_NAME` | `shopshot-videos` |
+| `R2_PUBLIC_URL` | `https://pub-dc7e4f65e1c8497583a99e9ebe196cd3.r2.dev` |
 
-- `PORT`: Server port (default: 8080)
-- `GOOGLE_APPLICATION_CREDENTIALS`: Path to service account JSON (auto-set in Cloud Run)
+### Step 5: Configure Service Settings
+- **Memory**: 2 GB (minimum for video processing)
+- **CPU**: 2 vCPUs
+- **Timeout**: 300 seconds (5 minutes)
+- **Max instances**: 10
+- **Min instances**: 0 (scale to zero when idle)
+- **Allow unauthenticated invocations**: Yes
 
-## API Endpoints
+### Step 6: Get Service URL
+After deployment, copy the service URL (e.g., `https://shopshot-assembler-xxxxx-uc.a.run.app`)
 
-### POST /assemble
-
-Full video assembly with audio and captions.
-
-```json
-{
-  "clips": ["https://...", "https://..."],
-  "audioUrl": "https://...",
-  "captionsSrt": "1\n00:00:00,000 --> 00:00:02,000\nCaption text\n\n...",
-  "videoId": "vid_123",
-  "outputBucket": "shopshot-social-media"
-}
-```
-
-Response:
-```json
-{
-  "success": true,
-  "videoUrl": "https://storage.googleapis.com/...",
-  "jobId": "vid_123",
-  "stats": {
-    "clipsProcessed": 5,
-    "hasAudio": true,
-    "hasCaptions": true
-  }
-}
-```
-
-### POST /concat
-
-Simple concatenation (no re-encoding).
-
-```json
-{
-  "clips": ["https://...", "https://..."],
-  "videoId": "concat_123",
-  "outputBucket": "shopshot-social-media"
-}
-```
-
-### POST /add-captions
-
-Add captions to existing video.
-
-```json
-{
-  "videoUrl": "https://...",
-  "captionsSrt": "1\n00:00:00,000 --> ...",
-  "videoId": "cap_123",
-  "outputBucket": "shopshot-social-media"
-}
-```
-
-### GET /health
-
-Health check endpoint.
-
-## Local Development
-
+### Step 7: Add to Cloudflare Pages Secrets
 ```bash
-npm install
-npm run dev
+npx wrangler pages secret put CLOUD_RUN_ASSEMBLER_URL --project-name shopshot
+# Paste your Cloud Run URL when prompted
 ```
 
-Test with:
+## Test the Service
 ```bash
-curl http://localhost:8080/health
+# Health check
+curl https://YOUR_CLOUD_RUN_URL/health
+
+# Test video assembly
+curl -X POST https://YOUR_CLOUD_RUN_URL/assemble \
+  -H "Content-Type: application/json" \
+  -d '{
+    "clips": ["https://videos.pexels.com/video-files/4232959/4232959-hd_1920_1080_24fps.mp4"],
+    "videoId": "test_123"
+  }'
 ```
 
-## Caption Styling
+## Endpoints
 
-Captions are styled TikTok-style:
-- Font: Montserrat Bold, 32px
-- Color: White with black outline
-- Position: Center bottom
-- Margin: 50px from bottom
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Health check |
+| `/assemble` | POST | Full video assembly |
+| `/test` | POST | Test video URL accessibility |
 
 ## Cost Estimate
+- Cloud Run: ~$0.00002400 per vCPU-second
+- Typical 15-30s video: ~30-60 seconds processing = ~$0.001-0.003
+- Monthly with 1000 videos: ~$1-3
 
-- Cloud Run: ~$0.05 per video (2-3 minutes processing)
-- Scales to zero when not in use
+## Troubleshooting
+
+### "No valid clips to assemble"
+- All clips are placeholders or pending
+- Wait for Veo 3 clips to complete, then regenerate
+
+### Timeout errors
+- Increase Cloud Run timeout to 600 seconds
+- Reduce video quality/resolution
+
+### R2 upload fails
+- Check R2 API token permissions
+- Verify bucket name and account ID

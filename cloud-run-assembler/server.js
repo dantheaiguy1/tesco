@@ -4,7 +4,6 @@ const ffmpeg = require('fluent-ffmpeg');
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
-const { Storage } = require('@google-cloud/storage');
 
 const app = express();
 app.use(cors());
@@ -13,20 +12,35 @@ app.use(express.json({ limit: '50mb' }));
 const PORT = process.env.PORT || 8080;
 const TMP_DIR = '/tmp';
 
-// Google Cloud Storage client
-const storage = new Storage();
+// R2 configuration from environment
+const R2_ACCOUNT_ID = process.env.R2_ACCOUNT_ID;
+const R2_ACCESS_KEY_ID = process.env.R2_ACCESS_KEY_ID;
+const R2_SECRET_ACCESS_KEY = process.env.R2_SECRET_ACCESS_KEY;
+const R2_BUCKET_NAME = process.env.R2_BUCKET_NAME || 'shopshot-videos';
+const R2_PUBLIC_URL = process.env.R2_PUBLIC_URL || 'https://pub-dc7e4f65e1c8497583a99e9ebe196cd3.r2.dev';
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-  res.json({ status: 'healthy', timestamp: new Date().toISOString() });
+  res.json({ 
+    status: 'healthy', 
+    timestamp: new Date().toISOString(),
+    r2Configured: !!(R2_ACCOUNT_ID && R2_ACCESS_KEY_ID && R2_SECRET_ACCESS_KEY)
+  });
 });
 
 // Download file from URL to local path
 async function downloadFile(url, outputPath) {
+  // Skip placeholder URLs
+  if (url.includes('placeholder') || url.startsWith('pending:')) {
+    console.log(`Skipping placeholder/pending URL: ${url}`);
+    return null;
+  }
+  
   const response = await axios({
     method: 'GET',
     url: url,
-    responseType: 'stream'
+    responseType: 'stream',
+    timeout: 60000 // 60 second timeout
   });
   
   const writer = fs.createWriteStream(outputPath);
@@ -38,26 +52,38 @@ async function downloadFile(url, outputPath) {
   });
 }
 
-// Upload file to Google Cloud Storage
-async function uploadToGCS(localPath, bucketName, destPath) {
-  const bucket = storage.bucket(bucketName);
-  await bucket.upload(localPath, {
-    destination: destPath,
-    metadata: {
-      contentType: 'video/mp4',
-      cacheControl: 'public, max-age=31536000'
-    }
+// Upload file to Cloudflare R2 using S3-compatible API
+async function uploadToR2(localPath, destPath) {
+  if (!R2_ACCOUNT_ID || !R2_ACCESS_KEY_ID || !R2_SECRET_ACCESS_KEY) {
+    console.log('R2 not configured, returning local path');
+    return `local://${localPath}`;
+  }
+  
+  const AWS = require('aws-sdk');
+  
+  const s3 = new AWS.S3({
+    endpoint: `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+    accessKeyId: R2_ACCESS_KEY_ID,
+    secretAccessKey: R2_SECRET_ACCESS_KEY,
+    signatureVersion: 'v4',
+    region: 'auto'
   });
   
-  // Make public
-  await bucket.file(destPath).makePublic();
+  const fileBuffer = fs.readFileSync(localPath);
   
-  return `https://storage.googleapis.com/${bucketName}/${destPath}`;
+  await s3.putObject({
+    Bucket: R2_BUCKET_NAME,
+    Key: destPath,
+    Body: fileBuffer,
+    ContentType: 'video/mp4'
+  }).promise();
+  
+  return `${R2_PUBLIC_URL}/${destPath}`;
 }
 
 // Main video assembly endpoint
 app.post('/assemble', async (req, res) => {
-  const { clips, audioUrl, captionsSrt, videoId, outputBucket } = req.body;
+  const { clips, audioUrl, captionsSrt, videoId } = req.body;
   
   if (!clips || !clips.length) {
     return res.status(400).json({ error: 'No clips provided' });
@@ -73,101 +99,179 @@ app.post('/assemble', async (req, res) => {
     console.log(`Starting assembly job: ${jobId}`);
     console.log(`Clips: ${clips.length}, Audio: ${!!audioUrl}, Captions: ${!!captionsSrt}`);
     
-    // 1. Download all video clips
+    // 1. Download all video clips (skip placeholders)
     const clipPaths = [];
     for (let i = 0; i < clips.length; i++) {
+      const clipUrl = clips[i];
+      
+      // Skip placeholders and pending clips
+      if (clipUrl.includes('placeholder') || clipUrl.startsWith('pending:')) {
+        console.log(`Skipping placeholder/pending clip ${i + 1}`);
+        continue;
+      }
+      
       const clipPath = path.join(workDir, `clip_${i}.mp4`);
-      console.log(`Downloading clip ${i + 1}/${clips.length}: ${clips[i]}`);
-      await downloadFile(clips[i], clipPath);
-      clipPaths.push(clipPath);
+      console.log(`Downloading clip ${i + 1}/${clips.length}: ${clipUrl.substring(0, 80)}...`);
+      
+      try {
+        await downloadFile(clipUrl, clipPath);
+        clipPaths.push(clipPath);
+      } catch (dlError) {
+        console.error(`Failed to download clip ${i + 1}:`, dlError.message);
+      }
     }
+    
+    if (clipPaths.length === 0) {
+      throw new Error('No valid clips to assemble (all were placeholders or failed to download)');
+    }
+    
+    console.log(`Downloaded ${clipPaths.length} valid clips`);
     
     // 2. Download audio if provided
     let audioPath = null;
-    if (audioUrl) {
+    if (audioUrl && !audioUrl.includes('placeholder')) {
       audioPath = path.join(workDir, 'audio.mp3');
       console.log('Downloading audio...');
-      await downloadFile(audioUrl, audioPath);
+      try {
+        await downloadFile(audioUrl, audioPath);
+      } catch (audioErr) {
+        console.error('Failed to download audio:', audioErr.message);
+        audioPath = null;
+      }
     }
     
     // 3. Save captions SRT if provided
     let captionsPath = null;
-    if (captionsSrt) {
+    if (captionsSrt && captionsSrt.trim()) {
       captionsPath = path.join(workDir, 'captions.srt');
       fs.writeFileSync(captionsPath, captionsSrt);
+      console.log('Captions saved');
     }
     
-    // 4. Create concat file for FFmpeg
+    // 4. Normalize all clips to same format first
+    const normalizedPaths = [];
+    for (let i = 0; i < clipPaths.length; i++) {
+      const normalizedPath = path.join(workDir, `normalized_${i}.mp4`);
+      console.log(`Normalizing clip ${i + 1}/${clipPaths.length}...`);
+      
+      await new Promise((resolve, reject) => {
+        ffmpeg(clipPaths[i])
+          .outputOptions([
+            '-c:v', 'libx264',
+            '-preset', 'fast',
+            '-crf', '23',
+            '-r', '30', // 30fps
+            '-vf', 'scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1',
+            '-c:a', 'aac',
+            '-b:a', '128k',
+            '-ar', '44100',
+            '-ac', '2'
+          ])
+          .on('end', () => {
+            normalizedPaths.push(normalizedPath);
+            resolve();
+          })
+          .on('error', (err) => {
+            console.error(`Normalize error for clip ${i}:`, err.message);
+            // Try to use original if normalize fails
+            normalizedPaths.push(clipPaths[i]);
+            resolve();
+          })
+          .save(normalizedPath);
+      });
+    }
+    
+    // 5. Create concat file for FFmpeg
     const concatListPath = path.join(workDir, 'concat_list.txt');
-    const concatContent = clipPaths.map(p => `file '${p}'`).join('\n');
+    const concatContent = normalizedPaths.map(p => `file '${p}'`).join('\n');
     fs.writeFileSync(concatListPath, concatContent);
     
-    // 5. Assemble video with FFmpeg
+    // 6. Concatenate clips
+    const concatenatedPath = path.join(workDir, 'concatenated.mp4');
+    
+    await new Promise((resolve, reject) => {
+      ffmpeg()
+        .input(concatListPath)
+        .inputOptions(['-f', 'concat', '-safe', '0'])
+        .outputOptions(['-c', 'copy'])
+        .on('start', (cmd) => console.log('Concat started'))
+        .on('end', () => {
+          console.log('Concatenation complete');
+          resolve();
+        })
+        .on('error', reject)
+        .save(concatenatedPath);
+    });
+    
+    // 7. Add audio and captions
     const outputPath = path.join(workDir, 'final.mp4');
     
     await new Promise((resolve, reject) => {
-      let command = ffmpeg()
-        .input(concatListPath)
-        .inputOptions(['-f', 'concat', '-safe', '0']);
+      let command = ffmpeg(concatenatedPath);
       
-      // Add audio if provided
-      if (audioPath) {
+      // Add audio if available
+      if (audioPath && fs.existsSync(audioPath)) {
         command = command.input(audioPath);
       }
       
-      // Build filter complex for captions
-      const filters = [];
-      if (captionsPath) {
-        // TikTok-style captions: big, bold, center screen
-        const subtitleFilter = `subtitles='${captionsPath}':force_style='FontName=Montserrat-Bold,FontSize=32,PrimaryColour=&HFFFFFF&,Outline=3,OutlineColour=&H000000&,Alignment=5,MarginV=50'`;
-        filters.push(subtitleFilter);
+      // Build output options
+      const outputOptions = [
+        '-c:v', 'libx264',
+        '-preset', 'fast',
+        '-crf', '23',
+        '-c:a', 'aac',
+        '-b:a', '192k',
+        '-movflags', '+faststart',
+        '-shortest'
+      ];
+      
+      // Add captions filter if available
+      if (captionsPath && fs.existsSync(captionsPath)) {
+        command = command.videoFilters([
+          `subtitles='${captionsPath}':force_style='FontName=Arial,FontSize=28,PrimaryColour=&HFFFFFF&,Outline=2,OutlineColour=&H000000&,Alignment=2,MarginV=40'`
+        ]);
       }
       
-      if (filters.length > 0) {
-        command = command.videoFilters(filters);
+      // Mix audio if we have both video audio and voiceover
+      if (audioPath && fs.existsSync(audioPath)) {
+        command = command.outputOptions([
+          '-filter_complex', '[0:a][1:a]amix=inputs=2:duration=shortest[aout]',
+          '-map', '0:v',
+          '-map', '[aout]'
+        ]);
       }
       
       command
-        .outputOptions([
-          '-c:v', 'libx264',
-          '-preset', 'fast',
-          '-crf', '23',
-          '-c:a', 'aac',
-          '-b:a', '192k',
-          '-movflags', '+faststart',
-          '-shortest'
-        ])
-        .on('start', (cmd) => {
-          console.log('FFmpeg started:', cmd);
-        })
+        .outputOptions(outputOptions)
+        .on('start', (cmd) => console.log('Final assembly started'))
         .on('progress', (progress) => {
-          console.log(`Processing: ${progress.percent?.toFixed(1)}%`);
+          if (progress.percent) {
+            console.log(`Processing: ${progress.percent.toFixed(1)}%`);
+          }
         })
         .on('end', () => {
-          console.log('FFmpeg finished successfully');
+          console.log('Final assembly complete');
           resolve();
         })
         .on('error', (err) => {
-          console.error('FFmpeg error:', err);
-          reject(err);
+          console.error('Assembly error:', err.message);
+          // If complex assembly fails, try simple copy
+          ffmpeg(concatenatedPath)
+            .outputOptions(['-c', 'copy'])
+            .on('end', resolve)
+            .on('error', reject)
+            .save(outputPath);
         })
         .save(outputPath);
     });
     
-    // 6. Upload to Cloud Storage
-    let videoUrl;
-    const destPath = `videos/final_${jobId}.mp4`;
+    // 8. Upload to R2
+    const destPath = `assembled/${jobId}.mp4`;
+    console.log('Uploading to R2...');
+    const videoUrl = await uploadToR2(outputPath, destPath);
+    console.log(`Uploaded: ${videoUrl}`);
     
-    if (outputBucket) {
-      videoUrl = await uploadToGCS(outputPath, outputBucket, destPath);
-      console.log(`Uploaded to: ${videoUrl}`);
-    } else {
-      // Return as base64 if no bucket specified (for testing)
-      const videoBuffer = fs.readFileSync(outputPath);
-      videoUrl = `data:video/mp4;base64,${videoBuffer.toString('base64').substring(0, 100)}...`;
-    }
-    
-    // 7. Cleanup
+    // 9. Cleanup
     fs.rmSync(workDir, { recursive: true, force: true });
     
     res.json({
@@ -175,9 +279,9 @@ app.post('/assemble', async (req, res) => {
       videoUrl,
       jobId,
       stats: {
-        clipsProcessed: clips.length,
-        hasAudio: !!audioUrl,
-        hasCaptions: !!captionsSrt
+        clipsProcessed: clipPaths.length,
+        hasAudio: !!audioPath,
+        hasCaptions: !!captionsPath
       }
     });
     
@@ -196,106 +300,20 @@ app.post('/assemble', async (req, res) => {
   }
 });
 
-// Simple concatenation endpoint (no audio/captions)
-app.post('/concat', async (req, res) => {
-  const { clips, videoId, outputBucket } = req.body;
-  
-  if (!clips || !clips.length) {
-    return res.status(400).json({ error: 'No clips provided' });
-  }
-  
-  const jobId = videoId || `concat_${Date.now()}`;
-  const workDir = path.join(TMP_DIR, jobId);
+// Simple test endpoint
+app.post('/test', async (req, res) => {
+  const { videoUrl } = req.body;
   
   try {
-    fs.mkdirSync(workDir, { recursive: true });
-    
-    // Download clips
-    const clipPaths = [];
-    for (let i = 0; i < clips.length; i++) {
-      const clipPath = path.join(workDir, `clip_${i}.mp4`);
-      await downloadFile(clips[i], clipPath);
-      clipPaths.push(clipPath);
-    }
-    
-    // Create concat list
-    const concatListPath = path.join(workDir, 'concat_list.txt');
-    fs.writeFileSync(concatListPath, clipPaths.map(p => `file '${p}'`).join('\n'));
-    
-    // Simple concat
-    const outputPath = path.join(workDir, 'output.mp4');
-    
-    await new Promise((resolve, reject) => {
-      ffmpeg()
-        .input(concatListPath)
-        .inputOptions(['-f', 'concat', '-safe', '0'])
-        .outputOptions(['-c', 'copy'])
-        .on('end', resolve)
-        .on('error', reject)
-        .save(outputPath);
+    // Just try to download and return info
+    const response = await axios.head(videoUrl, { timeout: 10000 });
+    res.json({
+      success: true,
+      contentType: response.headers['content-type'],
+      contentLength: response.headers['content-length']
     });
-    
-    let videoUrl;
-    if (outputBucket) {
-      videoUrl = await uploadToGCS(outputPath, outputBucket, `videos/concat_${jobId}.mp4`);
-    } else {
-      videoUrl = 'local://' + outputPath;
-    }
-    
-    fs.rmSync(workDir, { recursive: true, force: true });
-    
-    res.json({ success: true, videoUrl, jobId });
-    
   } catch (error) {
-    try { fs.rmSync(workDir, { recursive: true, force: true }); } catch (e) {}
-    res.status(500).json({ error: error.message, jobId });
-  }
-});
-
-// Add captions to existing video
-app.post('/add-captions', async (req, res) => {
-  const { videoUrl, captionsSrt, videoId, outputBucket } = req.body;
-  
-  if (!videoUrl || !captionsSrt) {
-    return res.status(400).json({ error: 'videoUrl and captionsSrt required' });
-  }
-  
-  const jobId = videoId || `captions_${Date.now()}`;
-  const workDir = path.join(TMP_DIR, jobId);
-  
-  try {
-    fs.mkdirSync(workDir, { recursive: true });
-    
-    const inputPath = path.join(workDir, 'input.mp4');
-    const captionsPath = path.join(workDir, 'captions.srt');
-    const outputPath = path.join(workDir, 'output.mp4');
-    
-    await downloadFile(videoUrl, inputPath);
-    fs.writeFileSync(captionsPath, captionsSrt);
-    
-    await new Promise((resolve, reject) => {
-      ffmpeg(inputPath)
-        .videoFilters(`subtitles='${captionsPath}':force_style='FontName=Montserrat-Bold,FontSize=32,PrimaryColour=&HFFFFFF&,Outline=3,OutlineColour=&H000000&,Alignment=5,MarginV=50'`)
-        .outputOptions(['-c:a', 'copy'])
-        .on('end', resolve)
-        .on('error', reject)
-        .save(outputPath);
-    });
-    
-    let resultUrl;
-    if (outputBucket) {
-      resultUrl = await uploadToGCS(outputPath, outputBucket, `videos/captioned_${jobId}.mp4`);
-    } else {
-      resultUrl = 'local://' + outputPath;
-    }
-    
-    fs.rmSync(workDir, { recursive: true, force: true });
-    
-    res.json({ success: true, videoUrl: resultUrl, jobId });
-    
-  } catch (error) {
-    try { fs.rmSync(workDir, { recursive: true, force: true }); } catch (e) {}
-    res.status(500).json({ error: error.message, jobId });
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -303,7 +321,10 @@ app.listen(PORT, () => {
   console.log(`ShopShot Video Assembler running on port ${PORT}`);
   console.log('Endpoints:');
   console.log('  POST /assemble - Full video assembly with audio and captions');
-  console.log('  POST /concat - Simple video concatenation');
-  console.log('  POST /add-captions - Add captions to existing video');
+  console.log('  POST /test - Test video URL accessibility');
   console.log('  GET /health - Health check');
+  console.log('');
+  console.log('Environment:');
+  console.log(`  R2 configured: ${!!(R2_ACCOUNT_ID && R2_ACCESS_KEY_ID)}`);
+  console.log(`  R2 bucket: ${R2_BUCKET_NAME}`);
 });

@@ -12,7 +12,7 @@
     "fluent-ffmpeg": "^2.1.2",
     "cors": "^2.8.5",
     "axios": "^1.6.0",
-    "@google-cloud/storage": "^7.7.0"
+    "aws-sdk": "^2.1692.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"
