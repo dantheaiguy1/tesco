@@ -6717,25 +6717,19 @@ BRAND CONTEXT:
 VIDEO REQUIREMENTS:
 - Total duration: ${duration} seconds
 - Platform: ${platform} (aspect ratio: ${aspectRatio})
-- Must include: Brand intro (2s), Brand outro with CTA (3s)
-- Use 2-3 Veo 3 scenes (4-6 seconds each)
-- Use 1-2 stock B-roll clips (1-2 seconds each)
+- Use 3-5 Veo 3 scenes to fill the entire video duration
+- Use 1-2 stock B-roll clips for variety (2-4 seconds each)
+- NO motion graphics - only veo3 and stock_broll types allowed
 
 CRITICAL VEO 3 RULES:
 - Duration MUST be exactly 4, 6, or 8 seconds - NO OTHER VALUES WORK
-- Prompts must be detailed: camera angle, lighting, setting, action
+- Prompts must be detailed: camera angle, lighting, setting, action, mood
 - Avoid text in scenes (Veo 3 struggles with text)
-
-MOTION GRAPHICS TEMPLATES:
-1. shopshot-intro (2s): { tagline: string }
-2. lower-third-stat (3s): { stat: string, subtext: string }
-3. feature-callout (2s): { icon: string (emoji), text: string }
-4. orange-swipe-transition (0.5s): no props
-5. shopshot-outro-cta (3s): { cta_text: string, url: string }
+- Make prompts cinematic and specific
 
 STOCK B-ROLL SEARCH QUERIES:
-- Use for quick 1-2 second cuts
-- Keep generic: "laptop typing hands", "smartphone closeup", "happy person smiling"
+- Use for quick 2-4 second cuts between Veo 3 scenes
+- Search terms should be specific: "ecommerce product photography", "online shopping", "small business owner laptop"
 
 VOICEOVER RULES:
 - ${Math.round(duration * 6.7)}-${Math.round(duration * 13.3)} characters max
@@ -6750,9 +6744,8 @@ OUTPUT: Return ONLY valid JSON with this structure:
 {
   "duration": number,
   "segments": [
-    { "type": "motion_graphics", "template": "shopshot-intro", "duration": 2, "caption": null, "props": { "tagline": "AI Product Photography" } },
-    { "type": "veo3", "duration": 4 | 6 | 8, "prompt": "detailed scene description", "caption": "Caption text" },
-    { "type": "stock_broll", "duration": 1-2, "search_query": "search terms", "caption": null }
+    { "type": "veo3", "duration": 4 | 6 | 8, "prompt": "detailed cinematic scene description with camera angle, lighting, action", "caption": "Caption text" },
+    { "type": "stock_broll", "duration": 2-4, "search_query": "specific search terms for stock video", "caption": "Caption text" }
   ],
   "voiceover_script": "Full voiceover text...",
   "captions_srt": "1\\n00:00:00,000 --> 00:00:02,000\\nCaption text\\n\\n2..."
@@ -6952,26 +6945,28 @@ async function generateMotionGraphics(
   const motionSegments = segments.filter(s => s.type === 'motion_graphics');
   const clips: { url: string; duration: number; template?: string }[] = [];
   
-  // Template IDs mapping - UPDATE THESE with your actual Creatomate template IDs
-  // For now using Photo Story template as fallback for testing
-  const FALLBACK_TEMPLATE = 'aeda03fc-2d5d-48b1-b6bf-8d16aaa4f4cc'; // Photo Story template
-  
+  // Template IDs mapping - Add your Creatomate template IDs here
+  // Get template IDs from: https://creatomate.com/templates
   const templateIds: Record<string, string> = {
     'shopshot-intro': '', // Add your custom intro template ID
-    'lower-third-stat': '', // Add your custom stat overlay template ID
+    'lower-third-stat': '', // Add your custom stat overlay template ID  
     'feature-callout': '', // Add your custom callout template ID
     'orange-swipe-transition': '', // Add your custom transition template ID
     'shopshot-outro-cta': '' // Add your custom outro template ID
   };
   
-  // Skip motion graphics if no API key (use placeholders)
+  // Skip motion graphics entirely if no API key or no templates configured
+  // Don't return broken placeholders - just skip them
   if (!env.CREATOMATE_API_KEY) {
-    console.log('[Creatomate] No API key - using placeholders for all motion graphics');
-    return motionSegments.map(segment => ({
-      url: `https://pub-dc7e4f65e1c8497583a99e9ebe196cd3.r2.dev/motion-template-placeholder.mp4`,
-      duration: segment.duration,
-      template: segment.template
-    }));
+    console.log('[Creatomate] No API key - skipping motion graphics');
+    return [];
+  }
+  
+  // Check if any templates are actually configured
+  const hasConfiguredTemplates = Object.values(templateIds).some(id => id && id.length > 0);
+  if (!hasConfiguredTemplates) {
+    console.log('[Creatomate] No template IDs configured - skipping motion graphics. Add template IDs to enable.');
+    return [];
   }
   
   for (const segment of motionSegments) {
@@ -7110,46 +7105,61 @@ async function fetchStockClips(
   const stockSegments = segments.filter(s => s.type === 'stock_broll');
   const clips: { url: string; duration: number }[] = [];
   
+  // Skip if no API key - don't return broken placeholders
+  if (!env.PEXELS_API_KEY) {
+    console.log('[Pexels] No API key - skipping stock clips');
+    return [];
+  }
+  
   for (const segment of stockSegments) {
     try {
-      if (!env.PEXELS_API_KEY) {
-        clips.push({
-          url: `https://pub-dc7e4f65e1c8497583a99e9ebe196cd3.r2.dev/stock-placeholder.mp4`,
-          duration: segment.duration
-        });
-        continue;
-      }
+      const searchQuery = segment.search_query || 'business technology';
+      console.log(`[Pexels] Searching for: "${searchQuery}"`);
       
       const response = await fetch(
-        `https://api.pexels.com/videos/search?query=${encodeURIComponent(segment.search_query || 'business')}&per_page=5`,
+        `https://api.pexels.com/videos/search?query=${encodeURIComponent(searchQuery)}&per_page=5&orientation=portrait`,
         {
           headers: { 'Authorization': env.PEXELS_API_KEY }
         }
       );
       
-      if (response.ok) {
-        const data = await response.json() as any;
-        const video = data.videos?.[0];
-        const hdFile = video?.video_files?.find((f: any) => f.quality === 'hd') || video?.video_files?.[0];
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[Pexels] API error ${response.status}: ${errorText}`);
+        continue; // Skip this clip, don't add broken placeholder
+      }
+      
+      const data = await response.json() as any;
+      console.log(`[Pexels] Found ${data.videos?.length || 0} videos`);
+      
+      const video = data.videos?.[0];
+      if (!video) {
+        console.log(`[Pexels] No videos found for "${searchQuery}"`);
+        continue; // Skip, don't add broken placeholder
+      }
+      
+      // Find best quality file (prefer HD)
+      const hdFile = video.video_files?.find((f: any) => f.quality === 'hd' && f.width <= 1920);
+      const sdFile = video.video_files?.find((f: any) => f.quality === 'sd');
+      const bestFile = hdFile || sdFile || video.video_files?.[0];
+      
+      if (bestFile?.link) {
+        console.log(`[Pexels] Using video: ${bestFile.link.substring(0, 60)}...`);
         clips.push({
-          url: hdFile?.link || `https://pub-dc7e4f65e1c8497583a99e9ebe196cd3.r2.dev/stock-placeholder.mp4`,
+          url: bestFile.link,
           duration: segment.duration
         });
       } else {
-        clips.push({
-          url: `https://pub-dc7e4f65e1c8497583a99e9ebe196cd3.r2.dev/stock-placeholder.mp4`,
-          duration: segment.duration
-        });
+        console.log(`[Pexels] No video file link found`);
       }
+      
     } catch (error) {
-      console.error('Pexels error:', error);
-      clips.push({
-        url: `https://pub-dc7e4f65e1c8497583a99e9ebe196cd3.r2.dev/stock-placeholder.mp4`,
-        duration: segment.duration
-      });
+      console.error('[Pexels] Error:', error);
+      // Don't add broken placeholder, just skip
     }
   }
   
+  console.log(`[Pexels] Returning ${clips.length} stock clips`);
   return clips;
 }
 
