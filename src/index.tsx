@@ -59,6 +59,8 @@ type Bindings = {
   PEXELS_API_KEY: string;
   CREATOMATE_API_KEY: string;
   CLOUD_RUN_ASSEMBLER_URL: string;
+  // Shotstack API
+  SHOTSTACK_API_KEY: string;
 }
 
 // User type for authenticated requests
@@ -7293,6 +7295,336 @@ async function generateVoiceover(
   }
 }
 
+// ============================================================================
+// SHOTSTACK VIDEO GENERATION - Fast, template-based video rendering
+// ============================================================================
+
+interface ShotstackClip {
+  asset: {
+    type: string;
+    src?: string;
+    text?: string;
+    html?: string;
+    font?: { family: string; size: string; color: string };
+    width?: number;
+    height?: number;
+    background?: string;
+  };
+  start: number;
+  length: number;
+  fit?: string;
+  scale?: number;
+  position?: string;
+  offset?: { x: number; y: number };
+  transition?: { in?: string; out?: string };
+  effect?: string;
+  filter?: string;
+  opacity?: number;
+}
+
+interface ShotstackTimeline {
+  background: string;
+  tracks: { clips: ShotstackClip[] }[];
+  soundtrack?: { src: string; effect: string; volume: number };
+}
+
+// Build Shotstack timeline from script and assets
+function buildShotstackTimeline(
+  script: VideoScript,
+  stockClips: { url: string; duration: number }[],
+  voiceoverUrl: string,
+  aspectRatio: string
+): ShotstackTimeline {
+  const isPortrait = aspectRatio === '9:16';
+  
+  // Track 1: Video clips (bottom layer)
+  const videoClips: ShotstackClip[] = [];
+  let currentTime = 0;
+  let stockIndex = 0;
+  
+  // Map segments to clips
+  for (const segment of script.segments) {
+    if (segment.type === 'stock_broll' && stockIndex < stockClips.length) {
+      const stock = stockClips[stockIndex++];
+      videoClips.push({
+        asset: {
+          type: 'video',
+          src: stock.url
+        },
+        start: currentTime,
+        length: segment.duration,
+        fit: 'cover',
+        transition: {
+          in: currentTime === 0 ? 'fade' : 'slideLeft',
+          out: 'slideLeft'
+        },
+        effect: 'zoomIn' // Ken Burns effect
+      });
+    } else if (segment.type === 'veo3') {
+      // For now, use a placeholder animation for Veo3 segments
+      // This creates a sleek gradient background with text
+      videoClips.push({
+        asset: {
+          type: 'html',
+          html: `<div style="width:100%;height:100%;background:linear-gradient(135deg,#1a1a2e,#16213e,#0f3460);display:flex;align-items:center;justify-content:center;padding:20px;"><div style="text-align:center;color:white;"><h2 style="font-size:${isPortrait ? '28px' : '36px'};font-weight:bold;margin:0;text-shadow:2px 2px 4px rgba(0,0,0,0.5);">${segment.caption || 'ShopShot AI'}</h2></div></div>`,
+          width: isPortrait ? 1080 : 1920,
+          height: isPortrait ? 1920 : 1080
+        },
+        start: currentTime,
+        length: segment.duration,
+        transition: {
+          in: currentTime === 0 ? 'fade' : 'slideUp',
+          out: 'slideUp'
+        },
+        effect: 'zoomIn'
+      });
+    }
+    currentTime += segment.duration;
+  }
+  
+  // Track 2: Caption overlays (middle layer)
+  const captionClips: ShotstackClip[] = [];
+  let captionTime = 0;
+  
+  // Parse SRT and create caption clips
+  const srtLines = script.captions_srt.split('\n\n');
+  for (const block of srtLines) {
+    const lines = block.trim().split('\n');
+    if (lines.length >= 3) {
+      const timeLine = lines[1];
+      const captionText = lines.slice(2).join(' ');
+      
+      // Parse timestamps: "00:00:00,000 --> 00:00:04,000"
+      const timeMatch = timeLine.match(/(\d{2}):(\d{2}):(\d{2}),(\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2}),(\d{3})/);
+      if (timeMatch) {
+        const startSec = parseInt(timeMatch[1]) * 3600 + parseInt(timeMatch[2]) * 60 + parseInt(timeMatch[3]) + parseInt(timeMatch[4]) / 1000;
+        const endSec = parseInt(timeMatch[5]) * 3600 + parseInt(timeMatch[6]) * 60 + parseInt(timeMatch[7]) + parseInt(timeMatch[8]) / 1000;
+        
+        captionClips.push({
+          asset: {
+            type: 'html',
+            html: `<div style="width:100%;height:100%;display:flex;align-items:flex-end;justify-content:center;padding-bottom:${isPortrait ? '180px' : '80px'};"><div style="background:rgba(0,0,0,0.7);padding:${isPortrait ? '16px 24px' : '12px 20px'};border-radius:8px;max-width:${isPortrait ? '90%' : '70%'};"><p style="color:white;font-family:Arial,sans-serif;font-size:${isPortrait ? '32px' : '28px'};font-weight:bold;margin:0;text-align:center;text-shadow:2px 2px 4px rgba(0,0,0,0.8);line-height:1.3;">${captionText}</p></div></div>`,
+            width: isPortrait ? 1080 : 1920,
+            height: isPortrait ? 1920 : 1080
+          },
+          start: startSec,
+          length: Math.max(0.5, endSec - startSec),
+          transition: { in: 'fade', out: 'fade' }
+        });
+      }
+    }
+  }
+  
+  // Track 3: Logo watermark (top layer)
+  const logoClips: ShotstackClip[] = [{
+    asset: {
+      type: 'html',
+      html: `<div style="width:100%;height:100%;display:flex;align-items:flex-start;justify-content:flex-end;padding:${isPortrait ? '60px' : '30px'};"><div style="background:rgba(255,255,255,0.15);padding:8px 16px;border-radius:20px;backdrop-filter:blur(4px);"><span style="color:white;font-family:Arial,sans-serif;font-size:${isPortrait ? '18px' : '16px'};font-weight:600;">ShopShot.co.uk</span></div></div>`,
+      width: isPortrait ? 1080 : 1920,
+      height: isPortrait ? 1920 : 1080
+    },
+    start: 0,
+    length: script.duration,
+    opacity: 0.9
+  }];
+  
+  const timeline: ShotstackTimeline = {
+    background: '#000000',
+    tracks: [
+      { clips: logoClips },     // Top layer - logo
+      { clips: captionClips },  // Middle layer - captions
+      { clips: videoClips }     // Bottom layer - video
+    ]
+  };
+  
+  // Add voiceover as soundtrack
+  if (voiceoverUrl && !voiceoverUrl.includes('placeholder')) {
+    timeline.soundtrack = {
+      src: voiceoverUrl,
+      effect: 'fadeOut',
+      volume: 1.0
+    };
+  }
+  
+  return timeline;
+}
+
+// Submit render to Shotstack and poll for completion
+async function renderWithShotstack(
+  timeline: ShotstackTimeline,
+  aspectRatio: string,
+  env: any
+): Promise<{ success: boolean; videoUrl?: string; renderId?: string; error?: string }> {
+  
+  if (!env.SHOTSTACK_API_KEY) {
+    console.log('[Shotstack] No API key configured');
+    return { success: false, error: 'Shotstack API key not configured' };
+  }
+  
+  const isPortrait = aspectRatio === '9:16';
+  
+  // Build full render request
+  const renderRequest = {
+    timeline: timeline,
+    output: {
+      format: 'mp4',
+      resolution: isPortrait ? 'mobile' : 'hd', // mobile = 1080x1920, hd = 1920x1080
+      aspectRatio: aspectRatio,
+      fps: 30,
+      quality: 'high'
+    }
+  };
+  
+  console.log('[Shotstack] Submitting render request...');
+  console.log('[Shotstack] Tracks:', timeline.tracks.length, 'clips total:', 
+    timeline.tracks.reduce((sum, t) => sum + t.clips.length, 0));
+  
+  try {
+    // Submit render
+    const renderResponse = await fetch('https://api.shotstack.io/edit/v1/render', {
+      method: 'POST',
+      headers: {
+        'x-api-key': env.SHOTSTACK_API_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(renderRequest)
+    });
+    
+    if (!renderResponse.ok) {
+      const errorText = await renderResponse.text();
+      console.error('[Shotstack] Render submission failed:', renderResponse.status, errorText);
+      return { success: false, error: `Shotstack API error: ${renderResponse.status}` };
+    }
+    
+    const renderData = await renderResponse.json() as any;
+    const renderId = renderData.response?.id;
+    
+    if (!renderId) {
+      console.error('[Shotstack] No render ID returned:', renderData);
+      return { success: false, error: 'No render ID returned' };
+    }
+    
+    console.log(`[Shotstack] Render queued: ${renderId}`);
+    
+    // Poll for completion (max 2 minutes - Shotstack is usually much faster)
+    for (let i = 0; i < 24; i++) {
+      await new Promise(resolve => setTimeout(resolve, 5000)); // 5 second intervals
+      
+      const statusResponse = await fetch(`https://api.shotstack.io/edit/v1/render/${renderId}`, {
+        headers: { 'x-api-key': env.SHOTSTACK_API_KEY }
+      });
+      
+      if (!statusResponse.ok) {
+        console.log(`[Shotstack] Status check failed: ${statusResponse.status}`);
+        continue;
+      }
+      
+      const statusData = await statusResponse.json() as any;
+      const status = statusData.response?.status;
+      
+      console.log(`[Shotstack] Render status: ${status} (${i + 1}/24)`);
+      
+      if (status === 'done') {
+        const videoUrl = statusData.response?.url;
+        console.log(`[Shotstack] Render complete: ${videoUrl}`);
+        return { success: true, videoUrl, renderId };
+      }
+      
+      if (status === 'failed') {
+        const errorMsg = statusData.response?.error || 'Render failed';
+        console.error('[Shotstack] Render failed:', errorMsg);
+        return { success: false, error: errorMsg, renderId };
+      }
+      
+      // 'queued', 'fetching', 'rendering', 'saving' - keep polling
+    }
+    
+    console.error('[Shotstack] Render timed out after 2 minutes');
+    return { success: false, error: 'Render timed out', renderId };
+    
+  } catch (error: any) {
+    console.error('[Shotstack] Error:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+// Simplified script generator for Shotstack (stock-only, no Veo3)
+async function generateShotstackScript(
+  topic: string,
+  duration: number,
+  platform: string,
+  env: any
+): Promise<VideoScript> {
+  const aspectRatio = platform === 'X' ? '16:9' : '9:16';
+  
+  // Calculate clip structure: all stock clips with fast cuts (2-4 seconds each)
+  const clipCount = Math.ceil(duration / 3); // ~3 seconds per clip average
+  
+  const systemPrompt = `You are a viral video scriptwriter creating scroll-stopping ${platform} content.
+
+=== THE PRODUCT ===
+ShopShot: AI product photography that turns 1 photo into 10 professional shots in 25 seconds.
+- Kills the need for GBP500+ photoshoots
+- GBP39.99/month (Standard) or GBP59.99/month (Pro)
+- Target: Shopify, Amazon, Etsy sellers
+
+=== YOUR STYLE ===
+Alex Hormozi meets Gary Vee meets British wit:
+- Pattern interrupts (controversial opener)
+- Specific numbers ("GBP12,847" not "thousands")
+- Short punchy sentences
+- British spelling
+- End with urgency
+
+=== REQUIREMENTS ===
+Create a ${duration} second video with EXACTLY ${clipCount} stock B-roll clips.
+Each clip should be 2-4 seconds for FAST PACING (viral content cuts fast!)
+
+=== STOCK SEARCH TIPS ===
+Be SPECIFIC with Pexels queries:
+GOOD: "ecommerce product photography", "frustrated entrepreneur laptop", "professional photo studio"
+BAD: "business", "photos" (too generic)
+
+=== OUTPUT FORMAT ===
+Return ONLY valid JSON:
+{
+  "duration": ${duration},
+  "segments": [
+    { "type": "stock_broll", "duration": 2|3|4, "search_query": "specific pexels search", "caption": "Short caption" }
+  ],
+  "voiceover_script": "Full British English voiceover (${Math.round(duration * 2.5)} words max)...",
+  "captions_srt": "1\\n00:00:00,000 --> 00:00:03,000\\nFirst line\\n\\n2\\n..."
+}`;
+
+  try {
+    const geminiResponse = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${env.GEMINI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [{ text: `${systemPrompt}\n\nTOPIC: ${topic}\nDURATION: ${duration} seconds\nPLATFORM: ${platform}` }]
+          }],
+          generationConfig: { temperature: 0.8, maxOutputTokens: 2000 }
+        })
+      }
+    );
+    
+    const geminiData = await geminiResponse.json() as any;
+    const rawScript = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    
+    // Parse JSON
+    const jsonMatch = rawScript.match(/```json\s*([\s\S]*?)\s*```/) || rawScript.match(/```\s*([\s\S]*?)\s*```/);
+    const jsonString = jsonMatch ? jsonMatch[1] : rawScript;
+    return JSON.parse(jsonString.trim());
+    
+  } catch (error: any) {
+    console.error('[Shotstack Script] Error:', error);
+    throw new Error(`Script generation failed: ${error.message}`);
+  }
+}
+
 // Get Google Cloud identity token for Cloud Run authentication
 async function getCloudRunToken(env: any): Promise<string | null> {
   try {
@@ -7413,7 +7745,134 @@ async function assembleVideo(
   }
 }
 
-// API: Generate social media video
+// API: Generate social media video using Shotstack (NEW - Fast rendering!)
+app.post('/api/social/video/generate-fast', async (c) => {
+  const user = c.get('user') as any;
+  if (!user || user.role !== 'admin') {
+    return c.json({ success: false, error: 'Admin access required' }, 403);
+  }
+  
+  const db = c.env.TESCO_DB;
+  const startTime = Date.now();
+  
+  try {
+    const { topic, duration, platform } = await c.req.json();
+    
+    if (!topic || !duration || !platform) {
+      return c.json({ success: false, error: 'topic, duration, and platform required' }, 400);
+    }
+    
+    const videoId = `vid_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    const aspectRatio = platform === 'X' ? '16:9' : '9:16';
+    
+    console.log(`[Shotstack Gen] Starting video: ${videoId}, topic: ${topic}, ${duration}s, ${platform}`);
+    
+    // Create initial record
+    await db.prepare(`
+      INSERT INTO social_videos (id, user_id, topic, duration, platform, aspect_ratio, status, generation_started_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'generating', CURRENT_TIMESTAMP)
+    `).bind(videoId, user.id, topic, duration, platform, aspectRatio).run();
+    
+    // 1. Generate simplified script (stock-only for fast rendering)
+    console.log('[Shotstack Gen] Step 1: Generating script...');
+    let script: VideoScript;
+    try {
+      script = await generateShotstackScript(topic, duration, platform, c.env);
+      console.log(`[Shotstack Gen] Script generated: ${script.segments.length} segments`);
+    } catch (error: any) {
+      await db.prepare(`UPDATE social_videos SET status = 'failed', error_message = ? WHERE id = ?`)
+        .bind(error.message, videoId).run();
+      return c.json({ success: false, error: error.message }, 500);
+    }
+    
+    // Store script
+    await db.prepare(`UPDATE social_videos SET script_data = ? WHERE id = ?`)
+      .bind(JSON.stringify(script), videoId).run();
+    
+    // 2. Fetch stock clips and generate voiceover in parallel
+    console.log('[Shotstack Gen] Step 2: Fetching assets...');
+    const [stockClips, voiceoverUrl] = await Promise.all([
+      fetchStockClips(script.segments, c.env),
+      generateVoiceover(script.voiceover_script, c.env)
+    ]);
+    
+    console.log(`[Shotstack Gen] Assets ready: ${stockClips.length} clips, voiceover: ${voiceoverUrl.substring(0, 50)}...`);
+    
+    if (stockClips.length === 0) {
+      await db.prepare(`UPDATE social_videos SET status = 'failed', error_message = ? WHERE id = ?`)
+        .bind('Failed to fetch stock clips - check Pexels API key', videoId).run();
+      return c.json({ success: false, error: 'Failed to fetch stock clips' }, 500);
+    }
+    
+    // 3. Build Shotstack timeline
+    console.log('[Shotstack Gen] Step 3: Building timeline...');
+    const timeline = buildShotstackTimeline(script, stockClips, voiceoverUrl, aspectRatio);
+    
+    // 4. Render with Shotstack
+    console.log('[Shotstack Gen] Step 4: Rendering with Shotstack...');
+    await db.prepare(`UPDATE social_videos SET status = 'rendering' WHERE id = ?`).bind(videoId).run();
+    
+    const renderResult = await renderWithShotstack(timeline, aspectRatio, c.env);
+    
+    const generationTime = Math.round((Date.now() - startTime) / 1000);
+    
+    if (!renderResult.success) {
+      await db.prepare(`UPDATE social_videos SET status = 'failed', error_message = ? WHERE id = ?`)
+        .bind(renderResult.error || 'Shotstack render failed', videoId).run();
+      return c.json({ success: false, error: renderResult.error }, 500);
+    }
+    
+    // 5. Calculate cost (Shotstack pricing: ~$0.30/minute)
+    const shotstackCost = (duration / 60) * 0.30;
+    const voiceoverCost = (script.voiceover_script.length / 100) * 0.30;
+    const totalCost = shotstackCost + voiceoverCost;
+    
+    // 6. Update database with success
+    await db.prepare(`
+      UPDATE social_videos 
+      SET status = 'preview',
+          stock_clips = ?,
+          voiceover_url = ?,
+          captions_srt = ?,
+          final_video_url = ?,
+          total_cost_gbp = ?,
+          shotstack_render_id = ?,
+          generation_completed_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).bind(
+      JSON.stringify(stockClips),
+      voiceoverUrl,
+      script.captions_srt,
+      renderResult.videoUrl,
+      totalCost,
+      renderResult.renderId,
+      videoId
+    ).run();
+    
+    console.log(`[Shotstack Gen] Complete! ${generationTime}s, URL: ${renderResult.videoUrl}`);
+    
+    return c.json({
+      success: true,
+      videoId,
+      videoUrl: renderResult.videoUrl,
+      status: 'preview',
+      generationTime,
+      cost: totalCost,
+      engine: 'shotstack',
+      script: {
+        segments: script.segments.length,
+        voiceoverLength: script.voiceover_script.length,
+        duration: script.duration
+      }
+    });
+    
+  } catch (error: any) {
+    console.error('[Shotstack Gen] Error:', error);
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// API: Generate social media video (Legacy - Cloud Run + Veo3)
 app.post('/api/social/video/generate', async (c) => {
   const user = c.get('user') as any;
   if (!user || user.role !== 'admin') {
@@ -22050,11 +22509,11 @@ function getVideoGeneratorPage(user: any) {
             </div>
             <div class="flex justify-between mt-1">
               <span class="text-xs text-gray-500" id="progress-percent">0%</span>
-              <span class="text-xs text-gray-500">Est: 3-4 min</span>
+              <span class="text-xs text-gray-500">Est: 30-90 sec (Shotstack)</span>
             </div>
           </div>
           
-          <!-- Step-by-Step Flow -->
+          <!-- Step-by-Step Flow (Shotstack Pipeline) -->
           <div class="space-y-2 mt-4" id="progress-steps">
             <!-- Step 1: Script Generation -->
             <div class="step-item" id="step-script">
@@ -22067,28 +22526,12 @@ function getVideoGeneratorPage(user: any) {
                     <span class="text-sm font-medium text-white">Generate Script</span>
                     <span class="text-xs text-gray-500" id="step-script-time"></span>
                   </div>
-                  <p class="text-xs text-gray-500">AI creates video script and shot list</p>
+                  <p class="text-xs text-gray-500">AI creates viral video script</p>
                 </div>
               </div>
             </div>
             
-            <!-- Step 2: Veo 3 Clips -->
-            <div class="step-item" id="step-veo3">
-              <div class="flex items-center gap-3">
-                <div class="step-icon pending" id="step-veo3-icon">
-                  <i class="fas fa-magic"></i>
-                </div>
-                <div class="flex-1">
-                  <div class="flex items-center justify-between">
-                    <span class="text-sm font-medium text-white">Generate Veo 3 Clips</span>
-                    <span class="text-xs text-gray-500" id="step-veo3-time"></span>
-                  </div>
-                  <p class="text-xs text-gray-500" id="step-veo3-detail">AI video generation (2-3 min per clip)</p>
-                </div>
-              </div>
-            </div>
-            
-            <!-- Step 3: Stock Clips -->
+            <!-- Step 2: Stock Clips (replaces Veo3) -->
             <div class="step-item" id="step-stock">
               <div class="flex items-center gap-3">
                 <div class="step-icon pending" id="step-stock-icon">
@@ -22096,15 +22539,15 @@ function getVideoGeneratorPage(user: any) {
                 </div>
                 <div class="flex-1">
                   <div class="flex items-center justify-between">
-                    <span class="text-sm font-medium text-white">Download Stock Footage</span>
+                    <span class="text-sm font-medium text-white">Fetch Stock Clips</span>
                     <span class="text-xs text-gray-500" id="step-stock-time"></span>
                   </div>
-                  <p class="text-xs text-gray-500">Fetch B-roll from Pexels</p>
+                  <p class="text-xs text-gray-500">HD B-roll from Pexels (fast!)</p>
                 </div>
               </div>
             </div>
             
-            <!-- Step 4: Voiceover -->
+            <!-- Step 3: Voiceover -->
             <div class="step-item" id="step-voiceover">
               <div class="flex items-center gap-3">
                 <div class="step-icon pending" id="step-voiceover-icon">
@@ -22112,19 +22555,35 @@ function getVideoGeneratorPage(user: any) {
                 </div>
                 <div class="flex-1">
                   <div class="flex items-center justify-between">
-                    <span class="text-sm font-medium text-white">Add Voiceover</span>
+                    <span class="text-sm font-medium text-white">Generate Voiceover</span>
                     <span class="text-xs text-gray-500" id="step-voiceover-time"></span>
                   </div>
-                  <p class="text-xs text-gray-500">Generate AI voiceover audio</p>
+                  <p class="text-xs text-gray-500">ElevenLabs AI voice</p>
                 </div>
               </div>
             </div>
             
-            <!-- Step 5: Assembly -->
+            <!-- Step 4: Assembly (Shotstack) -->
             <div class="step-item" id="step-assembly">
               <div class="flex items-center gap-3">
                 <div class="step-icon pending" id="step-assembly-icon">
-                  <i class="fas fa-layer-group"></i>
+                  <i class="fas fa-bolt"></i>
+                </div>
+                <div class="flex-1">
+                  <div class="flex items-center justify-between">
+                    <span class="text-sm font-medium text-white">Shotstack Render</span>
+                    <span class="text-xs text-gray-500" id="step-assembly-time"></span>
+                  </div>
+                  <p class="text-xs text-gray-500">Fast cuts, captions, transitions</p>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Step 5: Upload/Ready -->
+            <div class="step-item" id="step-upload">
+              <div class="flex items-center gap-3">
+                <div class="step-icon pending" id="step-upload-icon">
+                  <i class="fas fa-check-circle"></i>
                 </div>
                 <div class="flex-1">
                   <div class="flex items-center justify-between">
@@ -22365,7 +22824,8 @@ function getVideoGeneratorPage(user: any) {
       updateStepProgress('script', 5, 'Sending request to AI for script generation');
       
       try {
-        const response = await fetch('/api/social/video/generate', {
+        // Use Shotstack fast endpoint for instant video generation
+        const response = await fetch('/api/social/video/generate-fast', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ topic, duration, platform })
@@ -22379,33 +22839,26 @@ function getVideoGeneratorPage(user: any) {
           currentVideoId = data.videoId;
           currentVideoData = data;
           
-          // Check if video is still processing (async Cloud Run job)
-          if (data.status === 'processing' && data.cloudRunJobId) {
-            showToast('Video generation started! Veo 3 clips may take 2-5 minutes...', 'success');
-            updateStatusBadge('generating');
-            
-            // Script is done, Cloud Run is starting - mark script as complete, start veo3
-            stageStartTimes['veo3'] = Date.now();
-            updateStepProgress('veo3', 15, 'Cloud Run job started - generating AI video clips');
-            
-            // Keep progress section visible and button disabled during polling
-            document.getElementById('progress-section').style.display = 'block';
-            
-            // Start polling for completion
-            pollJobStatus(data.videoId, data.cloudRunJobId);
-          } else {
-            // Video is ready
-            document.getElementById('preview-placeholder').style.display = 'none';
-            document.getElementById('preview-container').style.display = 'block';
-            document.getElementById('preview-video').src = data.videoUrl;
-            document.getElementById('video-info').textContent = 
-              \`\${data.generationTime}s | GBP\${data.cost.toFixed(2)} | \${data.script.segments} segments\`;
-            
-            updateStatusBadge('preview');
-            showToast('Video generated successfully!', 'success');
-            loadHistory();
-            loadStats();
-          }
+          // Shotstack returns video immediately - no polling needed!
+          document.getElementById('preview-placeholder').style.display = 'none';
+          document.getElementById('preview-container').style.display = 'block';
+          document.getElementById('preview-video').src = data.videoUrl;
+          
+          const engineLabel = data.engine === 'shotstack' ? '⚡ Shotstack' : 'Cloud Run';
+          document.getElementById('video-info').textContent = 
+            \`\${data.generationTime}s | GBP\${data.cost.toFixed(2)} | \${data.script.segments} clips | \${engineLabel}\`;
+          
+          // Mark all steps as complete
+          updateStepProgress('script', 100, 'Script generated');
+          updateStepProgress('stock', 100, 'Stock clips fetched');
+          updateStepProgress('voiceover', 100, 'Voiceover created');
+          updateStepProgress('assembly', 100, 'Video assembled');
+          updateStepProgress('upload', 100, 'Ready to view');
+          
+          updateStatusBadge('preview');
+          showToast(\`Video generated in \${data.generationTime}s!\`, 'success');
+          loadHistory();
+          loadStats();
         } else {
           showToast(data.error || 'Generation failed', 'error');
         }
