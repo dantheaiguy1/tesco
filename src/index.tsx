@@ -6664,12 +6664,18 @@ function validateVideoScript(script: any, targetDuration: number): ValidationRes
     warnings.push(`Voiceover is only ${voiceoverLength} characters. Recommend ${minVoiceoverChars}-${maxVoiceoverChars} chars.`);
   }
   
-  // 5. Validate segment count
+  // 5. Validate segment count and Veo 3 minimum
   if (script.segments.length < 3) {
     errors.push(`Only ${script.segments.length} segments. Minimum 3 required.`);
   }
   if (script.segments.length > 8) {
     warnings.push(`${script.segments.length} segments may feel choppy. Consider consolidating.`);
+  }
+  
+  // 5b. Validate minimum Veo 3 scenes
+  const minVeo3Scenes = Math.max(3, Math.floor(targetDuration / 5));
+  if (veo3Segments.length < minVeo3Scenes) {
+    errors.push(`Only ${veo3Segments.length} Veo 3 scenes. Minimum ${minVeo3Scenes} required for ${targetDuration}s video.`);
   }
   
   // 6. Validate motion graphics templates
@@ -6717,15 +6723,24 @@ BRAND CONTEXT:
 VIDEO REQUIREMENTS:
 - Total duration: ${duration} seconds
 - Platform: ${platform} (aspect ratio: ${aspectRatio})
-- Use 3-5 Veo 3 scenes to fill the entire video duration
+- MINIMUM ${Math.max(3, Math.floor(duration / 5))} Veo 3 scenes (MANDATORY - DO NOT USE FEWER)
 - Use 1-2 stock B-roll clips for variety (2-4 seconds each)
 - NO motion graphics - only veo3 and stock_broll types allowed
+- Total segment durations MUST add up to exactly ${duration} seconds
+
+MANDATORY SEGMENT STRUCTURE (follow this pattern):
+1. Veo3 scene (4-8s) - Opening hook
+2. Stock B-roll (2-3s) - Context cut
+3. Veo3 scene (4-8s) - Problem visualization  
+4. Veo3 scene (4-8s) - Solution/product demo
+5. [Additional Veo3 scenes as needed to reach ${duration}s total]
 
 CRITICAL VEO 3 RULES:
 - Duration MUST be exactly 4, 6, or 8 seconds - NO OTHER VALUES WORK
-- Prompts must be detailed: camera angle, lighting, setting, action, mood
+- Prompts must be detailed (50+ chars): camera angle, lighting, setting, action, mood
 - Avoid text in scenes (Veo 3 struggles with text)
 - Make prompts cinematic and specific
+- YOU MUST INCLUDE AT LEAST ${Math.max(3, Math.floor(duration / 5))} VEO3 SCENES
 
 STOCK B-ROLL SEARCH QUERIES:
 - Use for quick 2-4 second cuts between Veo 3 scenes
