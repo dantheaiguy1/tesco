@@ -11,7 +11,9 @@ app.use(express.json({ limit: '50mb' }));
 
 const PORT = process.env.PORT || 8080;
 
-// R2 Configuration
+// In-memory job status (for MVP - use Redis/DB in production)
+const jobs = new Map();
+
 const r2Client = new S3Client({
   region: 'auto',
   endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
@@ -24,13 +26,17 @@ const r2Client = new S3Client({
 const R2_BUCKET = process.env.R2_BUCKET_NAME || 'shopshot-videos';
 const R2_PUBLIC_URL = process.env.R2_PUBLIC_URL || 'https://pub-dc7e4f65e1c8497583a99e9ebe196cd3.r2.dev';
 
-// Vertex AI credentials (passed per-request or from env)
-const VERTEX_PROJECT_ID = process.env.VERTEX_PROJECT_ID;
-const VERTEX_CLIENT_EMAIL = process.env.VERTEX_CLIENT_EMAIL;
-const VERTEX_PRIVATE_KEY = process.env.VERTEX_PRIVATE_KEY;
-
 app.get('/health', (req, res) => {
-  res.json({ status: 'healthy', service: 'shopshot-assembler', timestamp: new Date().toISOString() });
+  res.json({ status: 'healthy', service: 'shopshot-assembler', jobs: jobs.size });
+});
+
+// Check job status
+app.get('/job/:jobId', (req, res) => {
+  const job = jobs.get(req.params.jobId);
+  if (!job) {
+    return res.status(404).json({ error: 'Job not found' });
+  }
+  res.json(job);
 });
 
 function downloadFile(url, dest) {
@@ -46,351 +52,236 @@ function downloadFile(url, dest) {
       }
       if (response.statusCode !== 200) {
         file.close();
-        reject(new Error(`Failed to download ${url}: ${response.statusCode}`));
+        reject(new Error(`Failed: ${response.statusCode}`));
         return;
       }
       response.pipe(file);
       file.on('finish', () => { file.close(); resolve(); });
-    }).on('error', (err) => { fs.unlink(dest, () => {}); reject(err); });
+    }).on('error', reject);
   });
 }
 
 async function uploadToR2(filePath, key) {
   const fileContent = fs.readFileSync(filePath);
-  await r2Client.send(new PutObjectCommand({
-    Bucket: R2_BUCKET,
-    Key: key,
-    Body: fileContent,
-    ContentType: 'video/mp4'
-  }));
+  await r2Client.send(new PutObjectCommand({ Bucket: R2_BUCKET, Key: key, Body: fileContent, ContentType: 'video/mp4' }));
   return `${R2_PUBLIC_URL}/${key}`;
 }
 
-// Get Vertex AI access token
-async function getVertexAccessToken(clientEmail, privateKey) {
+async function getVertexToken(clientEmail, privateKey) {
   const now = Math.floor(Date.now() / 1000);
   const header = { alg: 'RS256', typ: 'JWT' };
-  const payload = {
-    iss: clientEmail,
-    sub: clientEmail,
-    aud: 'https://oauth2.googleapis.com/token',
-    iat: now,
-    exp: now + 3600,
-    scope: 'https://www.googleapis.com/auth/cloud-platform'
-  };
-
+  const payload = { iss: clientEmail, sub: clientEmail, aud: 'https://oauth2.googleapis.com/token', iat: now, exp: now + 3600, scope: 'https://www.googleapis.com/auth/cloud-platform' };
   const base64url = (obj) => Buffer.from(JSON.stringify(obj)).toString('base64url');
-  const unsignedToken = base64url(header) + '.' + base64url(payload);
-
+  const unsigned = base64url(header) + '.' + base64url(payload);
   const sign = crypto.createSign('RSA-SHA256');
-  sign.update(unsignedToken);
-  const signature = sign.sign(privateKey.replace(/\\n/g, '\n'), 'base64url');
-  const jwt = unsignedToken + '.' + signature;
-
-  const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${jwt}`
-  });
-
-  if (!tokenRes.ok) {
-    console.error('Token exchange failed:', await tokenRes.text());
-    return null;
-  }
-
-  const tokenData = await tokenRes.json();
-  return tokenData.access_token;
+  sign.update(unsigned);
+  const sig = sign.sign(privateKey.replace(/\\n/g, '\n'), 'base64url');
+  const jwt = unsigned + '.' + sig;
+  const res = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${jwt}` });
+  if (!res.ok) return null;
+  return (await res.json()).access_token;
 }
 
-// Generate Veo 3 clip and WAIT for completion (no timeout here!)
-async function generateVeo3Clip(prompt, duration, aspectRatio, credentials) {
-  const { projectId, clientEmail, privateKey } = credentials;
+async function generateVeo3(prompt, duration, aspectRatio, creds) {
+  console.log(`[Veo3] Generating: "${prompt.substring(0,40)}..." ${duration}s`);
+  const token = await getVertexToken(creds.clientEmail, creds.privateKey);
+  if (!token) throw new Error('Auth failed');
   
-  console.log(`[Veo3] Starting generation: "${prompt.substring(0, 50)}..." (${duration}s)`);
+  const endpoint = `https://us-central1-aiplatform.googleapis.com/v1/projects/${creds.projectId}/locations/us-central1/publishers/google/models/veo-3.0-generate-preview:predictLongRunning`;
   
-  const accessToken = await getVertexAccessToken(clientEmail, privateKey);
-  if (!accessToken) {
-    throw new Error('Failed to get Vertex AI access token');
-  }
-
-  const endpoint = `https://us-central1-aiplatform.googleapis.com/v1/projects/${projectId}/locations/us-central1/publishers/google/models/veo-3.0-generate-preview:predictLongRunning`;
-
-  // Start the operation
   const startRes = await fetch(endpoint, {
     method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json'
-    },
+    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       instances: [{ prompt }],
-      parameters: {
-        aspectRatio: aspectRatio,
-        durationSeconds: duration,
-        sampleCount: 1,
-        generateAudio: false,
-        resolution: '720p'
-      }
+      parameters: { aspectRatio, durationSeconds: duration, sampleCount: 1, generateAudio: false, resolution: '720p' }
     })
   });
-
-  if (!startRes.ok) {
-    const err = await startRes.text();
-    console.error('[Veo3] Start failed:', err);
-    throw new Error(`Veo3 start failed: ${startRes.status}`);
-  }
-
-  const startData = await startRes.json();
-  const operationName = startData.name;
-  console.log(`[Veo3] Operation started: ${operationName}`);
-
-  // Poll for completion - NO TIMEOUT LIMIT HERE
-  const pollUrl = `https://us-central1-aiplatform.googleapis.com/v1/${operationName}`;
-  const maxAttempts = 120; // 10 minutes max (5s intervals)
   
-  for (let i = 0; i < maxAttempts; i++) {
-    await new Promise(r => setTimeout(r, 5000)); // Wait 5 seconds
-    
-    const pollRes = await fetch(pollUrl, {
-      headers: { 'Authorization': `Bearer ${accessToken}` }
+  if (!startRes.ok) throw new Error(`Veo3 start failed: ${startRes.status}`);
+  const opName = (await startRes.json()).name;
+  console.log(`[Veo3] Operation: ${opName}`);
+  
+  // Poll for completion (up to 10 min)
+  for (let i = 0; i < 120; i++) {
+    await new Promise(r => setTimeout(r, 5000));
+    const pollRes = await fetch(`https://us-central1-aiplatform.googleapis.com/v1/${opName}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
     });
-    
-    if (!pollRes.ok) {
-      console.error('[Veo3] Poll failed:', pollRes.status);
-      continue;
-    }
-    
-    const pollData = await pollRes.json();
-    
-    if (pollData.done) {
-      if (pollData.response?.predictions?.[0]?.videoUri) {
-        const videoUri = pollData.response.predictions[0].videoUri;
-        console.log(`[Veo3] Complete! URI: ${videoUri}`);
-        return videoUri;
-      } else if (pollData.error) {
-        throw new Error(`Veo3 error: ${pollData.error.message}`);
+    if (!pollRes.ok) continue;
+    const data = await pollRes.json();
+    if (data.done) {
+      if (data.response?.predictions?.[0]?.videoUri) {
+        console.log(`[Veo3] Done: ${data.response.predictions[0].videoUri}`);
+        return data.response.predictions[0].videoUri;
       }
+      if (data.error) throw new Error(data.error.message);
     }
-    
-    console.log(`[Veo3] Still processing... (${i + 1}/${maxAttempts})`);
+    console.log(`[Veo3] Waiting... ${i+1}/120`);
   }
-  
-  throw new Error('Veo3 generation timed out after 10 minutes');
+  throw new Error('Veo3 timeout');
 }
 
-// NEW: Full video generation endpoint with Veo 3
-app.post('/generate-video', async (req, res) => {
-  const { 
-    veo3Segments, // Array of { prompt, duration }
-    stockClipUrls, // Array of URLs
-    motionGraphicUrls, // Array of URLs
-    voiceoverUrl,
-    aspectRatio,
-    videoId,
-    vertexCredentials // { projectId, clientEmail, privateKey }
-  } = req.body;
-
-  const workDir = `/tmp/gen-${Date.now()}`;
+// Process video generation in background
+async function processVideoGeneration(jobId, params) {
+  const { veo3Segments, stockClipUrls, motionGraphicUrls, voiceoverUrl, aspectRatio, vertexCredentials } = params;
+  const workDir = `/tmp/job-${jobId}`;
   
   try {
     fs.mkdirSync(workDir, { recursive: true });
-    console.log(`[Generate] Starting full generation for ${videoId}`);
-    console.log(`[Generate] Veo3 segments: ${veo3Segments?.length || 0}`);
-    console.log(`[Generate] Stock clips: ${stockClipUrls?.length || 0}`);
-    console.log(`[Generate] Motion graphics: ${motionGraphicUrls?.length || 0}`);
-
-    const allClipPaths = [];
-
-    // 1. Generate Veo 3 clips (this can take minutes - that's fine here!)
-    if (veo3Segments && veo3Segments.length > 0 && vertexCredentials) {
-      console.log('[Generate] Generating Veo 3 clips...');
-      
+    jobs.set(jobId, { status: 'processing', stage: 'starting', progress: 0 });
+    
+    const allClips = [];
+    
+    // 1. Generate Veo 3 clips
+    if (veo3Segments?.length && vertexCredentials) {
+      jobs.set(jobId, { status: 'processing', stage: 'veo3', progress: 10 });
       for (let i = 0; i < veo3Segments.length; i++) {
         const seg = veo3Segments[i];
         try {
-          const veoUrl = await generateVeo3Clip(
-            seg.prompt,
-            seg.duration,
-            aspectRatio || '9:16',
-            vertexCredentials
-          );
-          
-          // Download the generated video
+          jobs.set(jobId, { status: 'processing', stage: `veo3_${i+1}_of_${veo3Segments.length}`, progress: 10 + (i * 30 / veo3Segments.length) });
+          const veoUrl = await generateVeo3(seg.prompt, seg.duration, aspectRatio || '9:16', vertexCredentials);
           const clipPath = path.join(workDir, `veo3-${i}.mp4`);
           await downloadFile(veoUrl, clipPath);
-          allClipPaths.push({ path: clipPath, order: seg.order || i });
-          console.log(`[Generate] Veo3 clip ${i + 1} complete`);
-        } catch (veoErr) {
-          console.error(`[Generate] Veo3 clip ${i} failed:`, veoErr.message);
-          // Continue with other clips
+          allClips.push({ path: clipPath, order: seg.order || i });
+        } catch (e) {
+          console.error(`Veo3 clip ${i} failed:`, e.message);
         }
       }
     }
-
+    
     // 2. Download stock clips
-    if (stockClipUrls && stockClipUrls.length > 0) {
+    if (stockClipUrls?.length) {
+      jobs.set(jobId, { status: 'processing', stage: 'stock_clips', progress: 50 });
       for (let i = 0; i < stockClipUrls.length; i++) {
-        const clipPath = path.join(workDir, `stock-${i}.mp4`);
         try {
+          const clipPath = path.join(workDir, `stock-${i}.mp4`);
           await downloadFile(stockClipUrls[i].url, clipPath);
-          allClipPaths.push({ path: clipPath, order: stockClipUrls[i].order || 100 + i });
+          allClips.push({ path: clipPath, order: stockClipUrls[i].order || 100 + i });
         } catch (e) {
-          console.error(`[Generate] Stock clip ${i} failed:`, e.message);
+          console.error(`Stock clip ${i} failed:`, e.message);
         }
       }
     }
-
+    
     // 3. Download motion graphics
-    if (motionGraphicUrls && motionGraphicUrls.length > 0) {
+    if (motionGraphicUrls?.length) {
+      jobs.set(jobId, { status: 'processing', stage: 'motion_graphics', progress: 60 });
       for (let i = 0; i < motionGraphicUrls.length; i++) {
-        const clipPath = path.join(workDir, `motion-${i}.mp4`);
         try {
+          const clipPath = path.join(workDir, `motion-${i}.mp4`);
           await downloadFile(motionGraphicUrls[i].url, clipPath);
-          allClipPaths.push({ path: clipPath, order: motionGraphicUrls[i].order || 200 + i });
+          allClips.push({ path: clipPath, order: motionGraphicUrls[i].order || 200 + i });
         } catch (e) {
-          console.error(`[Generate] Motion graphic ${i} failed:`, e.message);
+          console.error(`Motion clip ${i} failed:`, e.message);
         }
       }
     }
-
-    if (allClipPaths.length === 0) {
-      throw new Error('No clips were generated or downloaded');
+    
+    if (allClips.length === 0) {
+      throw new Error('No clips generated');
     }
-
-    // Sort by order
-    allClipPaths.sort((a, b) => a.order - b.order);
-    console.log(`[Generate] Total clips to assemble: ${allClipPaths.length}`);
-
-    // 4. Download voiceover
-    let voiceoverPath = null;
-    if (voiceoverUrl) {
-      voiceoverPath = path.join(workDir, 'voiceover.mp3');
-      try {
-        await downloadFile(voiceoverUrl, voiceoverPath);
-        console.log('[Generate] Voiceover downloaded');
-      } catch (e) {
-        console.error('[Generate] Voiceover download failed:', e.message);
-        voiceoverPath = null;
-      }
-    }
-
-    // 5. Re-encode clips to consistent format
+    
+    allClips.sort((a, b) => a.order - b.order);
+    jobs.set(jobId, { status: 'processing', stage: 'encoding', progress: 70 });
+    
+    // 4. Encode clips
     const { execSync } = require('child_process');
     const encodedPaths = [];
-    
-    for (let i = 0; i < allClipPaths.length; i++) {
-      const inPath = allClipPaths[i].path;
-      const outPath = path.join(workDir, `encoded-${i}.ts`);
-      
+    for (let i = 0; i < allClips.length; i++) {
+      const outPath = path.join(workDir, `enc-${i}.ts`);
       try {
-        execSync(`ffmpeg -i "${inPath}" -c:v libx264 -c:a aac -bsf:v h264_mp4toannexb -f mpegts -y "${outPath}"`, {
-          stdio: 'pipe',
-          timeout: 120000 // 2 min per clip
-        });
+        execSync(`ffmpeg -i "${allClips[i].path}" -c:v libx264 -c:a aac -bsf:v h264_mp4toannexb -f mpegts -y "${outPath}"`, { stdio: 'pipe', timeout: 120000 });
         encodedPaths.push(outPath);
-        console.log(`[Generate] Encoded clip ${i + 1}/${allClipPaths.length}`);
       } catch (e) {
-        console.error(`[Generate] Encode failed for clip ${i}:`, e.message);
+        console.error(`Encode ${i} failed`);
       }
     }
-
-    if (encodedPaths.length === 0) {
-      throw new Error('All clip encoding failed');
-    }
-
-    // 6. Concatenate
-    const concatInput = 'concat:' + encodedPaths.join('|');
-    const concatPath = path.join(workDir, 'concat.mp4');
     
-    execSync(`ffmpeg -i "${concatInput}" -c copy -bsf:a aac_adtstoasc -y "${concatPath}"`, {
-      stdio: 'pipe',
-      timeout: 60000
-    });
-    console.log('[Generate] Clips concatenated');
-
-    // 7. Add voiceover
+    if (encodedPaths.length === 0) throw new Error('Encoding failed');
+    
+    // 5. Concatenate
+    jobs.set(jobId, { status: 'processing', stage: 'concatenating', progress: 85 });
+    const concatPath = path.join(workDir, 'concat.mp4');
+    execSync(`ffmpeg -i "concat:${encodedPaths.join('|')}" -c copy -bsf:a aac_adtstoasc -y "${concatPath}"`, { stdio: 'pipe' });
+    
+    // 6. Add voiceover
     let finalPath = concatPath;
-    if (voiceoverPath && fs.existsSync(voiceoverPath)) {
-      finalPath = path.join(workDir, 'final.mp4');
-      execSync(`ffmpeg -i "${concatPath}" -i "${voiceoverPath}" -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 -shortest -y "${finalPath}"`, {
-        stdio: 'pipe',
-        timeout: 60000
-      });
-      console.log('[Generate] Voiceover added');
-    }
-
-    // 8. Upload to R2
-    const outputKey = `assembled/${videoId}-${Date.now()}.mp4`;
-    const publicUrl = await uploadToR2(finalPath, outputKey);
-    console.log(`[Generate] Uploaded: ${publicUrl}`);
-
-    // Cleanup
-    fs.rmSync(workDir, { recursive: true, force: true });
-
-    res.json({ 
-      success: true, 
-      videoUrl: publicUrl,
-      stats: {
-        veo3Clips: veo3Segments?.length || 0,
-        stockClips: stockClipUrls?.length || 0,
-        motionGraphics: motionGraphicUrls?.length || 0,
-        totalClips: allClipPaths.length
+    if (voiceoverUrl) {
+      jobs.set(jobId, { status: 'processing', stage: 'adding_voiceover', progress: 90 });
+      const voPath = path.join(workDir, 'vo.mp3');
+      try {
+        await downloadFile(voiceoverUrl, voPath);
+        finalPath = path.join(workDir, 'final.mp4');
+        execSync(`ffmpeg -i "${concatPath}" -i "${voPath}" -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 -shortest -y "${finalPath}"`, { stdio: 'pipe' });
+      } catch (e) {
+        console.error('Voiceover failed:', e.message);
       }
-    });
-
+    }
+    
+    // 7. Upload
+    jobs.set(jobId, { status: 'processing', stage: 'uploading', progress: 95 });
+    const videoUrl = await uploadToR2(finalPath, `assembled/${jobId}.mp4`);
+    
+    fs.rmSync(workDir, { recursive: true, force: true });
+    jobs.set(jobId, { status: 'completed', videoUrl, progress: 100 });
+    console.log(`[Job ${jobId}] Complete: ${videoUrl}`);
+    
   } catch (error) {
-    console.error('[Generate] Error:', error);
+    console.error(`[Job ${jobId}] Failed:`, error.message);
     try { fs.rmSync(workDir, { recursive: true, force: true }); } catch(e) {}
-    res.status(500).json({ success: false, error: error.message });
+    jobs.set(jobId, { status: 'failed', error: error.message });
   }
+}
+
+// Start async video generation - returns immediately
+app.post('/generate-video', (req, res) => {
+  const jobId = req.body.videoId || `job-${Date.now()}`;
+  
+  // Start processing in background
+  jobs.set(jobId, { status: 'queued', progress: 0 });
+  processVideoGeneration(jobId, req.body);
+  
+  // Return immediately with job ID
+  res.json({ success: true, jobId, message: 'Video generation started. Poll /job/:jobId for status.' });
 });
 
-// Keep the simple assemble endpoint for backwards compatibility
+// Simple sync assembly (for backwards compat)
 app.post('/assemble', async (req, res) => {
-  const { clips, voiceover, captions, videoId } = req.body;
-  const workDir = `/tmp/assembly-${Date.now()}`;
+  const { clips, voiceover, videoId } = req.body;
+  const workDir = `/tmp/asm-${Date.now()}`;
   
   try {
     fs.mkdirSync(workDir, { recursive: true });
-    console.log(`Starting assembly for video ${videoId}, clips: ${clips.length}`);
-    
     const { execSync } = require('child_process');
     const clipPaths = [];
     
     for (let i = 0; i < clips.length; i++) {
-      const rawPath = path.join(workDir, `raw-${i}.mp4`);
-      const clipPath = path.join(workDir, `clip-${i}.ts`);
-      console.log(`Downloading clip ${i}: ${clips[i]}`);
-      await downloadFile(clips[i], rawPath);
-      
-      execSync(`ffmpeg -i "${rawPath}" -c:v libx264 -c:a aac -bsf:v h264_mp4toannexb -f mpegts -y "${clipPath}"`, { stdio: 'pipe' });
-      clipPaths.push(clipPath);
+      const raw = path.join(workDir, `raw-${i}.mp4`);
+      const enc = path.join(workDir, `enc-${i}.ts`);
+      await downloadFile(clips[i], raw);
+      execSync(`ffmpeg -i "${raw}" -c:v libx264 -c:a aac -bsf:v h264_mp4toannexb -f mpegts -y "${enc}"`, { stdio: 'pipe' });
+      clipPaths.push(enc);
     }
     
-    const concatInput = 'concat:' + clipPaths.join('|');
-    const concatOutput = path.join(workDir, 'concat.mp4');
-    execSync(`ffmpeg -i "${concatInput}" -c copy -bsf:a aac_adtstoasc -y "${concatOutput}"`, { stdio: 'pipe' });
+    const concat = path.join(workDir, 'concat.mp4');
+    execSync(`ffmpeg -i "concat:${clipPaths.join('|')}" -c copy -bsf:a aac_adtstoasc -y "${concat}"`, { stdio: 'pipe' });
     
-    let finalPath = concatOutput;
+    let final = concat;
     if (voiceover) {
-      const voiceoverPath = path.join(workDir, 'voiceover.mp3');
-      await downloadFile(voiceover, voiceoverPath);
-      finalPath = path.join(workDir, 'final.mp4');
-      execSync(`ffmpeg -i "${concatOutput}" -i "${voiceoverPath}" -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 -shortest -y "${finalPath}"`, { stdio: 'pipe' });
+      const vo = path.join(workDir, 'vo.mp3');
+      await downloadFile(voiceover, vo);
+      final = path.join(workDir, 'final.mp4');
+      execSync(`ffmpeg -i "${concat}" -i "${vo}" -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 -shortest -y "${final}"`, { stdio: 'pipe' });
     }
     
-    const outputKey = `assembled/${videoId}-${Date.now()}.mp4`;
-    const publicUrl = await uploadToR2(finalPath, outputKey);
-    
+    const url = await uploadToR2(final, `assembled/${videoId}-${Date.now()}.mp4`);
     fs.rmSync(workDir, { recursive: true, force: true });
-    res.json({ success: true, videoUrl: publicUrl });
-  } catch (error) {
-    console.error('Assembly error:', error);
-    try { fs.rmSync(workDir, { recursive: true, force: true }); } catch(e) {}
-    res.status(500).json({ success: false, error: error.message });
+    res.json({ success: true, videoUrl: url });
+  } catch (e) {
+    try { fs.rmSync(workDir, { recursive: true, force: true }); } catch(x) {}
+    res.status(500).json({ success: false, error: e.message });
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`ShopShot Video Assembler running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`ShopShot Assembler on port ${PORT}`));

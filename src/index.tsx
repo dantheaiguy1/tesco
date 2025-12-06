@@ -7402,20 +7402,21 @@ app.post('/api/social/video/generate', async (c) => {
       return { url: clip.url, order: segIndex >= 0 ? segIndex : 200 + i };
     });
     
-    // 4. Call Cloud Run to generate Veo 3 clips + assemble (no timeout limit there!)
+    // 4. Start async video generation on Cloud Run
     let finalVideoUrl = `https://pub-dc7e4f65e1c8497583a99e9ebe196cd3.r2.dev/final-video-placeholder.mp4`;
-    let veo3Clips: any[] = [];
+    let veo3Clips: any[] = veo3Segments.map(s => ({ url: 'pending', duration: s.duration, prompt: s.prompt, status: 'processing' }));
+    let cloudRunJobId: string | null = null;
     
     if (c.env.CLOUD_RUN_ASSEMBLER_URL) {
-      console.log(`[Video Gen] Calling Cloud Run for Veo 3 generation + assembly...`);
+      console.log(`[Video Gen] Starting async job on Cloud Run...`);
       
-      // Get auth token for Cloud Run
       const idToken = await getCloudRunToken(c.env);
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (idToken) headers['Authorization'] = `Bearer ${idToken}`;
       
       try {
-        const cloudRunResponse = await fetch(c.env.CLOUD_RUN_ASSEMBLER_URL + '/generate-video', {
+        // Start the job (returns immediately)
+        const startResponse = await fetch(c.env.CLOUD_RUN_ASSEMBLER_URL + '/generate-video', {
           method: 'POST',
           headers,
           body: JSON.stringify({
@@ -7433,34 +7434,18 @@ app.post('/api/social/video/generate', async (c) => {
           })
         });
         
-        if (cloudRunResponse.ok) {
-          const result = await cloudRunResponse.json() as any;
-          finalVideoUrl = result.videoUrl;
-          veo3Clips = veo3Segments.map((s, i) => ({ url: 'generated-by-cloud-run', duration: s.duration, prompt: s.prompt, status: 'completed' }));
-          console.log(`[Video Gen] Cloud Run success: ${finalVideoUrl}`);
-        } else {
-          console.error(`[Video Gen] Cloud Run failed: ${cloudRunResponse.status}`);
-          // Fallback: assemble without Veo 3
-          const fallbackResponse = await fetch(c.env.CLOUD_RUN_ASSEMBLER_URL + '/assemble', {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({
-              clips: [...stockClipData, ...motionData].sort((a, b) => a.order - b.order).map(c => c.url),
-              voiceover: voiceoverUrl,
-              videoId
-            })
-          });
-          if (fallbackResponse.ok) {
-            const fallbackResult = await fallbackResponse.json() as any;
-            finalVideoUrl = fallbackResult.videoUrl;
-          }
+        if (startResponse.ok) {
+          const startResult = await startResponse.json() as any;
+          cloudRunJobId = startResult.jobId;
+          console.log(`[Video Gen] Job started: ${cloudRunJobId}`);
         }
-      } catch (cloudRunError) {
-        console.error(`[Video Gen] Cloud Run error:`, cloudRunError);
+      } catch (e) {
+        console.error(`[Video Gen] Failed to start job:`, e);
       }
-    } else {
-      console.log(`[Video Gen] No CLOUD_RUN_ASSEMBLER_URL - using placeholder`);
     }
+    
+    // Store job ID for polling - video will be updated via webhook or polling
+    const jobStatus = cloudRunJobId ? 'processing' : 'failed';
     
     // 5. Calculate cost
     const veo3Cost = veo3Segments.length * 0.30; // ~GBP0.30 per clip
@@ -7471,10 +7456,12 @@ app.post('/api/social/video/generate', async (c) => {
     
     const generationTime = Math.round((Date.now() - startTime) / 1000);
     
-    // 6. Update database with final result
+    // 6. Update database - status depends on whether Cloud Run job started
+    const videoStatus = cloudRunJobId ? 'processing' : 'preview';
+    
     await db.prepare(`
       UPDATE social_videos 
-      SET status = 'preview',
+      SET status = ?,
           veo3_clips = ?,
           motion_graphics = ?,
           stock_clips = ?,
@@ -7482,9 +7469,11 @@ app.post('/api/social/video/generate', async (c) => {
           captions_srt = ?,
           final_video_url = ?,
           total_cost_gbp = ?,
-          generation_completed_at = CURRENT_TIMESTAMP
+          cloud_run_job_id = ?,
+          generation_completed_at = CASE WHEN ? = 'preview' THEN CURRENT_TIMESTAMP ELSE NULL END
       WHERE id = ?
     `).bind(
+      videoStatus,
       JSON.stringify(veo3Clips),
       JSON.stringify(motionGraphics),
       JSON.stringify(stockClips),
@@ -7492,21 +7481,19 @@ app.post('/api/social/video/generate', async (c) => {
       script.captions_srt,
       finalVideoUrl,
       totalCost,
+      cloudRunJobId,
+      videoStatus,
       videoId
     ).run();
-    
-    // Check for pending Veo 3 clips
-    const pendingVeo3 = veo3Clips.filter((c: any) => c.status === 'pending' || c.status === 'processing');
     
     return c.json({
       success: true,
       videoId,
       videoUrl: finalVideoUrl,
-      status: 'preview',
+      status: videoStatus,
+      cloudRunJobId,
       generationTime,
       cost: totalCost,
-      veo3Clips, // Include for UI to check status
-      hasPendingVeo3: pendingVeo3.length > 0,
       script: {
         segments: script.segments.length,
         voiceoverLength: script.voiceover_script.length,
@@ -7516,6 +7503,70 @@ app.post('/api/social/video/generate', async (c) => {
     
   } catch (error: any) {
     console.error('Video generation error:', error);
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// API: Poll Cloud Run job status and update video when complete
+app.get('/api/social/video/:id/poll-job', async (c) => {
+  const user = c.get('user') as any;
+  if (!user || user.role !== 'admin') {
+    return c.json({ success: false, error: 'Admin access required' }, 403);
+  }
+  
+  const videoId = c.req.param('id');
+  const db = c.env.TESCO_DB;
+  
+  try {
+    const video = await db.prepare('SELECT * FROM social_videos WHERE id = ?').bind(videoId).first() as any;
+    if (!video) {
+      return c.json({ success: false, error: 'Video not found' }, 404);
+    }
+    
+    if (video.status !== 'processing' || !video.cloud_run_job_id) {
+      return c.json({ success: true, status: video.status, videoUrl: video.final_video_url });
+    }
+    
+    // Poll Cloud Run for job status
+    const idToken = await getCloudRunToken(c.env);
+    const headers: Record<string, string> = {};
+    if (idToken) headers['Authorization'] = `Bearer ${idToken}`;
+    
+    const jobResponse = await fetch(`${c.env.CLOUD_RUN_ASSEMBLER_URL}/job/${video.cloud_run_job_id}`, { headers });
+    
+    if (!jobResponse.ok) {
+      return c.json({ success: true, status: 'processing', progress: 0, message: 'Waiting for job status...' });
+    }
+    
+    const jobData = await jobResponse.json() as any;
+    
+    if (jobData.status === 'completed' && jobData.videoUrl) {
+      // Update database with final video
+      await db.prepare(`
+        UPDATE social_videos 
+        SET status = 'preview', final_video_url = ?, generation_completed_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).bind(jobData.videoUrl, videoId).run();
+      
+      return c.json({ success: true, status: 'completed', videoUrl: jobData.videoUrl });
+    }
+    
+    if (jobData.status === 'failed') {
+      await db.prepare(`UPDATE social_videos SET status = 'failed', error_message = ? WHERE id = ?`)
+        .bind(jobData.error || 'Unknown error', videoId).run();
+      return c.json({ success: false, status: 'failed', error: jobData.error });
+    }
+    
+    // Still processing
+    return c.json({ 
+      success: true, 
+      status: 'processing', 
+      stage: jobData.stage,
+      progress: jobData.progress || 0
+    });
+    
+  } catch (error: any) {
+    console.error('Poll job error:', error);
     return c.json({ success: false, error: error.message }, 500);
   }
 });
@@ -22066,25 +22117,26 @@ function getVideoGeneratorPage(user: any) {
           currentVideoId = data.videoId;
           currentVideoData = data;
           
-          // Show preview
-          document.getElementById('preview-placeholder').style.display = 'none';
-          document.getElementById('preview-container').style.display = 'block';
-          document.getElementById('preview-video').src = data.videoUrl;
-          document.getElementById('video-info').textContent = 
-            \`\${data.generationTime}s | GBP\${data.cost.toFixed(2)} | \${data.script.segments} segments\`;
-          
-          updateStatusBadge('preview');
-          showToast('Video generated! Veo 3 clips may still be processing...', 'success');
-          loadHistory();
-          loadStats();
-          
-          // Check if there are pending Veo 3 clips
-          if (data.veo3Clips) {
-            checkVeo3Status(data.veo3Clips);
+          // Check if video is still processing (async Cloud Run job)
+          if (data.status === 'processing' && data.cloudRunJobId) {
+            showToast('Video generation started! This may take 2-5 minutes for Veo 3 clips...', 'success');
+            updateStatusBadge('generating');
+            
+            // Start polling for completion
+            pollJobStatus(data.videoId, data.cloudRunJobId);
+          } else {
+            // Video is ready
+            document.getElementById('preview-placeholder').style.display = 'none';
+            document.getElementById('preview-container').style.display = 'block';
+            document.getElementById('preview-video').src = data.videoUrl;
+            document.getElementById('video-info').textContent = 
+              \`\${data.generationTime}s | GBP\${data.cost.toFixed(2)} | \${data.script.segments} segments\`;
+            
+            updateStatusBadge('preview');
+            showToast('Video generated successfully!', 'success');
+            loadHistory();
+            loadStats();
           }
-          
-          // Load full video details to get updated clip status
-          setTimeout(() => loadVideoDetails(data.videoId), 1000);
         } else {
           showToast(data.error || 'Generation failed', 'error');
         }
@@ -22120,6 +22172,85 @@ function getVideoGeneratorPage(user: any) {
       } else {
         document.getElementById('progress-status').textContent = 'Assembling final video...';
       }
+    }
+    
+    // Poll Cloud Run job until complete
+    async function pollJobStatus(videoId, jobId) {
+      const maxAttempts = 120; // 10 minutes max
+      let attempt = 0;
+      
+      const poll = async () => {
+        attempt++;
+        try {
+          const response = await fetch(\`/api/social/video/\${videoId}/poll-job\`);
+          const data = await response.json();
+          
+          if (data.status === 'completed' && data.videoUrl) {
+            // Video is ready!
+            clearInterval(progressInterval);
+            document.getElementById('preview-placeholder').style.display = 'none';
+            document.getElementById('preview-container').style.display = 'block';
+            document.getElementById('preview-video').src = data.videoUrl;
+            document.getElementById('progress-section').style.display = 'none';
+            
+            const btn = document.getElementById('generate-btn');
+            btn.disabled = false;
+            document.getElementById('btn-text').textContent = 'Generate Video';
+            document.getElementById('btn-spinner').style.display = 'none';
+            
+            updateStatusBadge('preview');
+            showToast('Video generated successfully!', 'success');
+            loadHistory();
+            loadStats();
+            return;
+          }
+          
+          if (data.status === 'failed') {
+            clearInterval(progressInterval);
+            document.getElementById('progress-section').style.display = 'none';
+            const btn = document.getElementById('generate-btn');
+            btn.disabled = false;
+            document.getElementById('btn-text').textContent = 'Generate Video';
+            document.getElementById('btn-spinner').style.display = 'none';
+            
+            showToast('Video generation failed: ' + (data.error || 'Unknown error'), 'error');
+            return;
+          }
+          
+          // Still processing - update progress display
+          if (data.stage) {
+            const stageNames = {
+              'veo3': 'Generating Veo 3 clips...',
+              'stock_clips': 'Downloading stock footage...',
+              'motion_graphics': 'Creating motion graphics...',
+              'encoding': 'Encoding video clips...',
+              'concatenating': 'Assembling video...',
+              'adding_voiceover': 'Adding voiceover...',
+              'uploading': 'Uploading final video...'
+            };
+            const stageName = data.stage.startsWith('veo3_') ? \`Generating Veo 3 clip \${data.stage.split('_')[1]}...\` : (stageNames[data.stage] || data.stage);
+            document.getElementById('progress-status').textContent = stageName;
+          }
+          if (data.progress) {
+            document.getElementById('progress-fill').style.width = data.progress + '%';
+          }
+          
+          // Continue polling if under max attempts
+          if (attempt < maxAttempts) {
+            setTimeout(poll, 5000); // Poll every 5 seconds
+          } else {
+            showToast('Generation timeout - check Recent Videos for status', 'error');
+          }
+        } catch (error) {
+          console.error('Poll error:', error);
+          if (attempt < maxAttempts) {
+            setTimeout(poll, 5000);
+          }
+        }
+      };
+      
+      // Start polling after 5 seconds
+      setTimeout(poll, 5000);
     }
     
     function updateStatusBadge(status) {
