@@ -202,56 +202,52 @@ async function generateVeo3(prompt, duration, aspectRatio, creds, jobId, clipInd
         console.log(`[Veo3] Operation complete, checking for video...`);
         console.log(`[Veo3] Response keys: ${data.response ? Object.keys(data.response).join(', ') : 'no response'}`);
         
-        // Try multiple response formats
-        let videoUrl = null;
-        
-        // Format 1: response.videos[].gcsUri (documented)
-        if (data.response?.videos?.[0]?.gcsUri) {
-          videoUrl = data.response.videos[0].gcsUri;
-          console.log(`[Veo3] Found video at response.videos[0].gcsUri`);
-        }
-        // Format 2: response.generatedSamples[].video.uri
-        else if (data.response?.generatedSamples?.[0]?.video?.uri) {
-          videoUrl = data.response.generatedSamples[0].video.uri;
-          console.log(`[Veo3] Found video at response.generatedSamples[0].video.uri`);
-        }
-        // Format 3: result.videos[].gcsUri
-        else if (data.result?.videos?.[0]?.gcsUri) {
-          videoUrl = data.result.videos[0].gcsUri;
-          console.log(`[Veo3] Found video at result.videos[0].gcsUri`);
-        }
-        // Format 4: predictions[].videoUri (old format)
-        else if (data.response?.predictions?.[0]?.videoUri) {
-          videoUrl = data.response.predictions[0].videoUri;
-          console.log(`[Veo3] Found video at response.predictions[0].videoUri`);
-        }
-        
-        if (videoUrl) {
-          console.log(`[Veo3] Video URL: ${videoUrl}`);
-          
-          // Convert GCS URI to downloadable URL if needed
-          let httpsUrl = videoUrl;
-          if (videoUrl.startsWith('gs://')) {
-            httpsUrl = videoUrl.replace('gs://', 'https://storage.googleapis.com/');
-          }
-          console.log(`[Veo3] HTTPS URL: ${httpsUrl}`);
-          return httpsUrl;
-        }
-        
-        // No video found - check for errors
-        if (data.error) {
-          console.error(`[Veo3] Error: ${JSON.stringify(data.error)}`);
-          throw new Error(data.error.message || 'Veo3 error');
-        }
-        // Check for RAI filter
+        // Check for RAI filter first
         if (data.response?.raiMediaFilteredCount > 0) {
           console.error(`[Veo3] Video filtered by RAI policies`);
           throw new Error('Video filtered by responsible AI policies');
         }
         
-        // Done but no video - log full response for debugging
-        console.error(`[Veo3] Done but no video found. Full response: ${JSON.stringify(data).substring(0, 500)}`);
-        throw new Error('Veo3 completed but no video URL found');
+        // Check for errors
+        if (data.error) {
+          console.error(`[Veo3] Error: ${JSON.stringify(data.error)}`);
+          throw new Error(data.error.message || 'Veo3 error');
+        }
+        
+        // Check for video in response
+        const video = data.response?.videos?.[0];
+        if (!video) {
+          console.error(`[Veo3] No video in response`);
+          throw new Error('Veo3 completed but no video in response');
+        }
+        
+        // Format 1: bytesBase64Encoded (returned when no storageUri provided)
+        if (video.bytesBase64Encoded) {
+          console.log(`[Veo3] Got base64 encoded video, saving to file...`);
+          const videoBuffer = Buffer.from(video.bytesBase64Encoded, 'base64');
+          const tempPath = `/tmp/veo3-${jobId}-${clipIndex}-${Date.now()}.mp4`;
+          fs.writeFileSync(tempPath, videoBuffer);
+          console.log(`[Veo3] Saved ${videoBuffer.length} bytes to ${tempPath}`);
+          
+          // Upload to R2 and return URL
+          const r2Key = `veo3/${jobId}-clip${clipIndex}-${Date.now()}.mp4`;
+          const publicUrl = await uploadToR2(tempPath, r2Key);
+          fs.unlinkSync(tempPath); // Clean up temp file
+          console.log(`[Veo3] Uploaded to R2: ${publicUrl}`);
+          return publicUrl;
+        }
+        
+        // Format 2: gcsUri (returned when storageUri provided)
+        if (video.gcsUri) {
+          console.log(`[Veo3] Got GCS URI: ${video.gcsUri}`);
+          const httpsUrl = video.gcsUri.replace('gs://', 'https://storage.googleapis.com/');
+          console.log(`[Veo3] HTTPS URL: ${httpsUrl}`);
+          return httpsUrl;
+        }
+        
+        // Unknown format
+        console.error(`[Veo3] Unknown video format. Video keys: ${Object.keys(video).join(', ')}`);
+        throw new Error('Veo3 returned unknown video format');
       }
       
       console.log(`[Veo3] Still processing... poll ${i+1}/120`);
