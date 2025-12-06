@@ -6108,7 +6108,7 @@ app.post('/api/social/media/upload', async (c) => {
       httpMetadata: { contentType: file.type }
     });
     
-    const url = `https://pub-2cda1a4823c0475989f9c94ad76e930a.r2.dev/${key}`;
+    const url = `https://pub-dc7e4f65e1c8497583a99e9ebe196cd3.r2.dev/${key}`;
     
     // Save to DB
     const result = await db.prepare(`
@@ -6353,7 +6353,7 @@ No text overlays. High quality, suitable for ${platform || 'social media'}.`;
     });
     
     // Generate public URL (use same bucket as media uploads)
-    const imageUrl = `https://pub-2cda1a4823c0475989f9c94ad76e930a.r2.dev/social/${filename}`;
+    const imageUrl = `https://pub-dc7e4f65e1c8497583a99e9ebe196cd3.r2.dev/social/${filename}`;
     
     console.log('[social-image] Generated and uploaded:', filename);
     
@@ -6820,69 +6820,119 @@ OUTPUT: Return ONLY valid JSON with this structure:
   throw new Error(`Script generation failed after ${maxRetries} attempts. Last errors: ${lastErrors.join('; ')}`);
 }
 
-// Generate Veo 3 video clips using Vertex AI
+// Generate Veo 3 video clips using Vertex AI (Long-Running Operation)
+// NOTE: Veo 3 takes 1-5 minutes per clip. Cloudflare Workers timeout after 30s.
+// This function STARTS the operations and returns operation IDs for later polling.
 async function generateVeo3Clips(
   segments: VideoSegment[],
   aspectRatio: string,
   env: any
-): Promise<{ url: string; duration: number }[]> {
+): Promise<{ url: string; duration: number; prompt: string; operationName?: string; status?: string }[]> {
   const veo3Segments = segments.filter(s => s.type === 'veo3');
-  const clips: { url: string; duration: number }[] = [];
+  const clips: { url: string; duration: number; prompt: string; operationName?: string; status?: string }[] = [];
+  
+  // Check for required credentials
+  if (!env.VERTEX_PROJECT_ID || !env.VERTEX_CLIENT_EMAIL || !env.VERTEX_PRIVATE_KEY) {
+    console.log('[Veo 3] Missing Vertex AI credentials - using placeholders');
+    return veo3Segments.map(segment => ({
+      url: `https://pub-dc7e4f65e1c8497583a99e9ebe196cd3.r2.dev/placeholder-video-${segment.duration}s.mp4`,
+      duration: segment.duration,
+      prompt: segment.prompt || '',
+      status: 'no_credentials'
+    }));
+  }
   
   // Get access token for Vertex AI
-  const jwt = await createJWT(env.VERTEX_CLIENT_EMAIL, env.VERTEX_PRIVATE_KEY);
-  const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${jwt}`
-  });
-  const tokenData = await tokenResponse.json() as any;
-  const accessToken = tokenData.access_token;
+  const accessToken = await getAccessToken(env.VERTEX_CLIENT_EMAIL, env.VERTEX_PRIVATE_KEY);
   
-  // Generate each clip (parallel would be better but sequential for now)
+  if (!accessToken) {
+    console.error('[Veo 3] Failed to get access token');
+    return veo3Segments.map(segment => ({
+      url: `https://pub-dc7e4f65e1c8497583a99e9ebe196cd3.r2.dev/placeholder-video-${segment.duration}s.mp4`,
+      duration: segment.duration,
+      prompt: segment.prompt || '',
+      status: 'auth_failed'
+    }));
+  }
+  
+  const videoRegion = 'us-central1';
+  const modelId = 'veo-3.0-generate-preview'; // Veo 3 Preview model (confirmed working)
+  const endpoint = `https://${videoRegion}-aiplatform.googleapis.com/v1/projects/${env.VERTEX_PROJECT_ID}/locations/${videoRegion}/publishers/google/models/${modelId}:predictLongRunning`;
+  
+  // Convert aspectRatio format
+  const veoAspectRatio = aspectRatio === '16:9' ? '16:9' : '9:16';
+  
+  // Start all Veo 3 operations (don't wait for completion - they take 2-5 minutes)
   for (const segment of veo3Segments) {
+    console.log(`[Veo 3] Starting ${segment.duration}s clip: ${segment.prompt?.substring(0, 50)}...`);
+    
     try {
-      // Note: Veo 3 API endpoint - this is a placeholder for actual Veo 3 integration
-      // Real implementation would use: us-central1-aiplatform.googleapis.com/v1/projects/.../models/veo-003:predict
-      const veoResponse = await fetch(
-        `https://us-central1-aiplatform.googleapis.com/v1/projects/${env.VERTEX_PROJECT_ID}/locations/us-central1/publishers/google/models/veo-003:generateVideo`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            instances: [{
-              prompt: segment.prompt,
-              video_length: segment.duration,
-              aspect_ratio: aspectRatio,
-              resolution: '1080p'
-            }]
-          })
-        }
-      );
+      // Start long-running operation
+      const startResponse = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json; charset=utf-8'
+        },
+        body: JSON.stringify({
+          instances: [{
+            prompt: segment.prompt
+          }],
+          parameters: {
+            aspectRatio: veoAspectRatio,
+            durationSeconds: segment.duration, // Must be 4, 6, or 8
+            sampleCount: 1,
+            generateAudio: false, // Disable for faster generation
+            resolution: '720p' // 720p is faster
+          }
+        })
+      });
       
-      if (veoResponse.ok) {
-        const veoData = await veoResponse.json() as any;
-        // Veo 3 returns operation ID for long-running operation
-        // For MVP, we'll use a placeholder video URL
+      if (!startResponse.ok) {
+        const errorText = await startResponse.text();
+        console.error(`[Veo 3] Start failed (${startResponse.status}):`, errorText);
+        
         clips.push({
-          url: veoData.predictions?.[0]?.videoUri || `https://storage.googleapis.com/shopshot-videos/placeholder-${segment.duration}s.mp4`,
-          duration: segment.duration
+          url: `https://pub-dc7e4f65e1c8497583a99e9ebe196cd3.r2.dev/placeholder-video-${segment.duration}s.mp4`,
+          duration: segment.duration,
+          prompt: segment.prompt || '',
+          status: `error_${startResponse.status}`
         });
-      } else {
-        // Fallback to placeholder
-        clips.push({
-          url: `https://pub-2cda1a4823c0475989f9c94ad76e930a.r2.dev/placeholder-video-${segment.duration}s.mp4`,
-          duration: segment.duration
-        });
+        continue;
       }
-    } catch (error) {
-      console.error('Veo 3 generation error:', error);
+      
+      const startData = await startResponse.json() as any;
+      const operationName = startData.name;
+      
+      if (!operationName) {
+        console.error('[Veo 3] No operation name returned:', JSON.stringify(startData));
+        clips.push({
+          url: `https://pub-dc7e4f65e1c8497583a99e9ebe196cd3.r2.dev/placeholder-video-${segment.duration}s.mp4`,
+          duration: segment.duration,
+          prompt: segment.prompt || '',
+          status: 'no_operation'
+        });
+        continue;
+      }
+      
+      console.log(`[Veo 3] Operation started: ${operationName}`);
+      
+      // Return operation ID for later polling - don't wait (would timeout)
       clips.push({
-        url: `https://pub-2cda1a4823c0475989f9c94ad76e930a.r2.dev/placeholder-video-${segment.duration}s.mp4`,
-        duration: segment.duration
+        url: `pending:${operationName}`, // Special URL format to indicate pending
+        duration: segment.duration,
+        prompt: segment.prompt || '',
+        operationName: operationName,
+        status: 'pending'
+      });
+      
+    } catch (error) {
+      console.error('[Veo 3] Error:', error);
+      clips.push({
+        url: `https://pub-dc7e4f65e1c8497583a99e9ebe196cd3.r2.dev/placeholder-video-${segment.duration}s.mp4`,
+        duration: segment.duration,
+        prompt: segment.prompt || '',
+        status: 'exception'
       });
     }
   }
@@ -6895,59 +6945,153 @@ async function generateMotionGraphics(
   segments: VideoSegment[],
   aspectRatio: string,
   env: any
-): Promise<{ url: string; duration: number }[]> {
+): Promise<{ url: string; duration: number; template?: string }[]> {
   const motionSegments = segments.filter(s => s.type === 'motion_graphics');
-  const clips: { url: string; duration: number }[] = [];
+  const clips: { url: string; duration: number; template?: string }[] = [];
   
-  // Template IDs mapping (these would be created in Creatomate dashboard)
+  // Template IDs mapping - UPDATE THESE with your actual Creatomate template IDs
+  // For now using Photo Story template as fallback for testing
+  const FALLBACK_TEMPLATE = 'aeda03fc-2d5d-48b1-b6bf-8d16aaa4f4cc'; // Photo Story template
+  
   const templateIds: Record<string, string> = {
-    'shopshot-intro': 'shopshot-intro-9x16',
-    'lower-third-stat': 'shopshot-lower-third',
-    'feature-callout': 'shopshot-feature-callout',
-    'orange-swipe-transition': 'shopshot-transition',
-    'shopshot-outro-cta': 'shopshot-outro-cta'
+    'shopshot-intro': '', // Add your custom intro template ID
+    'lower-third-stat': '', // Add your custom stat overlay template ID
+    'feature-callout': '', // Add your custom callout template ID
+    'orange-swipe-transition': '', // Add your custom transition template ID
+    'shopshot-outro-cta': '' // Add your custom outro template ID
   };
+  
+  // Skip motion graphics if no API key (use placeholders)
+  if (!env.CREATOMATE_API_KEY) {
+    console.log('[Creatomate] No API key - using placeholders for all motion graphics');
+    return motionSegments.map(segment => ({
+      url: `https://pub-dc7e4f65e1c8497583a99e9ebe196cd3.r2.dev/motion-template-placeholder.mp4`,
+      duration: segment.duration,
+      template: segment.template
+    }));
+  }
   
   for (const segment of motionSegments) {
     try {
-      if (!env.CREATOMATE_API_KEY) {
-        // Fallback if no Creatomate key
-        clips.push({
-          url: `https://pub-2cda1a4823c0475989f9c94ad76e930a.r2.dev/motion-${segment.template}-placeholder.mp4`,
-          duration: segment.duration
-        });
-        continue;
+      const templateId = templateIds[segment.template || ''] || FALLBACK_TEMPLATE;
+      const usingFallback = !templateIds[segment.template || ''];
+      
+      if (usingFallback) {
+        console.log(`[Creatomate] Template '${segment.template}' not configured - using Photo Story fallback`);
       }
       
-      const response = await fetch('https://api.creatomate.com/v1/renders', {
+      // Build modifications based on template type
+      let modifications: Record<string, any> = {};
+      
+      // If using the Photo Story fallback template, use its layer names
+      if (usingFallback) {
+        // Photo Story template has: Image-1, Image-2, Image-3, Text-1, Text-2, Text-3
+        // Use ShopShot branding content
+        const props = segment.props || {};
+        const templateText = props.tagline || props.cta_text || props.text || 'ShopShot AI';
+        
+        modifications = {
+          'Image-1': 'https://shopshot.co.uk/logo-white.png',
+          'Image-2': 'https://images.pexels.com/photos/6214476/pexels-photo-6214476.jpeg?w=1280',
+          'Image-3': 'https://images.pexels.com/photos/5632388/pexels-photo-5632388.jpeg?w=1280',
+          'Text-1': templateText,
+          'Text-2': 'AI Product Photography',
+          'Text-3': 'shopshot.co.uk'
+        };
+      } else if (segment.template === 'shopshot-intro' && segment.props?.tagline) {
+        modifications['Tagline.text'] = segment.props.tagline;
+      } else if (segment.template === 'lower-third-stat' && segment.props) {
+        modifications['Stat.text'] = segment.props.stat || '';
+        modifications['Subtext.text'] = segment.props.subtext || '';
+      } else if (segment.template === 'feature-callout' && segment.props) {
+        modifications['Icon.text'] = segment.props.icon || '';
+        modifications['Text.text'] = segment.props.text || '';
+      } else if (segment.template === 'shopshot-outro-cta' && segment.props) {
+        modifications['CTA.text'] = segment.props.cta_text || 'Try Free';
+        modifications['URL.text'] = segment.props.url || 'shopshot.co.uk';
+      }
+      
+      console.log(`[Creatomate] Starting render for template: ${templateId}`);
+      
+      // Start render (Creatomate v2 API)
+      const response = await fetch('https://api.creatomate.com/v2/renders', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${env.CREATOMATE_API_KEY}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          template_id: templateIds[segment.template || ''] || segment.template,
-          modifications: segment.props || {}
+          template_id: templateId,
+          modifications: modifications
         })
       });
       
-      if (response.ok) {
-        const data = await response.json() as any;
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[Creatomate] API error:', errorText);
         clips.push({
-          url: data.url || data[0]?.url,
-          duration: segment.duration
+          url: `https://pub-dc7e4f65e1c8497583a99e9ebe196cd3.r2.dev/motion-template-placeholder.mp4`,
+          duration: segment.duration,
+          template: segment.template
         });
-      } else {
-        clips.push({
-          url: `https://pub-2cda1a4823c0475989f9c94ad76e930a.r2.dev/motion-placeholder.mp4`,
-          duration: segment.duration
-        });
+        continue;
       }
-    } catch (error) {
-      console.error('Creatomate error:', error);
+      
+      const renderData = await response.json() as any;
+      
+      // Creatomate v2 returns array of renders
+      const renderInfo = Array.isArray(renderData) ? renderData[0] : renderData;
+      const renderId = renderInfo?.id;
+      
+      if (!renderId) {
+        console.error('[Creatomate] No render ID returned:', renderData);
+        clips.push({
+          url: `https://pub-dc7e4f65e1c8497583a99e9ebe196cd3.r2.dev/motion-template-placeholder.mp4`,
+          duration: segment.duration,
+          template: segment.template
+        });
+        continue;
+      }
+      
+      console.log(`[Creatomate] Render started: ${renderId}`);
+      
+      // Poll for completion (max 30 seconds)
+      let videoUrl = null;
+      for (let i = 0; i < 15; i++) {
+        await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
+        
+        const statusResponse = await fetch(`https://api.creatomate.com/v2/renders/${renderId}`, {
+          headers: { 'Authorization': `Bearer ${env.CREATOMATE_API_KEY}` }
+        });
+        
+        if (statusResponse.ok) {
+          const statusData = await statusResponse.json() as any;
+          
+          if (statusData.status === 'succeeded') {
+            videoUrl = statusData.url;
+            console.log(`[Creatomate] Render complete: ${videoUrl}`);
+            break;
+          } else if (statusData.status === 'failed') {
+            console.error('[Creatomate] Render failed:', statusData.error_message || statusData);
+            break;
+          }
+          // Still rendering, continue polling
+          console.log(`[Creatomate] Rendering... (${i + 1}/15)`);
+        }
+      }
+      
       clips.push({
-        url: `https://pub-2cda1a4823c0475989f9c94ad76e930a.r2.dev/motion-placeholder.mp4`,
-        duration: segment.duration
+        url: videoUrl || `https://pub-dc7e4f65e1c8497583a99e9ebe196cd3.r2.dev/motion-template-placeholder.mp4`,
+        duration: segment.duration,
+        template: segment.template
+      });
+      
+    } catch (error) {
+      console.error('[Creatomate] Error:', error);
+      clips.push({
+        url: `https://pub-dc7e4f65e1c8497583a99e9ebe196cd3.r2.dev/motion-template-placeholder.mp4`,
+        duration: segment.duration,
+        template: segment.template
       });
     }
   }
@@ -6967,7 +7111,7 @@ async function fetchStockClips(
     try {
       if (!env.PEXELS_API_KEY) {
         clips.push({
-          url: `https://pub-2cda1a4823c0475989f9c94ad76e930a.r2.dev/stock-placeholder.mp4`,
+          url: `https://pub-dc7e4f65e1c8497583a99e9ebe196cd3.r2.dev/stock-placeholder.mp4`,
           duration: segment.duration
         });
         continue;
@@ -6985,19 +7129,19 @@ async function fetchStockClips(
         const video = data.videos?.[0];
         const hdFile = video?.video_files?.find((f: any) => f.quality === 'hd') || video?.video_files?.[0];
         clips.push({
-          url: hdFile?.link || `https://pub-2cda1a4823c0475989f9c94ad76e930a.r2.dev/stock-placeholder.mp4`,
+          url: hdFile?.link || `https://pub-dc7e4f65e1c8497583a99e9ebe196cd3.r2.dev/stock-placeholder.mp4`,
           duration: segment.duration
         });
       } else {
         clips.push({
-          url: `https://pub-2cda1a4823c0475989f9c94ad76e930a.r2.dev/stock-placeholder.mp4`,
+          url: `https://pub-dc7e4f65e1c8497583a99e9ebe196cd3.r2.dev/stock-placeholder.mp4`,
           duration: segment.duration
         });
       }
     } catch (error) {
       console.error('Pexels error:', error);
       clips.push({
-        url: `https://pub-2cda1a4823c0475989f9c94ad76e930a.r2.dev/stock-placeholder.mp4`,
+        url: `https://pub-dc7e4f65e1c8497583a99e9ebe196cd3.r2.dev/stock-placeholder.mp4`,
         duration: segment.duration
       });
     }
@@ -7013,7 +7157,7 @@ async function generateVoiceover(
 ): Promise<string> {
   try {
     if (!env.ELEVENLABS_API_KEY) {
-      return `https://pub-2cda1a4823c0475989f9c94ad76e930a.r2.dev/voiceover-placeholder.mp3`;
+      return `https://pub-dc7e4f65e1c8497583a99e9ebe196cd3.r2.dev/voiceover-placeholder.mp3`;
     }
     
     const voiceId = env.ELEVENLABS_VOICE_ID || '21m00Tcm4TlvDq8ikWAM'; // Rachel - British Female
@@ -7039,18 +7183,20 @@ async function generateVoiceover(
     
     if (response.ok) {
       const audioBuffer = await response.arrayBuffer();
-      // Store in R2
-      const filename = `voiceover-${Date.now()}.mp3`;
-      await env.SOCIAL_MEDIA_BUCKET.put(`audio/${filename}`, audioBuffer, {
+      // Store in R2 VIDEO_BUCKET (has public access enabled)
+      const filename = `voiceovers/voiceover-${Date.now()}.mp3`;
+      await env.VIDEO_BUCKET.put(filename, audioBuffer, {
         httpMetadata: { contentType: 'audio/mpeg' }
       });
-      return `https://pub-2cda1a4823c0475989f9c94ad76e930a.r2.dev/audio/${filename}`;
+      console.log(`[ElevenLabs] Voiceover stored: ${filename}`);
+      return `https://pub-dc7e4f65e1c8497583a99e9ebe196cd3.r2.dev/${filename}`;
     }
     
-    return `https://pub-2cda1a4823c0475989f9c94ad76e930a.r2.dev/voiceover-placeholder.mp3`;
+    console.error('[ElevenLabs] TTS failed:', response.status, await response.text());
+    return `https://pub-dc7e4f65e1c8497583a99e9ebe196cd3.r2.dev/voiceover-placeholder.mp3`;
   } catch (error) {
-    console.error('ElevenLabs error:', error);
-    return `https://pub-2cda1a4823c0475989f9c94ad76e930a.r2.dev/voiceover-placeholder.mp3`;
+    console.error('[ElevenLabs] Error:', error);
+    return `https://pub-dc7e4f65e1c8497583a99e9ebe196cd3.r2.dev/voiceover-placeholder.mp3`;
   }
 }
 
@@ -7065,7 +7211,7 @@ async function assembleVideo(
   try {
     if (!env.CLOUD_RUN_ASSEMBLER_URL) {
       // Return placeholder if no assembler configured
-      return `https://pub-2cda1a4823c0475989f9c94ad76e930a.r2.dev/final-video-placeholder.mp4`;
+      return `https://pub-dc7e4f65e1c8497583a99e9ebe196cd3.r2.dev/final-video-placeholder.mp4`;
     }
     
     const response = await fetch(env.CLOUD_RUN_ASSEMBLER_URL + '/assemble', {
@@ -7085,10 +7231,10 @@ async function assembleVideo(
       return data.videoUrl;
     }
     
-    return `https://pub-2cda1a4823c0475989f9c94ad76e930a.r2.dev/final-video-placeholder.mp4`;
+    return `https://pub-dc7e4f65e1c8497583a99e9ebe196cd3.r2.dev/final-video-placeholder.mp4`;
   } catch (error) {
     console.error('Video assembly error:', error);
-    return `https://pub-2cda1a4823c0475989f9c94ad76e930a.r2.dev/final-video-placeholder.mp4`;
+    return `https://pub-dc7e4f65e1c8497583a99e9ebe196cd3.r2.dev/final-video-placeholder.mp4`;
   }
 }
 
@@ -7142,12 +7288,21 @@ app.post('/api/social/video/generate', async (c) => {
       .bind(JSON.stringify(script), videoId).run();
     
     // 2. Generate assets in parallel
+    console.log(`[Video Gen] Starting asset generation for ${videoId}...`);
+    console.log(`[Video Gen] Script has ${script.segments.length} segments`);
+    
     const [veo3Clips, motionGraphics, stockClips, voiceoverUrl] = await Promise.all([
       generateVeo3Clips(script.segments, aspectRatio, c.env),
       generateMotionGraphics(script.segments, aspectRatio, c.env),
       fetchStockClips(script.segments, c.env),
       generateVoiceover(script.voiceover_script, c.env)
     ]);
+    
+    console.log(`[Video Gen] Assets generated:`);
+    console.log(`  - Veo3 clips: ${veo3Clips.length}, URLs: ${veo3Clips.map(c => c.url.substring(0, 50)).join(', ')}`);
+    console.log(`  - Motion graphics: ${motionGraphics.length}`);
+    console.log(`  - Stock clips: ${stockClips.length}`);
+    console.log(`  - Voiceover: ${voiceoverUrl.substring(0, 60)}...`);
     
     // 3. Build clip sequence in order
     const orderedClips: { url: string; duration: number }[] = [];
@@ -7209,6 +7364,9 @@ app.post('/api/social/video/generate', async (c) => {
       videoId
     ).run();
     
+    // Check for pending Veo 3 clips
+    const pendingVeo3 = veo3Clips.filter((c: any) => c.status === 'pending' || c.status === 'processing');
+    
     return c.json({
       success: true,
       videoId,
@@ -7216,6 +7374,8 @@ app.post('/api/social/video/generate', async (c) => {
       status: 'preview',
       generationTime,
       cost: totalCost,
+      veo3Clips, // Include for UI to check status
+      hasPendingVeo3: pendingVeo3.length > 0,
       script: {
         segments: script.segments.length,
         voiceoverLength: script.voiceover_script.length,
@@ -7225,6 +7385,37 @@ app.post('/api/social/video/generate', async (c) => {
     
   } catch (error: any) {
     console.error('Video generation error:', error);
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// API: Video analytics (MUST be before :id route)
+app.get('/api/social/video/stats', async (c) => {
+  const user = c.get('user') as any;
+  if (!user || user.role !== 'admin') {
+    return c.json({ success: false, error: 'Admin access required' }, 403);
+  }
+  
+  const db = c.env.TESCO_DB;
+  
+  try {
+    const [statusCounts, recentVideos, totalCost, avgRegens] = await Promise.all([
+      db.prepare('SELECT status, COUNT(*) as count FROM social_videos GROUP BY status').all(),
+      db.prepare('SELECT * FROM social_videos ORDER BY created_at DESC LIMIT 10').all(),
+      db.prepare('SELECT SUM(total_cost_gbp) as total FROM social_videos').first(),
+      db.prepare('SELECT AVG(regeneration_count) as avg FROM social_videos').first()
+    ]);
+    
+    return c.json({
+      success: true,
+      stats: {
+        byStatus: statusCounts.results || [],
+        recentVideos: recentVideos.results || [],
+        totalCost: (totalCost as any)?.total || 0,
+        avgRegenerations: (avgRegens as any)?.avg || 0
+      }
+    });
+  } catch (error: any) {
     return c.json({ success: false, error: error.message }, 500);
   }
 });
@@ -7257,6 +7448,121 @@ app.get('/api/social/video/:id', async (c) => {
       }
     });
   } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// API: Poll Veo 3 operations and update video clips
+app.post('/api/social/video/:id/poll-veo3', async (c) => {
+  const user = c.get('user') as any;
+  if (!user || user.role !== 'admin') {
+    return c.json({ success: false, error: 'Admin access required' }, 403);
+  }
+  
+  const db = c.env.TESCO_DB;
+  const videoId = c.req.param('id');
+  
+  try {
+    // Get video with pending Veo 3 clips
+    const video = await db.prepare('SELECT * FROM social_videos WHERE id = ?').bind(videoId).first() as any;
+    if (!video) {
+      return c.json({ success: false, error: 'Video not found' }, 404);
+    }
+    
+    const veo3Clips = JSON.parse(video.veo3_clips || '[]');
+    const pendingClips = veo3Clips.filter((c: any) => c.status === 'pending' && c.operationName);
+    
+    if (pendingClips.length === 0) {
+      return c.json({ success: true, message: 'No pending Veo 3 clips', clips: veo3Clips });
+    }
+    
+    // Get access token
+    const accessToken = await getAccessToken(c.env.VERTEX_CLIENT_EMAIL, c.env.VERTEX_PRIVATE_KEY);
+    if (!accessToken) {
+      return c.json({ success: false, error: 'Failed to get Vertex AI access token' }, 500);
+    }
+    
+    const videoRegion = 'us-central1';
+    const modelId = 'veo-3.0-generate-preview';
+    const pollEndpoint = `https://${videoRegion}-aiplatform.googleapis.com/v1/projects/${c.env.VERTEX_PROJECT_ID}/locations/${videoRegion}/publishers/google/models/${modelId}:fetchPredictOperation`;
+    
+    let updatedCount = 0;
+    
+    // Poll each pending clip
+    for (const clip of veo3Clips) {
+      if (clip.status !== 'pending' || !clip.operationName) continue;
+      
+      try {
+        const pollResponse = await fetch(pollEndpoint, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json; charset=utf-8'
+          },
+          body: JSON.stringify({ operationName: clip.operationName })
+        });
+        
+        if (!pollResponse.ok) {
+          console.log(`[Veo 3 Poll] Failed for ${clip.operationName}: ${pollResponse.status}`);
+          continue;
+        }
+        
+        const pollData = await pollResponse.json() as any;
+        
+        if (pollData.done) {
+          if (pollData.error) {
+            clip.status = 'failed';
+            clip.error = pollData.error.message;
+            clip.url = `https://pub-dc7e4f65e1c8497583a99e9ebe196cd3.r2.dev/placeholder-video-${clip.duration}s.mp4`;
+          } else {
+            // Get video URL
+            let videoUrl = pollData.response?.videos?.[0]?.gcsUri ||
+                          pollData.response?.generatedSamples?.[0]?.video?.uri;
+            
+            // Handle base64 response
+            const videoBase64 = pollData.response?.generatedSamples?.[0]?.video?.bytesBase64Encoded;
+            if (!videoUrl && videoBase64) {
+              const videoBuffer = Uint8Array.from(atob(videoBase64), ch => ch.charCodeAt(0));
+              const videoKey = `veo3-clips/${Date.now()}-${clip.duration}s.mp4`;
+              await c.env.VIDEO_BUCKET.put(videoKey, videoBuffer, {
+                httpMetadata: { contentType: 'video/mp4' }
+              });
+              videoUrl = `https://pub-dc7e4f65e1c8497583a99e9ebe196cd3.r2.dev/${videoKey}`;
+            }
+            
+            if (videoUrl) {
+              clip.url = videoUrl;
+              clip.status = 'completed';
+              updatedCount++;
+              console.log(`[Veo 3 Poll] Clip completed: ${videoUrl}`);
+            } else {
+              clip.status = 'no_video';
+              clip.url = `https://pub-dc7e4f65e1c8497583a99e9ebe196cd3.r2.dev/placeholder-video-${clip.duration}s.mp4`;
+            }
+          }
+        } else {
+          clip.status = 'processing';
+        }
+      } catch (pollError) {
+        console.error(`[Veo 3 Poll] Error:`, pollError);
+      }
+    }
+    
+    // Update database
+    await db.prepare('UPDATE social_videos SET veo3_clips = ? WHERE id = ?')
+      .bind(JSON.stringify(veo3Clips), videoId).run();
+    
+    const stillPending = veo3Clips.filter((c: any) => c.status === 'pending' || c.status === 'processing').length;
+    
+    return c.json({
+      success: true,
+      updated: updatedCount,
+      stillPending,
+      clips: veo3Clips
+    });
+    
+  } catch (error: any) {
+    console.error('[Veo 3 Poll] Error:', error);
     return c.json({ success: false, error: error.message }, 500);
   }
 });
@@ -7611,37 +7917,6 @@ app.post('/api/social/video/:id/delete', async (c) => {
   try {
     await db.prepare(`DELETE FROM social_videos WHERE id = ?`).bind(videoId).run();
     return c.json({ success: true });
-  } catch (error: any) {
-    return c.json({ success: false, error: error.message }, 500);
-  }
-});
-
-// API: Video analytics
-app.get('/api/social/video/stats', async (c) => {
-  const user = c.get('user') as any;
-  if (!user || user.role !== 'admin') {
-    return c.json({ success: false, error: 'Admin access required' }, 403);
-  }
-  
-  const db = c.env.TESCO_DB;
-  
-  try {
-    const [statusCounts, recentVideos, totalCost, avgRegens] = await Promise.all([
-      db.prepare('SELECT status, COUNT(*) as count FROM social_videos GROUP BY status').all(),
-      db.prepare('SELECT * FROM social_videos ORDER BY created_at DESC LIMIT 10').all(),
-      db.prepare('SELECT SUM(total_cost_gbp) as total FROM social_videos').first(),
-      db.prepare('SELECT AVG(regeneration_count) as avg FROM social_videos').first()
-    ]);
-    
-    return c.json({
-      success: true,
-      stats: {
-        byStatus: statusCounts.results || [],
-        recentVideos: recentVideos.results || [],
-        totalCost: (totalCost as any)?.total || 0,
-        avgRegenerations: (avgRegens as any)?.avg || 0
-      }
-    });
   } catch (error: any) {
     return c.json({ success: false, error: error.message }, 500);
   }
@@ -21513,6 +21788,19 @@ function getVideoGeneratorPage(user: any) {
           
           <!-- Action Buttons -->
           <div class="mt-4 space-y-3">
+            <!-- Veo 3 Polling Button (shows when clips are pending) -->
+            <div id="veo3-polling-section" class="p-3 bg-blue-500/20 border border-blue-500/50 rounded-lg" style="display:none;">
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-sm font-medium text-blue-400">
+                  <i class="fas fa-hourglass-half mr-1"></i> Veo 3 Clips Generating...
+                </span>
+                <span class="text-xs text-gray-400" id="veo3-status">Takes 2-5 min per clip</span>
+              </div>
+              <button class="btn-primary w-full justify-center" id="poll-veo3-btn" onclick="pollVeo3()">
+                <i class="fas fa-sync mr-2"></i> Check Veo 3 Status
+              </button>
+            </div>
+            
             <button class="btn-success w-full justify-center" id="approve-btn" onclick="approveVideo()">
               <i class="fas fa-check mr-2"></i> Approve & Schedule
             </button>
@@ -21655,9 +21943,17 @@ function getVideoGeneratorPage(user: any) {
             \`\${data.generationTime}s | GBP\${data.cost.toFixed(2)} | \${data.script.segments} segments\`;
           
           updateStatusBadge('preview');
-          showToast('Video generated successfully!', 'success');
+          showToast('Video generated! Veo 3 clips may still be processing...', 'success');
           loadHistory();
           loadStats();
+          
+          // Check if there are pending Veo 3 clips
+          if (data.veo3Clips) {
+            checkVeo3Status(data.veo3Clips);
+          }
+          
+          // Load full video details to get updated clip status
+          setTimeout(() => loadVideoDetails(data.videoId), 1000);
         } else {
           showToast(data.error || 'Generation failed', 'error');
         }
@@ -21735,6 +22031,85 @@ function getVideoGeneratorPage(user: any) {
       }
     }
     
+    // Poll Veo 3 for completed clips
+    async function pollVeo3() {
+      if (!currentVideoId) return;
+      
+      const btn = document.getElementById('poll-veo3-btn');
+      const statusEl = document.getElementById('veo3-status');
+      
+      btn.disabled = true;
+      btn.innerHTML = '<div class="spinner" style="width:16px;height:16px;"></div> Checking...';
+      
+      try {
+        const response = await fetch(\`/api/social/video/\${currentVideoId}/poll-veo3\`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          if (data.stillPending > 0) {
+            statusEl.textContent = \`\${data.stillPending} clip(s) still processing...\`;
+            showToast(\`\${data.updated} clip(s) completed, \${data.stillPending} still pending\`, 'info');
+          } else {
+            // All clips done - hide polling section
+            document.getElementById('veo3-polling-section').style.display = 'none';
+            showToast('All Veo 3 clips completed!', 'success');
+            
+            // Reload video details
+            loadVideoDetails(currentVideoId);
+          }
+        } else {
+          showToast(data.error || 'Poll failed', 'error');
+        }
+      } catch (error) {
+        showToast('Network error', 'error');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-sync mr-2"></i> Check Veo 3 Status';
+      }
+    }
+    
+    // Check if video has pending Veo 3 clips
+    function checkVeo3Status(veo3Clips) {
+      if (!veo3Clips || !Array.isArray(veo3Clips)) return;
+      
+      const pendingClips = veo3Clips.filter(c => c.status === 'pending' || c.status === 'processing');
+      const pollingSection = document.getElementById('veo3-polling-section');
+      
+      if (pendingClips.length > 0) {
+        pollingSection.style.display = 'block';
+        document.getElementById('veo3-status').textContent = \`\${pendingClips.length} clip(s) generating...\`;
+      } else {
+        pollingSection.style.display = 'none';
+      }
+    }
+    
+    async function loadVideoDetails(videoId) {
+      try {
+        const response = await fetch(\`/api/social/video/\${videoId}\`);
+        const data = await response.json();
+        
+        if (data.success && data.video) {
+          currentVideoData = data.video;
+          
+          // Update video preview if we have a real URL
+          if (data.video.final_video_url && !data.video.final_video_url.includes('placeholder')) {
+            document.getElementById('preview-video').src = data.video.final_video_url;
+          }
+          
+          // Check Veo 3 status
+          if (data.video.veo3_clips) {
+            checkVeo3Status(data.video.veo3_clips);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load video details:', error);
+      }
+    }
+
     async function regenerateVideo(type) {
       if (!currentVideoId) return;
       
