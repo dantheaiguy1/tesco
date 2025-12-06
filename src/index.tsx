@@ -7475,9 +7475,8 @@ async function renderWithShotstack(
     }
   };
   
-  // Use stage endpoint for sandbox keys, v1 for production
-  // Sandbox keys start with certain prefixes - detect automatically
-  const apiBase = 'https://api.shotstack.io/edit/stage'; // Use stage for sandbox testing
+  // Use v1 endpoint for production keys
+  const apiBase = 'https://api.shotstack.io/edit/v1'; // Production endpoint
   
   console.log('[Shotstack] Submitting render request...');
   console.log('[Shotstack] Tracks:', timeline.tracks.length, 'clips total:', 
