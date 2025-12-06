@@ -7342,82 +7342,111 @@ function buildShotstackTimeline(
   let currentTime = 0;
   let stockIndex = 0;
   
-  // Map segments to clips
+  // Map segments to video clips - ONLY stock_broll supported in Shotstack pipeline
   for (const segment of script.segments) {
-    if (segment.type === 'stock_broll' && stockIndex < stockClips.length) {
-      const stock = stockClips[stockIndex++];
-      videoClips.push({
-        asset: {
-          type: 'video',
-          src: stock.url
-        },
-        start: currentTime,
-        length: segment.duration,
-        fit: 'cover',
-        transition: {
-          in: currentTime === 0 ? 'fade' : 'slideLeft',
-          out: 'slideLeft'
-        },
-        effect: 'zoomIn' // Ken Burns effect
-      });
-    } else if (segment.type === 'veo3') {
-      // For now, use a placeholder animation for Veo3 segments
-      // This creates a sleek gradient background with text
-      videoClips.push({
-        asset: {
-          type: 'html',
-          html: `<div style="width:100%;height:100%;background:linear-gradient(135deg,#1a1a2e,#16213e,#0f3460);display:flex;align-items:center;justify-content:center;padding:20px;"><div style="text-align:center;color:white;"><h2 style="font-size:${isPortrait ? '28px' : '36px'};font-weight:bold;margin:0;text-shadow:2px 2px 4px rgba(0,0,0,0.5);">${segment.caption || 'ShopShot AI'}</h2></div></div>`,
-          width: isPortrait ? 1080 : 1920,
-          height: isPortrait ? 1920 : 1080
-        },
-        start: currentTime,
-        length: segment.duration,
-        transition: {
-          in: currentTime === 0 ? 'fade' : 'slideUp',
-          out: 'slideUp'
-        },
-        effect: 'zoomIn'
-      });
-    }
-    currentTime += segment.duration;
-  }
-  
-  // Track 2: Caption overlays (middle layer)
-  const captionClips: ShotstackClip[] = [];
-  let captionTime = 0;
-  
-  // Parse SRT and create caption clips
-  const srtLines = script.captions_srt.split('\n\n');
-  for (const block of srtLines) {
-    const lines = block.trim().split('\n');
-    if (lines.length >= 3) {
-      const timeLine = lines[1];
-      const captionText = lines.slice(2).join(' ');
-      
-      // Parse timestamps: "00:00:00,000 --> 00:00:04,000"
-      const timeMatch = timeLine.match(/(\d{2}):(\d{2}):(\d{2}),(\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2}),(\d{3})/);
-      if (timeMatch) {
-        const startSec = parseInt(timeMatch[1]) * 3600 + parseInt(timeMatch[2]) * 60 + parseInt(timeMatch[3]) + parseInt(timeMatch[4]) / 1000;
-        const endSec = parseInt(timeMatch[5]) * 3600 + parseInt(timeMatch[6]) * 60 + parseInt(timeMatch[7]) + parseInt(timeMatch[8]) / 1000;
-        
-        // Modern TikTok-style captions - bold, high contrast, no overlap
-        captionClips.push({
+    if (segment.type === 'stock_broll') {
+      if (stockIndex < stockClips.length) {
+        const stock = stockClips[stockIndex++];
+        videoClips.push({
+          asset: {
+            type: 'video',
+            src: stock.url
+          },
+          start: currentTime,
+          length: segment.duration,
+          fit: 'cover',
+          transition: {
+            in: currentTime === 0 ? 'fade' : 'slideLeft',
+            out: 'slideLeft'
+          },
+          effect: 'zoomIn' // Ken Burns effect for visual interest
+        });
+      } else {
+        // Fallback: If we ran out of stock clips, use a gradient background (no text!)
+        console.log(`[Shotstack] Warning: Ran out of stock clips at segment ${stockIndex}, using gradient fallback`);
+        videoClips.push({
           asset: {
             type: 'html',
-            html: `<div style="width:100%;height:100%;display:flex;align-items:flex-end;justify-content:center;padding-bottom:${isPortrait ? '200px' : '100px'};">
-              <div style="background:linear-gradient(135deg,rgba(255,107,0,0.95),rgba(255,60,0,0.95));padding:${isPortrait ? '18px 32px' : '14px 28px'};border-radius:12px;max-width:${isPortrait ? '85%' : '65%'};box-shadow:0 8px 32px rgba(0,0,0,0.4);">
-                <p style="color:white;font-family:'Inter','Helvetica Neue',Arial,sans-serif;font-size:${isPortrait ? '38px' : '32px'};font-weight:800;margin:0;text-align:center;text-transform:uppercase;letter-spacing:1px;line-height:1.2;">${captionText}</p>
-              </div>
-            </div>`,
+            html: `<div style="width:100%;height:100%;background:linear-gradient(135deg,#FF6B00,#FF3C00,#E63600);"></div>`,
             width: isPortrait ? 1080 : 1920,
             height: isPortrait ? 1920 : 1080
           },
-          start: startSec,
-          length: Math.max(0.3, endSec - startSec - 0.1), // Slight gap to prevent overlap
-          transition: { in: 'fade' } // Only fade in, instant out to prevent overlap
+          start: currentTime,
+          length: segment.duration,
+          transition: {
+            in: 'fade',
+            out: 'fade'
+          }
         });
       }
     }
+    // Skip any non-stock segments (veo3, motion_graphics) - they shouldn't be in Shotstack scripts
+    currentTime += segment.duration;
+  }
+  
+  // Track 2: Caption overlays from SRT (middle layer)
+  const captionClips: ShotstackClip[] = [];
+  
+  // Only parse SRT captions - ignore segment.caption fields
+  if (script.captions_srt && typeof script.captions_srt === 'string') {
+    const srtBlocks = script.captions_srt.split(/\n\n+/).filter(b => b.trim());
+    console.log(`[Shotstack] Parsing ${srtBlocks.length} SRT caption blocks`);
+    
+    for (const block of srtBlocks) {
+      const lines = block.trim().split('\n');
+      if (lines.length >= 2) {
+        // Find the timestamp line (contains -->)
+        const timeLineIndex = lines.findIndex(l => l.includes('-->'));
+        if (timeLineIndex === -1) continue;
+        
+        const timeLine = lines[timeLineIndex];
+        // Caption text is everything after the timestamp line
+        const captionText = lines.slice(timeLineIndex + 1).join(' ').trim();
+        
+        if (!captionText) continue;
+        
+        // Parse timestamps: "00:00:00,000 --> 00:00:04,000"
+        const timeMatch = timeLine.match(/(\d{2}):(\d{2}):(\d{2}),(\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2}),(\d{3})/);
+        if (timeMatch) {
+          const startSec = parseInt(timeMatch[1]) * 3600 + parseInt(timeMatch[2]) * 60 + parseInt(timeMatch[3]) + parseInt(timeMatch[4]) / 1000;
+          const endSec = parseInt(timeMatch[5]) * 3600 + parseInt(timeMatch[6]) * 60 + parseInt(timeMatch[7]) + parseInt(timeMatch[8]) / 1000;
+          const duration = endSec - startSec;
+          
+          // Skip invalid durations
+          if (duration <= 0 || duration > 10) {
+            console.log(`[Shotstack] Skipping caption with invalid duration: ${duration}s`);
+            continue;
+          }
+          
+          // Escape HTML entities in caption text
+          const safeCaption = captionText
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+          
+          // Modern TikTok-style captions - positioned at FOOTER
+          captionClips.push({
+            asset: {
+              type: 'html',
+              html: `<div style="width:100%;height:100%;display:flex;align-items:flex-end;justify-content:center;padding-bottom:${isPortrait ? '80px' : '40px'};">
+                <div style="background:linear-gradient(135deg,rgba(255,107,0,0.95),rgba(255,60,0,0.95));padding:${isPortrait ? '16px 28px' : '12px 24px'};border-radius:10px;max-width:${isPortrait ? '90%' : '70%'};box-shadow:0 6px 24px rgba(0,0,0,0.5);">
+                  <p style="color:white;font-family:'Inter','Helvetica Neue',Arial,sans-serif;font-size:${isPortrait ? '34px' : '28px'};font-weight:800;margin:0;text-align:center;text-transform:uppercase;letter-spacing:0.5px;line-height:1.2;">${safeCaption}</p>
+                </div>
+              </div>`,
+              width: isPortrait ? 1080 : 1920,
+              height: isPortrait ? 1920 : 1080
+            },
+            start: startSec,
+            length: Math.max(0.5, duration - 0.15), // Small gap between captions
+            transition: { in: 'fade' }
+          });
+        }
+      }
+    }
+    console.log(`[Shotstack] Created ${captionClips.length} caption clips`);
+  } else {
+    console.log('[Shotstack] No SRT captions provided');
   }
   
   // Track 3: Logo watermark (top layer)
@@ -7556,7 +7585,7 @@ async function renderWithShotstack(
   }
 }
 
-// Simplified script generator for Shotstack (stock-only, no Veo3)
+// Shotstack script generator - PROFESSIONAL quality, no insults, proper timing
 async function generateShotstackScript(
   topic: string,
   duration: number,
@@ -7565,55 +7594,89 @@ async function generateShotstackScript(
 ): Promise<VideoScript> {
   const aspectRatio = platform === 'X' ? '16:9' : '9:16';
   
-  // Calculate clip structure: all stock clips with fast cuts (2-4 seconds each)
-  const clipCount = Math.ceil(duration / 3); // ~3 seconds per clip average
+  // Calculate clip structure based on duration
+  // 15s = 5 clips, 20s = 7 clips, 30s = 10 clips
+  const clipCount = Math.ceil(duration / 3);
   
-  const systemPrompt = `You are a viral video scriptwriter creating scroll-stopping ${platform} content.
+  // Words per second for voiceover (2.5 words/sec is natural speaking pace)
+  const targetWords = Math.round(duration * 2.5);
+  const minWords = Math.round(duration * 2.2);
+  const maxWords = Math.round(duration * 2.8);
+  
+  const systemPrompt = `You are a professional video scriptwriter for ShopShot, creating engaging ${platform} content.
 
-=== THE PRODUCT ===
-ShopShot: AI product photography that turns 1 photo into 10 professional shots in 25 seconds.
-- Kills the need for five hundred pound photoshoots
-- Thirty nine pounds a month (Standard) or fifty nine pounds a month (Pro)
-- Target: Shopify, Amazon, Etsy sellers
+=== PRODUCT INFO ===
+ShopShot: AI product photography tool
+- Transforms 1 product photo into 10 professional shots in 25 seconds
+- Replaces expensive photo shoots (typically five hundred pounds or more)
+- Pricing: thirty-nine pounds a month (Standard) or fifty-nine pounds a month (Pro)
+- Target audience: Shopify, Amazon, Etsy sellers
 
-=== YOUR STYLE ===
-Alex Hormozi meets Gary Vee meets British wit:
-- Pattern interrupts (controversial opener)
-- Short punchy sentences
-- British spelling (colour, realise)
-- End with urgency
+=== TONE & STYLE ===
+- Professional but energetic
+- Confident, not arrogant
+- Persuasive, never insulting
+- British English spelling and phrases
+- NO insults, NO name-calling, NO offensive language
+- DO NOT use words like: muppet, idiot, stupid, dumb, fool
 
-=== CRITICAL: MONEY/PRICING RULES ===
-NEVER write "GBP" or currency symbols in voiceover - speak prices phonetically!
-- WRONG: "GBP500" or "£500" 
-- RIGHT: "five hundred pounds" or "five hundred quid"
-- WRONG: "GBP39.99/month"
-- RIGHT: "forty quid a month" or "thirty nine pounds a month"
-Use specific numbers but SAY them as words for voiceover.
+=== ABSOLUTELY CRITICAL RULES ===
 
-=== REQUIREMENTS ===
-Create a ${duration} second video with EXACTLY ${clipCount} stock B-roll clips.
-Each clip should be 2-4 seconds for FAST PACING (viral content cuts fast!)
+1. PRICING - Write ALL prices as SPOKEN WORDS:
+   WRONG: "GBP500", "£500", "GBP39.99"
+   RIGHT: "five hundred pounds", "thirty-nine pounds a month"
+   
+2. VOICEOVER LENGTH - MUST be ${minWords}-${maxWords} words (for ${duration} seconds at 2.5 words/sec)
+   Count your words! This is critical for timing.
 
-=== STOCK SEARCH TIPS ===
-Be SPECIFIC with Pexels queries:
-GOOD: "ecommerce product photography", "frustrated entrepreneur laptop", "professional photo studio"
-BAD: "business", "photos" (too generic)
+3. CAPTIONS - Must match voiceover timing exactly
+   Each caption should be 2-4 words MAX
+   Captions are KEY PHRASES from the voiceover, not descriptions
 
-=== CAPTION STYLE ===
-Short, punchy, 2-4 words per caption. ALL CAPS for impact.
-Example: "STOP WASTING MONEY" not "Stop wasting money on photos"
+=== VIDEO STRUCTURE ===
+Create EXACTLY ${clipCount} segments totaling ${duration} seconds.
+
+For a ${duration}s video:
+${duration <= 15 ? `- Hook (3s): Attention-grabbing opener
+- Problem (3s): Pain point
+- Agitate (3s): Make it worse  
+- Solution (3s): Introduce ShopShot
+- CTA (3s): Call to action` : duration <= 20 ? `- Hook (3s): Attention-grabbing opener
+- Problem (3s): Pain point
+- Agitate (4s): Make it worse
+- Solution (4s): Introduce ShopShot
+- Benefit (3s): Key benefit
+- CTA (3s): Call to action` : `- Hook (3s): Pattern interrupt opener
+- Problem 1 (3s): First pain point
+- Problem 2 (3s): Second pain point
+- Agitate (3s): Emphasise the cost
+- Bridge (3s): Transition
+- Solution (4s): Introduce ShopShot
+- Benefit 1 (3s): Speed benefit
+- Benefit 2 (3s): Cost benefit
+- Social Proof (3s): Results hint
+- CTA (3s): Strong call to action`}
+
+=== STOCK FOOTAGE SEARCH QUERIES ===
+Be VERY specific for Pexels:
+GOOD: "entrepreneur working laptop coffee shop", "professional product photography studio lights", "online shopping smartphone scroll"
+BAD: "business", "photos", "person" (too generic, poor results)
 
 === OUTPUT FORMAT ===
-Return ONLY valid JSON:
+Return ONLY this JSON structure:
 {
   "duration": ${duration},
   "segments": [
-    { "type": "stock_broll", "duration": 2|3|4, "search_query": "specific pexels search", "caption": "SHORT CAPS" }
+    { "type": "stock_broll", "duration": 3, "search_query": "detailed pexels search query", "caption": null }
   ],
-  "voiceover_script": "Full British English voiceover with phonetic prices (${Math.round(duration * 2.5)} words max)...",
-  "captions_srt": "1\\n00:00:00,000 --> 00:00:03,000\\nFIRST LINE\\n\\n2\\n..."
-}`;
+  "voiceover_script": "Complete voiceover script with ${minWords}-${maxWords} words. All prices written as spoken words.",
+  "captions_srt": "1\\n00:00:00,000 --> 00:00:02,500\\nHOOK PHRASE\\n\\n2\\n00:00:02,500 --> 00:00:05,000\\nNEXT PHRASE\\n\\n..."
+}
+
+IMPORTANT: 
+- "caption" in segments should be null (we use captions_srt instead)
+- captions_srt must have timestamps that match ${duration} seconds total
+- Each SRT caption is 2-4 words, matches what's being SAID in voiceover at that moment`;
 
   try {
     const geminiResponse = await fetch(
@@ -7623,9 +7686,9 @@ Return ONLY valid JSON:
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{
-            parts: [{ text: `${systemPrompt}\n\nTOPIC: ${topic}\nDURATION: ${duration} seconds\nPLATFORM: ${platform}` }]
+            parts: [{ text: `${systemPrompt}\n\nTOPIC: ${topic}\nDURATION: ${duration} seconds\nPLATFORM: ${platform}\n\nGenerate the video script now:` }]
           }],
-          generationConfig: { temperature: 0.8, maxOutputTokens: 2000 }
+          generationConfig: { temperature: 0.7, maxOutputTokens: 3000 }
         })
       }
     );
@@ -7633,15 +7696,42 @@ Return ONLY valid JSON:
     const geminiData = await geminiResponse.json() as any;
     const rawScript = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
     
+    console.log('[Shotstack Script] Raw response length:', rawScript.length);
+    
     // Parse JSON
     const jsonMatch = rawScript.match(/```json\s*([\s\S]*?)\s*```/) || rawScript.match(/```\s*([\s\S]*?)\s*```/);
     const jsonString = jsonMatch ? jsonMatch[1] : rawScript;
-    return JSON.parse(jsonString.trim());
+    const script = JSON.parse(jsonString.trim());
+    
+    // Post-process: Remove any GBP references that slipped through
+    if (script.voiceover_script) {
+      script.voiceover_script = script.voiceover_script
+        .replace(/GBP\s*(\d+)/gi, (match: string, num: string) => numberToWords(parseInt(num)) + ' pounds')
+        .replace(/£\s*(\d+)/g, (match: string, num: string) => numberToWords(parseInt(num)) + ' pounds');
+    }
+    
+    // Validate word count
+    const wordCount = script.voiceover_script?.split(/\s+/).length || 0;
+    console.log('[Shotstack Script] Voiceover word count:', wordCount, `(target: ${minWords}-${maxWords})`);
+    
+    return script;
     
   } catch (error: any) {
     console.error('[Shotstack Script] Error:', error);
     throw new Error(`Script generation failed: ${error.message}`);
   }
+}
+
+// Helper: Convert number to words for voiceover
+function numberToWords(num: number): string {
+  const ones = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine',
+    'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen'];
+  const tens = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
+  
+  if (num < 20) return ones[num];
+  if (num < 100) return tens[Math.floor(num / 10)] + (num % 10 ? '-' + ones[num % 10] : '');
+  if (num < 1000) return ones[Math.floor(num / 100)] + ' hundred' + (num % 100 ? ' and ' + numberToWords(num % 100) : '');
+  return Math.floor(num / 1000) + ' thousand' + (num % 1000 ? ' ' + numberToWords(num % 1000) : '');
 }
 
 // Get Google Cloud identity token for Cloud Run authentication
