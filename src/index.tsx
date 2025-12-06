@@ -7200,6 +7200,76 @@ async function generateVoiceover(
   }
 }
 
+// Get Google Cloud identity token for Cloud Run authentication
+async function getCloudRunToken(env: any): Promise<string | null> {
+  try {
+    if (!env.CLOUD_RUN_SERVICE_ACCOUNT || !env.CLOUD_RUN_PRIVATE_KEY || !env.CLOUD_RUN_ASSEMBLER_URL) {
+      console.log('[CloudRun] Missing credentials for authentication');
+      return null;
+    }
+    
+    const now = Math.floor(Date.now() / 1000);
+    const targetAudience = env.CLOUD_RUN_ASSEMBLER_URL;
+    
+    // Create JWT header and payload for identity token
+    const header = { alg: 'RS256', typ: 'JWT' };
+    const payload = {
+      iss: env.CLOUD_RUN_SERVICE_ACCOUNT,
+      sub: env.CLOUD_RUN_SERVICE_ACCOUNT,
+      aud: 'https://oauth2.googleapis.com/token',
+      iat: now,
+      exp: now + 3600,
+      target_audience: targetAudience
+    };
+    
+    // Base64URL encode
+    const base64url = (obj: any) => btoa(JSON.stringify(obj))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+    
+    const unsignedToken = base64url(header) + '.' + base64url(payload);
+    
+    // Sign with private key
+    const privateKeyPem = env.CLOUD_RUN_PRIVATE_KEY.replace(/\\n/g, '\n');
+    const pemContents = privateKeyPem
+      .replace('-----BEGIN PRIVATE KEY-----', '')
+      .replace('-----END PRIVATE KEY-----', '')
+      .replace(/\s/g, '');
+    
+    const binaryKey = Uint8Array.from(atob(pemContents), c => c.charCodeAt(0));
+    const cryptoKey = await crypto.subtle.importKey(
+      'pkcs8', binaryKey, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']
+    );
+    
+    const signature = await crypto.subtle.sign(
+      'RSASSA-PKCS1-v1_5', cryptoKey, new TextEncoder().encode(unsignedToken)
+    );
+    
+    const signatureBase64 = btoa(String.fromCharCode(...new Uint8Array(signature)))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+    
+    const jwt = unsignedToken + '.' + signatureBase64;
+    
+    // Exchange JWT for identity token
+    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${jwt}`
+    });
+    
+    if (!tokenResponse.ok) {
+      console.error('[CloudRun] Token exchange failed:', await tokenResponse.text());
+      return null;
+    }
+    
+    const tokenData = await tokenResponse.json() as any;
+    console.log('[CloudRun] Successfully obtained identity token');
+    return tokenData.id_token;
+  } catch (error) {
+    console.error('[CloudRun] Auth error:', error);
+    return null;
+  }
+}
+
 // Assemble video using Cloud Run FFmpeg service
 async function assembleVideo(
   clips: { url: string; duration: number }[],
@@ -7210,30 +7280,42 @@ async function assembleVideo(
 ): Promise<string> {
   try {
     if (!env.CLOUD_RUN_ASSEMBLER_URL) {
-      // Return placeholder if no assembler configured
+      console.log('[Assembly] No CLOUD_RUN_ASSEMBLER_URL configured');
       return `https://pub-dc7e4f65e1c8497583a99e9ebe196cd3.r2.dev/final-video-placeholder.mp4`;
     }
     
+    // Get authentication token for Cloud Run
+    const idToken = await getCloudRunToken(env);
+    
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (idToken) {
+      headers['Authorization'] = `Bearer ${idToken}`;
+    }
+    
+    console.log('[Assembly] Calling Cloud Run assembler:', env.CLOUD_RUN_ASSEMBLER_URL);
+    console.log('[Assembly] Clips:', clips.length, 'Voiceover:', voiceoverUrl ? 'yes' : 'no');
+    
     const response = await fetch(env.CLOUD_RUN_ASSEMBLER_URL + '/assemble', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({
         clips: clips.map(c => c.url),
-        audioUrl: voiceoverUrl,
-        captionsSrt,
-        videoId,
-        outputBucket: 'shopshot-social-media'
+        voiceover: voiceoverUrl,
+        captions: captionsSrt,
+        videoId
       })
     });
     
     if (response.ok) {
       const data = await response.json() as any;
+      console.log('[Assembly] Success:', data.videoUrl);
       return data.videoUrl;
     }
     
+    console.error('[Assembly] Failed:', response.status, await response.text());
     return `https://pub-dc7e4f65e1c8497583a99e9ebe196cd3.r2.dev/final-video-placeholder.mp4`;
   } catch (error) {
-    console.error('Video assembly error:', error);
+    console.error('[Assembly] Error:', error);
     return `https://pub-dc7e4f65e1c8497583a99e9ebe196cd3.r2.dev/final-video-placeholder.mp4`;
   }
 }
