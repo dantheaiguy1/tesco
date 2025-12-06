@@ -6672,10 +6672,17 @@ function validateVideoScript(script: any, targetDuration: number): ValidationRes
     warnings.push(`${script.segments.length} segments may feel choppy. Consider consolidating.`);
   }
   
-  // 5b. Validate minimum Veo 3 scenes
-  const minVeo3Scenes = Math.max(3, Math.floor(targetDuration / 5));
+  // 5b. Validate minimum Veo 3 scenes (balanced with stock clips)
+  // 15s = 2 veo3 + 2 stock, 30s = 3 veo3 + 4 stock
+  const minVeo3Scenes = targetDuration <= 15 ? 2 : 3;
+  const stockSegments = script.segments.filter((s: any) => s.type === 'stock_broll');
+  const minStockClips = targetDuration <= 15 ? 2 : 4;
+  
   if (veo3Segments.length < minVeo3Scenes) {
-    errors.push(`Only ${veo3Segments.length} Veo 3 scenes. Minimum ${minVeo3Scenes} required for ${targetDuration}s video.`);
+    errors.push(`Only ${veo3Segments.length} Veo 3 scenes. Need at least ${minVeo3Scenes} for ${targetDuration}s video.`);
+  }
+  if (stockSegments.length < minStockClips) {
+    errors.push(`Only ${stockSegments.length} stock clips. Need at least ${minStockClips} for ${targetDuration}s video.`);
   }
   
   // 6. Validate motion graphics templates
@@ -6710,7 +6717,9 @@ async function generateVideoScriptWithValidation(
   let lastErrors: string[] = [];
   const aspectRatio = platform === 'X' ? '16:9' : '9:16';
   
-  const minVeo3Scenes = Math.max(3, Math.floor(duration / 5));
+  // Balanced clip requirements: 15s = 2 veo3 + 2 stock, 30s = 3 veo3 + 4 stock
+  const minVeo3 = duration <= 15 ? 2 : 3;
+  const minStock = duration <= 15 ? 2 : 4;
   
   const systemPrompt = `You are a viral video scriptwriter who creates scroll-stopping ${platform} content. Your videos get millions of views because they're provocative, specific, and impossible to ignore.
 
@@ -6736,50 +6745,50 @@ Channel Alex Hormozi meets Gary Vee meets British wit:
 - "My conversion rate jumped 34% when I did this one thing..."
 - "The photography industry doesn't want you to know this..."
 
-=== VIDEO STRUCTURE (${duration} seconds) ===
-You MUST create EXACTLY ${minVeo3Scenes} Veo 3 scenes minimum.
+=== SEGMENT REQUIREMENTS (MANDATORY) ===
+For this ${duration} second video you MUST include:
+- EXACTLY ${minVeo3} Veo 3 AI-generated scenes (4, 6, or 8 seconds each)
+- EXACTLY ${minStock} Stock B-roll clips (3-4 seconds each)
+- Total duration MUST equal ${duration} seconds
 
-SCENE 1 (4-6s): THE HOOK
-- Pattern interrupt, controversial opener, or shocking visual
-- Grab attention in first 2 seconds or lose them forever
-
-SCENE 2 (2-3s): STOCK B-ROLL 
-- Quick cut to establish context (ecommerce, photography, frustration)
-
-SCENE 3 (4-6s): THE PROBLEM (Veo 3)
-- Visualise the pain point dramatically
-- Bad photos, expensive shoots, wasted money
-
-SCENE 4 (4-6s): THE SOLUTION (Veo 3)
-- Show the transformation / the "aha moment"
-- Clean, professional, fast
-
-SCENE 5+ (4-6s each): PROOF/CTA (Veo 3)
-- Social proof, results, urgency
-- Strong call to action
+${duration <= 15 ? `=== 15 SECOND STRUCTURE ===
+1. Veo 3 (6s) - THE HOOK: Pattern interrupt, grab attention instantly
+2. Stock (3s) - Quick context cut (ecommerce, frustration, money)
+3. Veo 3 (6s) - THE SOLUTION: Show transformation, product in action
+4. Stock (3s) - SOCIAL PROOF: Success imagery, results` : `=== 30 SECOND STRUCTURE ===
+1. Veo 3 (6s) - THE HOOK: Pattern interrupt, controversial opener
+2. Stock (3s) - Context cut (ecommerce seller struggling)
+3. Stock (4s) - THE PROBLEM: Bad photos, wasted money imagery
+4. Veo 3 (6s) - THE AGITATION: Pain point visualised dramatically
+5. Stock (3s) - Transition cut (photography, studio, tech)
+6. Veo 3 (8s) - THE SOLUTION + CTA: Product demo, transformation, urgency
+7. Stock (3s) - PROOF: Success, results, happy customer vibes`}
 
 === VEO 3 PROMPT REQUIREMENTS ===
 Each Veo 3 prompt MUST be cinematic and detailed (60+ characters):
-- Specify camera angle (close-up, wide shot, tracking shot, overhead)
-- Specify lighting (soft diffused, dramatic shadows, bright studio, golden hour)
-- Specify setting (modern studio, cluttered home office, sleek workspace)
-- Specify action (hands typing, product rotating, person reacting)
-- Specify mood (professional, frustrated, excited, luxurious)
+- Camera angle (close-up, wide shot, tracking shot, overhead, POV)
+- Lighting (soft diffused, dramatic shadows, bright studio, moody, golden hour)
+- Setting (modern studio, cluttered home office, sleek workspace, warehouse)
+- Action (hands typing, product rotating, person reacting, scrolling phone)
+- Mood (professional, frustrated, excited, luxurious, urgent)
 
-GOOD PROMPT: "Extreme close-up of hands frantically scrolling through blurry, amateur product photos on a laptop. Dim bedroom lighting, cluttered desk. Frustrated energy, slight camera shake. The photos look terrible."
+GOOD: "Extreme close-up of hands frantically scrolling through blurry product photos on a phone. Dim bedroom lighting, messy desk visible. Frustrated energy, slight camera shake."
 
-BAD PROMPT: "Person looking at photos on computer" (TOO VAGUE - REJECTED)
+BAD: "Person looking at photos" (TOO VAGUE - WILL BE REJECTED)
+
+=== STOCK B-ROLL SEARCH QUERIES ===
+Be SPECIFIC with search terms for Pexels:
+GOOD: "ecommerce product photography studio", "frustrated business owner laptop", "online shopping packaging", "professional photo studio lighting"
+BAD: "business", "photos", "computer" (TOO GENERIC)
 
 === TECHNICAL REQUIREMENTS ===
-- Total duration: EXACTLY ${duration} seconds (segments must add up)
-- Veo 3 durations: ONLY 4, 6, or 8 seconds (API rejects other values)
-- Stock B-roll: 2-4 seconds each, 1-2 clips max
-- Minimum ${minVeo3Scenes} Veo 3 scenes (MANDATORY)
-- Voiceover: ${Math.round(duration * 8)}-${Math.round(duration * 12)} characters (speaking pace ~2.5 words/sec)
+- Veo 3 durations: ONLY 4, 6, or 8 seconds (API rejects other values!)
+- Stock durations: 3 or 4 seconds each
+- Voiceover: ${Math.round(duration * 8)}-${Math.round(duration * 12)} characters
 - Aspect ratio: ${aspectRatio}
 
 === CAPTION STYLE ===
-TikTok-style captions - punchy, 2-4 words per line:
+TikTok-style - punchy, 2-4 words per line:
 "I spent GBP12k
 on product photos.
 Never again."
@@ -6790,7 +6799,7 @@ Return ONLY valid JSON:
   "duration": ${duration},
   "segments": [
     { "type": "veo3", "duration": 4|6|8, "prompt": "detailed 60+ char cinematic description", "caption": "Caption" },
-    { "type": "stock_broll", "duration": 2|3|4, "search_query": "specific search terms", "caption": "Caption" }
+    { "type": "stock_broll", "duration": 3|4, "search_query": "specific pexels search terms", "caption": "Caption" }
   ],
   "voiceover_script": "Full script with British spelling...",
   "captions_srt": "1\\n00:00:00,000 --> 00:00:04,000\\nFirst caption\\n\\n2\\n00:00:04,000 --> 00:00:08,000\\nSecond caption..."
