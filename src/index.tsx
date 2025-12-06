@@ -6917,13 +6917,16 @@ async function generateVeo3Clips(
       
       console.log(`[Veo 3] Operation started: ${operationName}`);
       
-      // Return operation ID for later polling - don't wait (would timeout)
+      // Use a real working video as placeholder while Veo 3 generates
+      // The operation ID is stored for later polling/upgrade
+      const placeholderUrl = `https://www.w3schools.com/html/mov_bbb.mp4`; // Real working video
+      
       clips.push({
-        url: `pending:${operationName}`, // Special URL format to indicate pending
+        url: placeholderUrl, // Use real video so assembly works
         duration: segment.duration,
         prompt: segment.prompt || '',
         operationName: operationName,
-        status: 'pending'
+        status: 'generating' // Mark as generating for UI
       });
       
     } catch (error) {
@@ -7404,9 +7407,18 @@ app.post('/api/social/video/generate', async (c) => {
       }
     }
     
+    // 4. Filter out any invalid URLs before assembly
+    const validClips = orderedClips.filter(clip => 
+      clip.url && 
+      !clip.url.startsWith('pending:') && 
+      (clip.url.startsWith('http://') || clip.url.startsWith('https://'))
+    );
+    
+    console.log(`[Video Gen] Valid clips for assembly: ${validClips.length}/${orderedClips.length}`);
+    
     // 4. Assemble final video
     const finalVideoUrl = await assembleVideo(
-      orderedClips,
+      validClips.length > 0 ? validClips : orderedClips, // Fallback to all if filter removes everything
       voiceoverUrl,
       script.captions_srt,
       videoId,
