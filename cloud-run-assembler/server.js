@@ -125,7 +125,9 @@ async function generateVeo3(prompt, duration, aspectRatio, creds, jobId, clipInd
   const token = await getVertexToken(creds.clientEmail, creds.privateKey);
   if (!token) throw new Error('Failed to get Vertex token');
   
-  const endpoint = `https://us-central1-aiplatform.googleapis.com/v1/projects/${creds.projectId}/locations/us-central1/publishers/google/models/veo-3.0-generate-preview:predictLongRunning`;
+  // Use stable veo-3.0-generate-001 model instead of preview
+  const modelId = 'veo-3.0-generate-001';
+  const endpoint = `https://us-central1-aiplatform.googleapis.com/v1/projects/${creds.projectId}/locations/us-central1/publishers/google/models/${modelId}:predictLongRunning`;
   
   console.log(`[Veo3] Calling endpoint: ${endpoint}`);
   
@@ -154,6 +156,10 @@ async function generateVeo3(prompt, duration, aspectRatio, creds, jobId, clipInd
   const opName = startData.name;
   console.log(`[Veo3] Operation started: ${opName}`);
   
+  // CORRECT polling endpoint: fetchPredictOperation (not generic operations endpoint)
+  const pollEndpoint = `https://us-central1-aiplatform.googleapis.com/v1/projects/${creds.projectId}/locations/us-central1/publishers/google/models/${modelId}:fetchPredictOperation`;
+  console.log(`[Veo3] Poll endpoint: ${pollEndpoint}`);
+  
   // Poll for completion (up to 10 min)
   for (let i = 0; i < 120; i++) {
     // Update job status with poll progress
@@ -168,25 +174,45 @@ async function generateVeo3(prompt, duration, aspectRatio, creds, jobId, clipInd
     await new Promise(r => setTimeout(r, 5000));
     
     try {
-      const pollRes = await fetch(`https://us-central1-aiplatform.googleapis.com/v1/${opName}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+      // Use POST with operationName in body (per Google docs)
+      const pollRes = await fetch(pollEndpoint, {
+        method: 'POST',
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ operationName: opName })
       });
       
       if (!pollRes.ok) {
-        console.log(`[Veo3] Poll failed: ${pollRes.status}`);
+        const errText = await pollRes.text();
+        console.log(`[Veo3] Poll failed: ${pollRes.status} - ${errText}`);
         continue;
       }
       
       const data = await pollRes.json();
+      console.log(`[Veo3] Poll response done=${data.done}`);
       
       if (data.done) {
-        if (data.response?.predictions?.[0]?.videoUri) {
-          console.log(`[Veo3] Complete: ${data.response.predictions[0].videoUri}`);
-          return data.response.predictions[0].videoUri;
+        // Response format: response.videos[].gcsUri (not predictions[].videoUri)
+        if (data.response?.videos?.[0]?.gcsUri) {
+          const gcsUri = data.response.videos[0].gcsUri;
+          console.log(`[Veo3] Complete: ${gcsUri}`);
+          
+          // Convert GCS URI to downloadable URL
+          // gs://bucket/path -> https://storage.googleapis.com/bucket/path
+          const httpsUrl = gcsUri.replace('gs://', 'https://storage.googleapis.com/');
+          console.log(`[Veo3] HTTPS URL: ${httpsUrl}`);
+          return httpsUrl;
         }
         if (data.error) {
           console.error(`[Veo3] Error: ${JSON.stringify(data.error)}`);
           throw new Error(data.error.message || 'Veo3 error');
+        }
+        // Check for RAI filter
+        if (data.response?.raiMediaFilteredCount > 0) {
+          console.error(`[Veo3] Video filtered by RAI policies`);
+          throw new Error('Video filtered by responsible AI policies');
         }
       }
       
