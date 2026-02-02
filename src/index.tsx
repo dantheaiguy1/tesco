@@ -2150,7 +2150,7 @@ app.get('/api/admin/users/:id', async (c) => {
   
   try {
     const targetUser = await db.prepare(`
-      SELECT id, email, name, cheaper_credits, better_credits, subscription_status, 
+      SELECT id, email, name, phone, cheaper_credits, better_credits, subscription_status, 
              subscription_plan, created_at, updated_at, role, is_banned, google_id
       FROM users WHERE id = ?
     `).bind(userId).first()
@@ -18304,6 +18304,10 @@ function getAdminDashboardPage(user: any) {
                 <div class="info-item">
                   <div class="info-label">Name</div>
                   <div class="info-value">\${u.name || 'Not set'}</div>
+                </div>
+                <div class="info-item">
+                  <div class="info-label">Phone</div>
+                  <div class="info-value">\${u.phone ? '<a href="tel:' + u.phone + '" style="color: #3B82F6;">' + u.phone + '</a>' : 'Not provided'}</div>
                 </div>
                 <div class="info-item">
                   <div class="info-label">Plan</div>
