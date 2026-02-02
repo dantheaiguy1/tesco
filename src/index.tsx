@@ -9511,6 +9511,89 @@ function getMarketingPage(user?: User) {
     }
     .final-cta .btn-primary:hover { box-shadow: 0 8px 30px rgba(0,0,0,0.3); }
     
+    /* Testimonials */
+    .testimonials-section {
+      padding: 80px 32px;
+      background: #F9FAFB;
+    }
+    .testimonials-section h2 {
+      text-align: center;
+      font-size: 36px;
+      font-weight: 800;
+      color: #1F2937;
+      margin-bottom: 16px;
+    }
+    .testimonials-section .section-subtitle {
+      text-align: center;
+      font-size: 18px;
+      color: #6B7280;
+      margin-bottom: 48px;
+      max-width: 600px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .testimonials-grid {
+      max-width: 1000px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 32px;
+    }
+    .testimonial-card {
+      background: white;
+      border-radius: 16px;
+      padding: 32px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+      border: 1px solid #E5E7EB;
+    }
+    .testimonial-stars {
+      color: #FBBF24;
+      font-size: 20px;
+      margin-bottom: 16px;
+    }
+    .testimonial-quote {
+      font-size: 16px;
+      line-height: 1.7;
+      color: #374151;
+      margin-bottom: 24px;
+      font-style: italic;
+    }
+    .testimonial-author {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .testimonial-avatar {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 3px solid #E5E7EB;
+    }
+    .testimonial-info h4 {
+      font-size: 16px;
+      font-weight: 600;
+      color: #1F2937;
+      margin: 0 0 4px 0;
+    }
+    .testimonial-info p {
+      font-size: 14px;
+      color: #6B7280;
+      margin: 0;
+    }
+    .testimonial-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: linear-gradient(135deg, #D1FAE5 0%, #A7F3D0 100%);
+      color: #065F46;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 20px;
+      margin-top: 8px;
+    }
+    
     /* Footer */
     .footer {
       padding: 48px 32px;
@@ -9938,6 +10021,26 @@ function getMarketingPage(user?: User) {
           <li>Priority support</li>
         </ul>
         <a href="/register?plan=pro" class="pricing-btn primary">Get Pro</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Testimonials -->
+  <section class="testimonials-section">
+    <h2>Loved by Sellers</h2>
+    <p class="section-subtitle">See what our customers are saying about ShopShot</p>
+    <div class="testimonials-grid">
+      <div class="testimonial-card">
+        <div class="testimonial-stars">★★★★★</div>
+        <p class="testimonial-quote">"I am actually blown away by the images your product creates. It will save me hours of set and light design, scene creation, photography and editing. It's affordable and intuitive to use. I love that it creates lay flats, white background and environment shots while retaining the original product detail."</p>
+        <div class="testimonial-author">
+          <img src="https://www.genspark.ai/api/files/s/Kssgb5jR" alt="Angela Gray" class="testimonial-avatar">
+          <div class="testimonial-info">
+            <h4>Angela Gray</h4>
+            <p>Small Business Owner</p>
+            <span class="testimonial-badge">✨ First Customer</span>
+          </div>
+        </div>
       </div>
     </div>
   </section>
