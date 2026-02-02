@@ -10034,7 +10034,7 @@ function getMarketingPage(user?: User) {
         <div class="testimonial-stars">★★★★★</div>
         <p class="testimonial-quote">"I am actually blown away by the images your product creates. It will save me hours of set and light design, scene creation, photography and editing. It's affordable and intuitive to use. I love that it creates lay flats, white background and environment shots while retaining the original product detail."</p>
         <div class="testimonial-author">
-          <img src="/angela-gray.jpg" alt="Angela Gray" class="testimonial-avatar">
+          <img src="/static/angela-gray.jpg" alt="Angela Gray" class="testimonial-avatar">
           <div class="testimonial-info">
             <h4>Angela Gray</h4>
             <p>Small Business Owner</p>
