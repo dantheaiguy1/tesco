@@ -798,6 +798,103 @@ async function sendNewUserNotification(apiKey: string, userEmail: string, userNa
   }
 }
 
+// Admin notification for subscription purchase (FIRST PAYING CUSTOMER!)
+async function sendSubscriptionNotification(
+  apiKey: string, 
+  userEmail: string, 
+  userName: string | null, 
+  planType: string,
+  cheaperCredits: number,
+  betterCredits: number
+): Promise<boolean> {
+  try {
+    const timestamp = new Date().toLocaleString('en-GB', { 
+      dateStyle: 'full', 
+      timeStyle: 'short',
+      timeZone: 'Europe/London'
+    });
+    
+    const planPrice = planType === 'pro' ? '£59.99' : '£39.99';
+    const planEmoji = planType === 'pro' ? '👑' : '⭐';
+    
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        from: 'ShopShot <noreply@shopshot.co.uk>',
+        to: ['dan@danielnicholls.com'],
+        subject: `${planEmoji} NEW PAYING CUSTOMER: ${userName || userEmail} - ${planType.toUpperCase()} Plan!`,
+        html: `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          </head>
+          <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #F3F4F6; padding: 40px 20px; margin: 0;">
+            <div style="max-width: 480px; margin: 0 auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
+              <div style="background: linear-gradient(135deg, #8B5CF6 0%, #6366F1 100%); padding: 32px; text-align: center;">
+                <div style="font-size: 48px; margin-bottom: 12px;">${planEmoji}</div>
+                <h1 style="color: white; margin: 0; font-size: 24px; font-weight: 700;">KA-CHING!</h1>
+                <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0 0; font-size: 14px;">New ${planType.toUpperCase()} Subscription</p>
+              </div>
+              <div style="padding: 32px;">
+                <div style="background: #F0FDF4; border: 1px solid #BBF7D0; border-radius: 8px; padding: 16px; margin-bottom: 24px; text-align: center;">
+                  <div style="color: #15803D; font-size: 28px; font-weight: 700;">${planPrice}/month</div>
+                  <div style="color: #166534; font-size: 13px;">Monthly Recurring Revenue</div>
+                </div>
+                
+                <table style="width: 100%; border-collapse: collapse;">
+                  <tr>
+                    <td style="padding: 12px 0; border-bottom: 1px solid #E5E7EB; color: #6B7280; font-size: 14px;">Customer</td>
+                    <td style="padding: 12px 0; border-bottom: 1px solid #E5E7EB; color: #1F2937; font-size: 14px; font-weight: 600; text-align: right;">${userName || 'Not provided'}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 12px 0; border-bottom: 1px solid #E5E7EB; color: #6B7280; font-size: 14px;">Email</td>
+                    <td style="padding: 12px 0; border-bottom: 1px solid #E5E7EB; color: #1F2937; font-size: 14px; font-weight: 600; text-align: right;">${userEmail}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 12px 0; border-bottom: 1px solid #E5E7EB; color: #6B7280; font-size: 14px;">Plan</td>
+                    <td style="padding: 12px 0; border-bottom: 1px solid #E5E7EB; color: #8B5CF6; font-size: 14px; font-weight: 700; text-align: right;">${planType.toUpperCase()}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 12px 0; border-bottom: 1px solid #E5E7EB; color: #6B7280; font-size: 14px;">Standard Credits</td>
+                    <td style="padding: 12px 0; border-bottom: 1px solid #E5E7EB; color: #22C55E; font-size: 14px; font-weight: 600; text-align: right;">+${cheaperCredits}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 12px 0; border-bottom: 1px solid #E5E7EB; color: #6B7280; font-size: 14px;">Premium Credits</td>
+                    <td style="padding: 12px 0; border-bottom: 1px solid #E5E7EB; color: #8B5CF6; font-size: 14px; font-weight: 600; text-align: right;">+${betterCredits}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 12px 0; color: #6B7280; font-size: 14px;">Time</td>
+                    <td style="padding: 12px 0; color: #1F2937; font-size: 14px; text-align: right;">${timestamp}</td>
+                  </tr>
+                </table>
+              </div>
+              <div style="background: #F9FAFB; padding: 16px; text-align: center; border-top: 1px solid #E5E7EB;">
+                <a href="https://www.shopshot.co.uk/admin" style="color: #3B82F6; text-decoration: none; font-size: 13px;">View Admin Dashboard</a>
+              </div>
+            </div>
+          </body>
+          </html>
+        `
+      })
+    });
+    
+    if (!response.ok) {
+      console.error('Subscription notification error:', await response.text());
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.error('Subscription notification send error:', error);
+    return false;
+  }
+}
+
 // ============================================================================
 // LOOPS EMAIL MARKETING INTEGRATION
 // ============================================================================
@@ -3540,6 +3637,11 @@ app.post('/api/billing/create-checkout', async (c) => {
     sessionParams['metadata[pack_amount]'] = String(amount);
   }
   
+  // Add plan type for subscriptions
+  if (type === 'subscription' && plan) {
+    sessionParams['metadata[plan_type]'] = plan; // 'standard' or 'pro'
+  }
+  
   console.log('[Checkout] Creating Stripe session with params:', JSON.stringify(sessionParams));
   
   const session = await stripeRequest(c.env.STRIPE_SECRET_KEY, '/checkout/sessions', 'POST', sessionParams);
@@ -3621,35 +3723,47 @@ app.post('/api/billing/webhook', async (c) => {
               WHERE id = ?
             `).bind(planType, session.subscription, userId).run();
             
+            // Send admin notification for subscription purchase
+            const user = await db.prepare('SELECT email, name FROM users WHERE id = ?').bind(userId).first() as any;
+            if (user?.email && c.env.RESEND_API_KEY) {
+              sendSubscriptionNotification(
+                c.env.RESEND_API_KEY,
+                user.email,
+                user.name,
+                planType,
+                cheaperCredits,
+                betterCredits
+              ).catch(err => {
+                console.error('Failed to send subscription notification:', err);
+              });
+            }
+            
             // Trigger Loops event for paid user onboarding sequence
-            if (c.env.LOOPS_API_KEY) {
-              const user = await db.prepare('SELECT email, name FROM users WHERE id = ?').bind(userId).first() as any;
-              if (user?.email) {
-                console.log('[Loops Debug] Subscription - updating contact:', user.email, 'plan:', planType);
-                try {
-                  // Update contact properties in Loops
-                  const userGroup = planType === 'pro' ? 'pro_user' : 'standard_user';
-                  const updateResult = await fetch('https://app.loops.so/api/v1/contacts/update', {
-                    method: 'PUT',
-                    headers: {
-                      'Authorization': `Bearer ${c.env.LOOPS_API_KEY}`,
-                      'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                      email: user.email,
-                      userGroup: userGroup,
-                      subscriptionPlan: planType
-                    })
-                  });
-                  console.log('[Loops Debug] Contact update status:', updateResult.status);
-                  
-                  // Trigger plan-specific sequence
-                  const eventName = planType === 'pro' ? 'user_subscribed_pro' : 'user_subscribed_standard';
-                  const eventResult = await triggerLoopsEvent(c.env.LOOPS_API_KEY, user.email, eventName);
-                  console.log('[Loops Debug]', eventName, 'event result:', eventResult);
-                } catch (err) {
-                  console.error('[Loops Debug] Subscription event error:', err);
-                }
+            if (c.env.LOOPS_API_KEY && user?.email) {
+              console.log('[Loops Debug] Subscription - updating contact:', user.email, 'plan:', planType);
+              try {
+                // Update contact properties in Loops
+                const userGroup = planType === 'pro' ? 'pro_user' : 'standard_user';
+                const updateResult = await fetch('https://app.loops.so/api/v1/contacts/update', {
+                  method: 'PUT',
+                  headers: {
+                    'Authorization': `Bearer ${c.env.LOOPS_API_KEY}`,
+                    'Content-Type': 'application/json'
+                  },
+                  body: JSON.stringify({
+                    email: user.email,
+                    userGroup: userGroup,
+                    subscriptionPlan: planType
+                  })
+                });
+                console.log('[Loops Debug] Contact update status:', updateResult.status);
+                
+                // Trigger plan-specific sequence
+                const eventName = planType === 'pro' ? 'user_subscribed_pro' : 'user_subscribed_standard';
+                const eventResult = await triggerLoopsEvent(c.env.LOOPS_API_KEY, user.email, eventName);
+                console.log('[Loops Debug]', eventName, 'event result:', eventResult);
+              } catch (err) {
+                console.error('[Loops Debug] Subscription event error:', err);
               }
             }
           } else if (checkoutType === 'topup') {
