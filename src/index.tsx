@@ -5306,19 +5306,34 @@ app.post('/api/regenerate-with-feedback/:sessionId/:variationIndex', async (c) =
     return c.json({ success: false, error: 'Session not found' }, 404)
   }
   
-  // Determine credit type based on model
-  const creditType = model === 'nano' ? 'better_credits' : 'cheaper_credits'
-  const creditTypeLabel = model === 'nano' ? 'Pro' : 'Standard'
-  const currentCredits = user[creditType] || 0
+  // Vertex AI credentials (same as regular regenerate)
+  const projectId = c.env.VERTEX_PROJECT_ID
+  const clientEmail = c.env.VERTEX_CLIENT_EMAIL
+  const privateKey = c.env.VERTEX_PRIVATE_KEY
   
-  if (currentCredits < CREDITS.PER_IMAGE) {
+  if (!projectId || !clientEmail || !privateKey) {
+    return c.json({ success: false, error: 'AI service not configured' }, 500)
+  }
+  
+  // Determine credit type based on model
+  const modelKey = model || DEFAULT_MODEL
+  const creditType = getCreditTypeForModel(modelKey)
+  const userCredits = creditType === 'better' ? user.better_credits : user.cheaper_credits
+  const creditTypeName = creditType === 'better' ? 'Pro' : 'Standard'
+  const creditColumn = creditType === 'better' ? 'better_credits' : 'cheaper_credits'
+  
+  if (userCredits < CREDITS.PER_IMAGE) {
     return c.json({
       success: false,
-      error: 'Insufficient ' + creditTypeLabel + ' credits',
+      error: 'Insufficient ' + creditTypeName + ' credits',
       needsUpgrade: true,
       required: CREDITS.PER_IMAGE,
-      current: currentCredits
+      current: userCredits
     }, 402)
+  }
+  
+  if (!originalImage || originalImage.length < 100) {
+    return c.json({ success: false, error: 'No image provided' }, 400)
   }
   
   // Build negative prompt additions based on feedback
@@ -5333,47 +5348,56 @@ app.post('/api/regenerate-with-feedback/:sessionId/:variationIndex', async (c) =
   
   const feedbackAddition = feedbackPromptAdditions[feedback_reason] || feedbackPromptAdditions['other']
   
-  // Get the variation prompts
-  const prompts = getPrompts(productName || 'product', size || 'medium')
-  const variation = prompts[variationIndex]
-  
+  // Get the variation definition (uses same array as other endpoints)
+  const variation = variationDefinitions[variationIndex]
   if (!variation) {
     return c.json({ success: false, error: 'Invalid variation index' }, 400)
   }
   
+  // Get the prompts and look up by field name
+  const prompts = getPrompts(productName || 'product', size || 'medium')
+  const basePrompt = prompts[variation.field]
+  
+  if (!basePrompt) {
+    return c.json({ success: false, error: 'Invalid variation field' }, 400)
+  }
+  
   // Enhance the prompt with feedback
-  const enhancedPrompt = variation.prompt + '\n\n' + feedbackAddition
+  const enhancedPrompt = basePrompt + '\n\n' + feedbackAddition
   
   try {
-    // Generate the image with enhanced prompt
-    const result = await generateWithNanoBanana(
-      c.env,
-      originalImage,
+    const startTime = Date.now()
+    const mimeType = originalImage.split(';')[0].split(':')[1]
+    const imageBase64 = originalImage.split(',')[1]
+    
+    // Generate the image with Vertex AI (same as regular regenerate)
+    const result = await generateImageWithVertex(
+      projectId,
+      clientEmail,
+      privateKey,
+      imageBase64,
+      mimeType,
       enhancedPrompt,
-      model === 'nano' ? 'nano-banana-pro' : 'nano-banana'
+      modelKey
     )
+    
+    const elapsed = Date.now() - startTime
     
     if (!result.success) {
       return c.json({ success: false, error: result.error || 'Generation failed' })
     }
     
-    // Deduct credit
-    await db.prepare(
-      `UPDATE users SET ${creditType} = ${creditType} - ? WHERE id = ?`
-    ).bind(CREDITS.PER_IMAGE, user.id).run()
-    
-    // Log transaction
-    await db.prepare(`
-      INSERT INTO credit_transactions (user_id, amount, type, description, session_id, image_data)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).bind(
+    // Deduct credit using deductCredits helper (same as regular regenerate)
+    const creditResult = await deductCredits(
+      db,
       user.id,
-      -CREDITS.PER_IMAGE,
-      creditType === 'better_credits' ? 'generation_pro' : 'generation_standard',
+      CREDITS.PER_IMAGE,
+      creditType,  // 'better' or 'cheaper'
+      creditType === 'better' ? 'generation_pro' : 'generation_standard',
       `Regenerated with feedback: ${variation.field} (${feedback_reason})`,
       sessionId,
       result.image
-    ).run()
+    )
     
     // Track in analytics
     await trackEvent(db, {
@@ -5384,12 +5408,10 @@ app.post('/api/regenerate-with-feedback/:sessionId/:variationIndex', async (c) =
         variation_index: variationIndex,
         variation_type: variation.field,
         feedback_reason,
-        model
+        model: modelKey,
+        elapsed
       }
     })
-    
-    // Get updated credit balance
-    const updatedUser = await db.prepare('SELECT cheaper_credits, better_credits FROM users WHERE id = ?').bind(user.id).first() as any
     
     return c.json({
       success: true,
@@ -5398,7 +5420,7 @@ app.post('/api/regenerate-with-feedback/:sessionId/:variationIndex', async (c) =
       label: variation.label,
       feedback_applied: feedback_reason,
       credits_deducted: CREDITS.PER_IMAGE,
-      credits_remaining: updatedUser?.[creditType] || 0
+      credits_remaining: creditResult.newBalance
     })
   } catch (error) {
     console.error('Regenerate with feedback error:', error)
@@ -13451,12 +13473,13 @@ function getHomePage(user?: User) {
       }, 500);
       
       try {
+        const productName = document.getElementById('product-name-edit')?.value || 'Product';
         const res = await fetch('/api/regenerate-with-feedback/' + currentSessionId + '/' + index, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             originalImage: currentOriginalImage,
-            productName: currentProductName,
+            productName: productName,
             model: selectedModel,
             size: selectedSize,
             feedback_reason: reason
