@@ -1687,8 +1687,64 @@ async function ensureDatabase(db: D1Database) {
     } catch (e) {
       // Column already exists, ignore error
     }
+    
+    // Analytics events table - comprehensive user activity tracking
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS analytics_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_type TEXT NOT NULL,
+        user_id TEXT,
+        session_id TEXT,
+        page_url TEXT,
+        referrer TEXT,
+        user_agent TEXT,
+        ip_country TEXT,
+        metadata TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `).run()
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_analytics_event_type ON analytics_events(event_type)').run()
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_analytics_user_id ON analytics_events(user_id)').run()
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_analytics_created_at ON analytics_events(created_at DESC)').run()
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_analytics_session_id ON analytics_events(session_id)').run()
+    
   } catch (err) {
     console.log('Database already initialized or error:', err)
+  }
+}
+
+// ============================================================================
+// ANALYTICS TRACKING HELPER
+// ============================================================================
+interface TrackEventOptions {
+  eventType: string;
+  userId?: string | null;
+  sessionId?: string | null;
+  pageUrl?: string;
+  referrer?: string;
+  userAgent?: string;
+  ipCountry?: string;
+  metadata?: Record<string, any>;
+}
+
+async function trackEvent(db: D1Database, options: TrackEventOptions): Promise<void> {
+  try {
+    const { eventType, userId, sessionId, pageUrl, referrer, userAgent, ipCountry, metadata } = options;
+    await db.prepare(`
+      INSERT INTO analytics_events (event_type, user_id, session_id, page_url, referrer, user_agent, ip_country, metadata)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      eventType,
+      userId || null,
+      sessionId || null,
+      pageUrl || null,
+      referrer || null,
+      userAgent || null,
+      ipCountry || null,
+      metadata ? JSON.stringify(metadata) : null
+    ).run();
+  } catch (e) {
+    console.error('Failed to track event:', e);
   }
 }
 
@@ -1705,6 +1761,40 @@ app.use('*', async (c, next) => {
       c.set('user', user);
     }
   }
+  await next();
+});
+
+// ============================================================================
+// PAGE VIEW TRACKING MIDDLEWARE
+// ============================================================================
+// Track page views for main HTML pages (not API calls or static assets)
+const TRACKED_PAGES = ['/', '/app', '/pricing', '/dashboard', '/login', '/register', '/account', '/get-started', '/history', '/admin', '/faq', '/about', '/contact', '/blog'];
+
+app.use('*', async (c, next) => {
+  const path = new URL(c.req.url).pathname;
+  const isTrackedPage = TRACKED_PAGES.some(p => path === p || path.startsWith('/blog/') || path.startsWith('/results/') || path.startsWith('/admin/'));
+  
+  // Only track HTML page requests, not API or static assets
+  if (isTrackedPage && !path.startsWith('/api/') && !path.includes('.')) {
+    const db = c.env.TESCO_DB;
+    const user = c.get('user');
+    
+    // Track asynchronously (don't block the response)
+    c.executionCtx.waitUntil(
+      trackEvent(db, {
+        eventType: 'page_view',
+        userId: user?.id || null,
+        pageUrl: path,
+        referrer: c.req.header('referer') || null,
+        userAgent: c.req.header('user-agent') || null,
+        ipCountry: c.req.header('cf-ipcountry') || null,
+        metadata: {
+          query: new URL(c.req.url).search || null
+        }
+      })
+    );
+  }
+  
   await next();
 });
 
@@ -2107,6 +2197,14 @@ app.get('/admin/social', (c) => {
   if (!user) return c.redirect('/login?redirect=/admin/social')
   if (user.role !== 'admin') return c.redirect('/?error=unauthorized')
   return c.html(getSocialCommandCentrePage(user))
+})
+
+// Analytics Dashboard
+app.get('/admin/analytics', (c) => {
+  const user = c.get('user') as any
+  if (!user) return c.redirect('/login?redirect=/admin/analytics')
+  if (user.role !== 'admin') return c.redirect('/?error=unauthorized')
+  return c.html(getAnalyticsDashboardPage(user))
 })
 
 // Admin API: Get dashboard data
@@ -2628,6 +2726,366 @@ app.get('/api/admin/recent-activity', async (c) => {
   }
 })
 
+// ============================================================================
+// ANALYTICS API ENDPOINTS
+// ============================================================================
+
+// Analytics: Get overview stats
+app.get('/api/admin/analytics/overview', async (c) => {
+  const user = c.get('user') as any
+  if (!user) return c.json({ success: false, error: 'Not authenticated' }, 401)
+  if (user.role !== 'admin') return c.json({ success: false, error: 'Not authorized' }, 403)
+  
+  const db = c.env.TESCO_DB
+  const days = parseInt(c.req.query('days') || '7')
+  
+  try {
+    // Page views in period
+    const pageViews = await db.prepare(`
+      SELECT COUNT(*) as count FROM analytics_events 
+      WHERE event_type = 'page_view' AND created_at > datetime('now', '-${days} days')
+    `).first() as any
+    
+    // Unique visitors (by user_id or session)
+    const uniqueVisitors = await db.prepare(`
+      SELECT COUNT(DISTINCT COALESCE(user_id, session_id, 'anon')) as count 
+      FROM analytics_events 
+      WHERE event_type = 'page_view' AND created_at > datetime('now', '-${days} days')
+    `).first() as any
+    
+    // Signups in period
+    const signups = await db.prepare(`
+      SELECT COUNT(*) as count FROM analytics_events 
+      WHERE event_type = 'user_signup' AND created_at > datetime('now', '-${days} days')
+    `).first() as any
+    
+    // Generations in period
+    const generations = await db.prepare(`
+      SELECT COUNT(*) as count FROM analytics_events 
+      WHERE event_type = 'generation_completed' AND created_at > datetime('now', '-${days} days')
+    `).first() as any
+    
+    // Failed generations
+    const failedGenerations = await db.prepare(`
+      SELECT COUNT(*) as count FROM analytics_events 
+      WHERE event_type = 'generation_failed' AND created_at > datetime('now', '-${days} days')
+    `).first() as any
+    
+    // Purchases in period
+    const purchases = await db.prepare(`
+      SELECT COUNT(*) as count FROM analytics_events 
+      WHERE event_type = 'purchase_completed' AND created_at > datetime('now', '-${days} days')
+    `).first() as any
+    
+    // Logins in period
+    const logins = await db.prepare(`
+      SELECT COUNT(*) as count FROM analytics_events 
+      WHERE event_type = 'user_login' AND created_at > datetime('now', '-${days} days')
+    `).first() as any
+    
+    return c.json({
+      success: true,
+      period_days: days,
+      stats: {
+        page_views: pageViews?.count || 0,
+        unique_visitors: uniqueVisitors?.count || 0,
+        signups: signups?.count || 0,
+        logins: logins?.count || 0,
+        generations: generations?.count || 0,
+        failed_generations: failedGenerations?.count || 0,
+        purchases: purchases?.count || 0
+      }
+    })
+  } catch (error) {
+    console.error('Analytics overview error:', error)
+    return c.json({ success: false, error: 'Failed to get analytics' }, 500)
+  }
+})
+
+// Analytics: Get daily breakdown
+app.get('/api/admin/analytics/daily', async (c) => {
+  const user = c.get('user') as any
+  if (!user) return c.json({ success: false, error: 'Not authenticated' }, 401)
+  if (user.role !== 'admin') return c.json({ success: false, error: 'Not authorized' }, 403)
+  
+  const db = c.env.TESCO_DB
+  const days = parseInt(c.req.query('days') || '30')
+  
+  try {
+    // Daily page views
+    const dailyPageViews = await db.prepare(`
+      SELECT date(created_at) as date, COUNT(*) as count
+      FROM analytics_events 
+      WHERE event_type = 'page_view' AND created_at > datetime('now', '-${days} days')
+      GROUP BY date(created_at)
+      ORDER BY date DESC
+    `).all() as any
+    
+    // Daily generations
+    const dailyGenerations = await db.prepare(`
+      SELECT date(created_at) as date, COUNT(*) as count
+      FROM analytics_events 
+      WHERE event_type = 'generation_completed' AND created_at > datetime('now', '-${days} days')
+      GROUP BY date(created_at)
+      ORDER BY date DESC
+    `).all() as any
+    
+    // Daily signups
+    const dailySignups = await db.prepare(`
+      SELECT date(created_at) as date, COUNT(*) as count
+      FROM analytics_events 
+      WHERE event_type = 'user_signup' AND created_at > datetime('now', '-${days} days')
+      GROUP BY date(created_at)
+      ORDER BY date DESC
+    `).all() as any
+    
+    return c.json({
+      success: true,
+      daily: {
+        page_views: dailyPageViews?.results || [],
+        generations: dailyGenerations?.results || [],
+        signups: dailySignups?.results || []
+      }
+    })
+  } catch (error) {
+    console.error('Analytics daily error:', error)
+    return c.json({ success: false, error: 'Failed to get daily analytics' }, 500)
+  }
+})
+
+// Analytics: Get popular pages
+app.get('/api/admin/analytics/pages', async (c) => {
+  const user = c.get('user') as any
+  if (!user) return c.json({ success: false, error: 'Not authenticated' }, 401)
+  if (user.role !== 'admin') return c.json({ success: false, error: 'Not authorized' }, 403)
+  
+  const db = c.env.TESCO_DB
+  const days = parseInt(c.req.query('days') || '7')
+  
+  try {
+    const popularPages = await db.prepare(`
+      SELECT page_url, COUNT(*) as views, COUNT(DISTINCT user_id) as unique_users
+      FROM analytics_events 
+      WHERE event_type = 'page_view' AND created_at > datetime('now', '-${days} days')
+      GROUP BY page_url
+      ORDER BY views DESC
+      LIMIT 20
+    `).all() as any
+    
+    return c.json({
+      success: true,
+      pages: popularPages?.results || []
+    })
+  } catch (error) {
+    console.error('Analytics pages error:', error)
+    return c.json({ success: false, error: 'Failed to get page analytics' }, 500)
+  }
+})
+
+// Analytics: Get generation stats (which variations are popular)
+app.get('/api/admin/analytics/generations', async (c) => {
+  const user = c.get('user') as any
+  if (!user) return c.json({ success: false, error: 'Not authenticated' }, 401)
+  if (user.role !== 'admin') return c.json({ success: false, error: 'Not authorized' }, 403)
+  
+  const db = c.env.TESCO_DB
+  const days = parseInt(c.req.query('days') || '30')
+  
+  try {
+    // Most popular variations
+    const popularVariations = await db.prepare(`
+      SELECT 
+        json_extract(metadata, '$.variation_label') as variation,
+        COUNT(*) as count
+      FROM analytics_events 
+      WHERE event_type = 'generation_completed' 
+        AND created_at > datetime('now', '-${days} days')
+        AND metadata IS NOT NULL
+      GROUP BY json_extract(metadata, '$.variation_label')
+      ORDER BY count DESC
+    `).all() as any
+    
+    // Model usage
+    const modelUsage = await db.prepare(`
+      SELECT 
+        json_extract(metadata, '$.model') as model,
+        COUNT(*) as count
+      FROM analytics_events 
+      WHERE event_type = 'generation_completed' 
+        AND created_at > datetime('now', '-${days} days')
+        AND metadata IS NOT NULL
+      GROUP BY json_extract(metadata, '$.model')
+      ORDER BY count DESC
+    `).all() as any
+    
+    // Average generation time
+    const avgTime = await db.prepare(`
+      SELECT AVG(json_extract(metadata, '$.elapsed_ms')) as avg_ms
+      FROM analytics_events 
+      WHERE event_type = 'generation_completed' 
+        AND created_at > datetime('now', '-${days} days')
+        AND metadata IS NOT NULL
+    `).first() as any
+    
+    // Error breakdown
+    const errors = await db.prepare(`
+      SELECT 
+        json_extract(metadata, '$.error') as error,
+        COUNT(*) as count
+      FROM analytics_events 
+      WHERE event_type = 'generation_failed' 
+        AND created_at > datetime('now', '-${days} days')
+        AND metadata IS NOT NULL
+      GROUP BY json_extract(metadata, '$.error')
+      ORDER BY count DESC
+      LIMIT 10
+    `).all() as any
+    
+    return c.json({
+      success: true,
+      generations: {
+        popular_variations: popularVariations?.results || [],
+        model_usage: modelUsage?.results || [],
+        avg_generation_time_ms: avgTime?.avg_ms || 0,
+        errors: errors?.results || []
+      }
+    })
+  } catch (error) {
+    console.error('Analytics generations error:', error)
+    return c.json({ success: false, error: 'Failed to get generation analytics' }, 500)
+  }
+})
+
+// Analytics: Get user journey/funnel
+app.get('/api/admin/analytics/funnel', async (c) => {
+  const user = c.get('user') as any
+  if (!user) return c.json({ success: false, error: 'Not authenticated' }, 401)
+  if (user.role !== 'admin') return c.json({ success: false, error: 'Not authorized' }, 403)
+  
+  const db = c.env.TESCO_DB
+  const days = parseInt(c.req.query('days') || '30')
+  
+  try {
+    // Landing page visits
+    const landingVisits = await db.prepare(`
+      SELECT COUNT(DISTINCT COALESCE(user_id, session_id)) as count
+      FROM analytics_events 
+      WHERE event_type = 'page_view' AND page_url IN ('/', '/app')
+        AND created_at > datetime('now', '-${days} days')
+    `).first() as any
+    
+    // Signups
+    const signups = await db.prepare(`
+      SELECT COUNT(DISTINCT user_id) as count
+      FROM analytics_events 
+      WHERE event_type = 'user_signup' AND created_at > datetime('now', '-${days} days')
+    `).first() as any
+    
+    // Users who uploaded
+    const uploaded = await db.prepare(`
+      SELECT COUNT(DISTINCT user_id) as count
+      FROM analytics_events 
+      WHERE event_type = 'image_uploaded' AND created_at > datetime('now', '-${days} days')
+    `).first() as any
+    
+    // Users who generated
+    const generated = await db.prepare(`
+      SELECT COUNT(DISTINCT user_id) as count
+      FROM analytics_events 
+      WHERE event_type = 'generation_completed' AND created_at > datetime('now', '-${days} days')
+    `).first() as any
+    
+    // Users who purchased
+    const purchased = await db.prepare(`
+      SELECT COUNT(DISTINCT user_id) as count
+      FROM analytics_events 
+      WHERE event_type = 'purchase_completed' AND created_at > datetime('now', '-${days} days')
+    `).first() as any
+    
+    return c.json({
+      success: true,
+      funnel: {
+        visits: landingVisits?.count || 0,
+        signups: signups?.count || 0,
+        uploaded: uploaded?.count || 0,
+        generated: generated?.count || 0,
+        purchased: purchased?.count || 0
+      }
+    })
+  } catch (error) {
+    console.error('Analytics funnel error:', error)
+    return c.json({ success: false, error: 'Failed to get funnel analytics' }, 500)
+  }
+})
+
+// Analytics: Get user activity timeline
+app.get('/api/admin/analytics/user/:userId', async (c) => {
+  const adminUser = c.get('user') as any
+  if (!adminUser) return c.json({ success: false, error: 'Not authenticated' }, 401)
+  if (adminUser.role !== 'admin') return c.json({ success: false, error: 'Not authorized' }, 403)
+  
+  const db = c.env.TESCO_DB
+  const userId = c.req.param('userId')
+  
+  try {
+    // Get user's activity timeline
+    const activity = await db.prepare(`
+      SELECT event_type, page_url, metadata, created_at
+      FROM analytics_events 
+      WHERE user_id = ?
+      ORDER BY created_at DESC
+      LIMIT 100
+    `).bind(userId).all() as any
+    
+    return c.json({
+      success: true,
+      user_id: userId,
+      activity: activity?.results || []
+    })
+  } catch (error) {
+    console.error('User analytics error:', error)
+    return c.json({ success: false, error: 'Failed to get user analytics' }, 500)
+  }
+})
+
+// Analytics: Get recent events stream
+app.get('/api/admin/analytics/events', async (c) => {
+  const user = c.get('user') as any
+  if (!user) return c.json({ success: false, error: 'Not authenticated' }, 401)
+  if (user.role !== 'admin') return c.json({ success: false, error: 'Not authorized' }, 403)
+  
+  const db = c.env.TESCO_DB
+  const limit = parseInt(c.req.query('limit') || '50')
+  const eventType = c.req.query('type') || null
+  
+  try {
+    let query = `
+      SELECT ae.*, u.email, u.name as user_name
+      FROM analytics_events ae
+      LEFT JOIN users u ON ae.user_id = u.id
+    `
+    const params: any[] = []
+    
+    if (eventType) {
+      query += ' WHERE ae.event_type = ?'
+      params.push(eventType)
+    }
+    
+    query += ' ORDER BY ae.created_at DESC LIMIT ?'
+    params.push(limit)
+    
+    const events = await db.prepare(query).bind(...params).all() as any
+    
+    return c.json({
+      success: true,
+      events: events?.results || []
+    })
+  } catch (error) {
+    console.error('Analytics events error:', error)
+    return c.json({ success: false, error: 'Failed to get events' }, 500)
+  }
+})
+
 // API: Get all sessions (filtered by authenticated user)
 app.get('/api/sessions', async (c) => {
   try {
@@ -2863,6 +3321,20 @@ app.post('/api/auth/register', async (c) => {
         console.error('Failed to send verification email');
       }
     }
+    
+    // Track signup event
+    c.executionCtx.waitUntil(
+      trackEvent(db, {
+        eventType: 'user_signup',
+        userId: userId,
+        userAgent: c.req.header('user-agent') || null,
+        ipCountry: c.req.header('cf-ipcountry') || null,
+        metadata: {
+          marketing_consent: marketing_consent,
+          has_phone: !!phone
+        }
+      })
+    );
     
     return c.json({ 
       success: true, 
@@ -3176,6 +3648,19 @@ app.post('/api/auth/login', async (c) => {
       path: '/'
     });
     
+    // Track login event
+    c.executionCtx.waitUntil(
+      trackEvent(db, {
+        eventType: 'user_login',
+        userId: user.id,
+        userAgent: c.req.header('user-agent') || null,
+        ipCountry: c.req.header('cf-ipcountry') || null,
+        metadata: {
+          method: 'email'
+        }
+      })
+    );
+    
     return c.json({
       success: true,
       user: {
@@ -3350,6 +3835,19 @@ app.get('/api/auth/google/callback', async (c) => {
     maxAge: 30 * 24 * 60 * 60,
     path: '/'
   });
+  
+  // Track Google login/signup event
+  c.executionCtx.waitUntil(
+    trackEvent(db, {
+      eventType: isNewUser ? 'user_signup' : 'user_login',
+      userId: user.id,
+      userAgent: c.req.header('user-agent') || null,
+      ipCountry: c.req.header('cf-ipcountry') || null,
+      metadata: {
+        method: 'google'
+      }
+    })
+  );
   
   // If plan selected, redirect to Stripe checkout
   if (plan === 'standard' || plan === 'pro') {
@@ -3805,6 +4303,36 @@ app.post('/api/billing/webhook', async (c) => {
             await addCredits(db, userId, credits, creditPackType as 'cheaper' | 'better', 'topup',
               `£${packAmount} Credit Pack purchase - ${creditPackType === 'better' ? 'Pro' : 'Standard'} credits`,
               session.id);
+            
+            // Track credit pack purchase
+            c.executionCtx.waitUntil(
+              trackEvent(db, {
+                eventType: 'purchase_completed',
+                userId: userId,
+                metadata: {
+                  type: 'credit_pack',
+                  amount_gbp: packAmount,
+                  credit_type: creditPackType,
+                  credits_added: credits
+                }
+              })
+            );
+          }
+          
+          // Track subscription purchase (if it was a subscription)
+          if (checkoutType === 'subscription') {
+            c.executionCtx.waitUntil(
+              trackEvent(db, {
+                eventType: 'purchase_completed',
+                userId: userId,
+                metadata: {
+                  type: 'subscription',
+                  plan: planType,
+                  cheaper_credits: cheaperCredits,
+                  better_credits: betterCredits
+                }
+              })
+            );
           }
           
           // Update stripe_events with user_id
@@ -4095,6 +4623,20 @@ app.post('/api/upload', async (c) => {
       INSERT INTO sessions (id, product_name, source_type, original_image, status, model, user_id)
       VALUES (?, ?, 'upload', ?, 'pending', ?, ?)
     `).bind(sessionId, productName, thumbnail || '', model, user.id).run()
+    
+    // Track upload event
+    c.executionCtx.waitUntil(
+      trackEvent(db, {
+        eventType: 'image_uploaded',
+        userId: user.id,
+        sessionId: sessionId,
+        metadata: {
+          file_type: file.type,
+          file_size: file.size,
+          model: model
+        }
+      })
+    );
 
     return c.json({ 
       success: true, 
@@ -4561,6 +5103,24 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
       .bind(sessionId).run()
     
     console.log(`[${variation.field}] Success! ${creditTypeName} credit deducted. New balance: ${creditResult.newBalance}${isCustom ? ' (Custom Prompt)' : ''} [${modelInfo.name}]`)
+    
+    // Track successful generation
+    c.executionCtx.waitUntil(
+      trackEvent(db, {
+        eventType: 'generation_completed',
+        userId: user.id,
+        sessionId: sessionId,
+        metadata: {
+          variation_type: variation.field,
+          variation_label: variation.label,
+          model: modelKey,
+          credit_type: creditType,
+          is_custom: isCustom,
+          elapsed_ms: elapsed
+        }
+      })
+    );
+    
     return c.json({ 
       success: true, 
       field: variation.field, 
@@ -4578,6 +5138,20 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err)
     console.error(`Error:`, errorMsg)
+    
+    // Track failed generation
+    c.executionCtx.waitUntil(
+      trackEvent(db, {
+        eventType: 'generation_failed',
+        userId: user.id,
+        sessionId: sessionId,
+        metadata: {
+          variation_type: variationDefinitions[variationIndex]?.field || 'unknown',
+          error: errorMsg
+        }
+      })
+    );
+    
     // NO credit deduction on error
     return c.json({ success: false, error: errorMsg, field: variationDefinitions[variationIndex]?.field || 'unknown' }, 500)
   }
@@ -17619,6 +18193,9 @@ function getAdminDashboardPage(user: any) {
       <span>ShopShot</span> Admin Dashboard
     </div>
     <div class="header-actions">
+      <a href="/admin/analytics" style="padding: 8px 16px; background: linear-gradient(135deg, #10B981 0%, #3B82F6 100%); color: white; border-radius: 8px; font-size: 13px; font-weight: 500; text-decoration: none; display: flex; align-items: center; gap: 6px;">
+        📊 Analytics
+      </a>
       <a href="/admin/social-studio" style="padding: 8px 16px; background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%); color: white; border-radius: 8px; font-size: 13px; font-weight: 500; text-decoration: none; display: flex; align-items: center; gap: 6px;">
         📱 Social Studio
       </a>
@@ -18876,6 +19453,516 @@ function getAdminDashboardPage(user: any) {
     .spin { animation: spin 1s linear infinite; }
     @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
   </style>
+</body>
+</html>`;
+}
+
+// ============================================================================
+// ANALYTICS DASHBOARD PAGE
+// ============================================================================
+function getAnalyticsDashboardPage(user: any) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Analytics - ShopShot Admin</title>
+  ${GTM_HEAD}
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    * { font-family: 'Inter', system-ui, sans-serif; box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0F0F10; min-height: 100vh; color: #E5E7EB; }
+    
+    .admin-header {
+      background: linear-gradient(180deg, #18181B 0%, #0F0F10 100%);
+      border-bottom: 1px solid #27272A;
+      padding: 16px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .admin-title {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 20px;
+      font-weight: 700;
+      color: white;
+    }
+    .admin-title span {
+      background: linear-gradient(135deg, #10B981, #3B82F6);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .header-actions { display: flex; gap: 12px; align-items: center; }
+    .btn {
+      background: #27272A;
+      border: 1px solid #3F3F46;
+      color: #A1A1AA;
+      padding: 8px 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+    .btn:hover { background: #3F3F46; color: white; }
+    .btn.active { background: #10B981; border-color: #10B981; color: white; }
+    
+    .container { max-width: 1600px; margin: 0 auto; padding: 24px; }
+    
+    /* Period Selector */
+    .period-selector {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 24px;
+    }
+    .period-btn {
+      background: #18181B;
+      border: 1px solid #27272A;
+      color: #A1A1AA;
+      padding: 8px 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 13px;
+      transition: all 0.2s;
+    }
+    .period-btn:hover { border-color: #3F3F46; color: white; }
+    .period-btn.active { background: #10B981; border-color: #10B981; color: white; }
+    
+    /* Stats Grid */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    @media (max-width: 1200px) { .stats-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 640px) { .stats-grid { grid-template-columns: 1fr; } }
+    
+    .stat-card {
+      background: linear-gradient(145deg, #18181B 0%, #1F1F23 100%);
+      border: 1px solid #27272A;
+      border-radius: 16px;
+      padding: 24px;
+    }
+    .stat-label { font-size: 13px; color: #71717A; margin-bottom: 8px; }
+    .stat-value { font-size: 32px; font-weight: 800; color: white; }
+    .stat-change { font-size: 12px; margin-top: 4px; }
+    .stat-change.positive { color: #10B981; }
+    .stat-change.negative { color: #EF4444; }
+    
+    /* Sections */
+    .section {
+      background: #18181B;
+      border: 1px solid #27272A;
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+    .section-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+    .section-title { font-size: 18px; font-weight: 700; color: white; }
+    
+    /* Funnel */
+    .funnel {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .funnel-step {
+      background: #27272A;
+      border-radius: 12px;
+      padding: 16px 24px;
+      text-align: center;
+      min-width: 120px;
+      flex: 1;
+    }
+    .funnel-step .value { font-size: 24px; font-weight: 700; color: white; }
+    .funnel-step .label { font-size: 12px; color: #71717A; margin-top: 4px; }
+    .funnel-step .rate { font-size: 11px; color: #10B981; margin-top: 4px; }
+    .funnel-arrow { color: #3F3F46; font-size: 20px; }
+    
+    /* Tables */
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .data-table th {
+      text-align: left;
+      padding: 12px;
+      font-size: 12px;
+      color: #71717A;
+      border-bottom: 1px solid #27272A;
+      font-weight: 500;
+    }
+    .data-table td {
+      padding: 12px;
+      font-size: 14px;
+      border-bottom: 1px solid #27272A;
+    }
+    .data-table tr:last-child td { border-bottom: none; }
+    .data-table tr:hover { background: rgba(255,255,255,0.02); }
+    
+    /* Event Stream */
+    .event-stream { max-height: 400px; overflow-y: auto; }
+    .event-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px;
+      border-bottom: 1px solid #27272A;
+    }
+    .event-item:last-child { border-bottom: none; }
+    .event-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+    }
+    .event-icon.page_view { background: #1E3A5F; }
+    .event-icon.user_signup { background: #1E3A5F; color: #3B82F6; }
+    .event-icon.user_login { background: #1E3B4D; color: #10B981; }
+    .event-icon.generation_completed { background: #3B1E5F; color: #8B5CF6; }
+    .event-icon.generation_failed { background: #5F1E1E; color: #EF4444; }
+    .event-icon.purchase_completed { background: #1E5F3B; color: #10B981; }
+    .event-icon.image_uploaded { background: #5F4B1E; color: #F59E0B; }
+    .event-info { flex: 1; }
+    .event-type { font-size: 14px; font-weight: 500; color: white; }
+    .event-detail { font-size: 12px; color: #71717A; }
+    .event-time { font-size: 12px; color: #52525B; }
+    
+    /* Charts container */
+    .chart-container { height: 300px; }
+    
+    /* Two column layout */
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    @media (max-width: 1024px) { .two-col { grid-template-columns: 1fr; } }
+    
+    /* Loading */
+    .loading { text-align: center; padding: 40px; color: #71717A; }
+  </style>
+</head>
+<body>
+  ${GTM_BODY}
+  
+  <header class="admin-header">
+    <div class="admin-title">
+      <span>📊 Analytics</span> Dashboard
+    </div>
+    <div class="header-actions">
+      <span id="last-updated" style="font-size: 12px; color: #71717A;">Loading...</span>
+      <button class="btn" onclick="refreshData()">↻ Refresh</button>
+      <a href="/admin" class="btn">← Back to Admin</a>
+    </div>
+  </header>
+  
+  <main class="container">
+    <!-- Period Selector -->
+    <div class="period-selector">
+      <button class="period-btn" data-days="1">Today</button>
+      <button class="period-btn active" data-days="7">7 Days</button>
+      <button class="period-btn" data-days="30">30 Days</button>
+      <button class="period-btn" data-days="90">90 Days</button>
+    </div>
+    
+    <!-- KPI Stats -->
+    <div class="stats-grid" id="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">Page Views</div>
+        <div class="stat-value" id="stat-pageviews">-</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Unique Visitors</div>
+        <div class="stat-value" id="stat-visitors">-</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">New Signups</div>
+        <div class="stat-value" id="stat-signups">-</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Generations</div>
+        <div class="stat-value" id="stat-generations">-</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Failed Generations</div>
+        <div class="stat-value" id="stat-failed">-</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Logins</div>
+        <div class="stat-value" id="stat-logins">-</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Purchases</div>
+        <div class="stat-value" id="stat-purchases">-</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Success Rate</div>
+        <div class="stat-value" id="stat-success-rate">-</div>
+      </div>
+    </div>
+    
+    <!-- Funnel -->
+    <div class="section">
+      <div class="section-header">
+        <h2 class="section-title">📈 Conversion Funnel</h2>
+      </div>
+      <div class="funnel" id="funnel">
+        <div class="funnel-step">
+          <div class="value" id="funnel-visits">-</div>
+          <div class="label">Visits</div>
+        </div>
+        <div class="funnel-arrow">→</div>
+        <div class="funnel-step">
+          <div class="value" id="funnel-signups">-</div>
+          <div class="label">Signups</div>
+          <div class="rate" id="funnel-signup-rate">-</div>
+        </div>
+        <div class="funnel-arrow">→</div>
+        <div class="funnel-step">
+          <div class="value" id="funnel-uploaded">-</div>
+          <div class="label">Uploaded</div>
+          <div class="rate" id="funnel-upload-rate">-</div>
+        </div>
+        <div class="funnel-arrow">→</div>
+        <div class="funnel-step">
+          <div class="value" id="funnel-generated">-</div>
+          <div class="label">Generated</div>
+          <div class="rate" id="funnel-generate-rate">-</div>
+        </div>
+        <div class="funnel-arrow">→</div>
+        <div class="funnel-step">
+          <div class="value" id="funnel-purchased">-</div>
+          <div class="label">Purchased</div>
+          <div class="rate" id="funnel-purchase-rate">-</div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Two Column Layout -->
+    <div class="two-col">
+      <!-- Popular Pages -->
+      <div class="section">
+        <div class="section-header">
+          <h2 class="section-title">🔥 Popular Pages</h2>
+        </div>
+        <table class="data-table" id="pages-table">
+          <thead>
+            <tr>
+              <th>Page</th>
+              <th>Views</th>
+              <th>Unique</th>
+            </tr>
+          </thead>
+          <tbody id="pages-tbody">
+            <tr><td colspan="3" class="loading">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      
+      <!-- Popular Variations -->
+      <div class="section">
+        <div class="section-header">
+          <h2 class="section-title">🖼️ Popular Variations</h2>
+        </div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Variation</th>
+              <th>Count</th>
+            </tr>
+          </thead>
+          <tbody id="variations-tbody">
+            <tr><td colspan="2" class="loading">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    
+    <!-- Event Stream -->
+    <div class="section">
+      <div class="section-header">
+        <h2 class="section-title">🔴 Live Activity Stream</h2>
+        <select id="event-filter" onchange="loadEvents()" style="background: #27272A; border: 1px solid #3F3F46; color: white; padding: 6px 12px; border-radius: 6px;">
+          <option value="">All Events</option>
+          <option value="page_view">Page Views</option>
+          <option value="user_signup">Signups</option>
+          <option value="user_login">Logins</option>
+          <option value="generation_completed">Generations</option>
+          <option value="generation_failed">Errors</option>
+          <option value="purchase_completed">Purchases</option>
+        </select>
+      </div>
+      <div class="event-stream" id="event-stream">
+        <div class="loading">Loading events...</div>
+      </div>
+    </div>
+  </main>
+  
+  <script>
+    let currentDays = 7;
+    
+    // Period selector
+    document.querySelectorAll('.period-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentDays = parseInt(btn.dataset.days);
+        refreshData();
+      });
+    });
+    
+    async function refreshData() {
+      await Promise.all([
+        loadOverview(),
+        loadFunnel(),
+        loadPages(),
+        loadGenerations(),
+        loadEvents()
+      ]);
+      document.getElementById('last-updated').textContent = 'Updated: ' + new Date().toLocaleTimeString();
+    }
+    
+    async function loadOverview() {
+      try {
+        const res = await fetch('/api/admin/analytics/overview?days=' + currentDays);
+        const data = await res.json();
+        if (data.success) {
+          const s = data.stats;
+          document.getElementById('stat-pageviews').textContent = s.page_views.toLocaleString();
+          document.getElementById('stat-visitors').textContent = s.unique_visitors.toLocaleString();
+          document.getElementById('stat-signups').textContent = s.signups.toLocaleString();
+          document.getElementById('stat-generations').textContent = s.generations.toLocaleString();
+          document.getElementById('stat-failed').textContent = s.failed_generations.toLocaleString();
+          document.getElementById('stat-logins').textContent = s.logins.toLocaleString();
+          document.getElementById('stat-purchases').textContent = s.purchases.toLocaleString();
+          
+          const total = s.generations + s.failed_generations;
+          const rate = total > 0 ? ((s.generations / total) * 100).toFixed(1) + '%' : '-';
+          document.getElementById('stat-success-rate').textContent = rate;
+        }
+      } catch (e) { console.error('Failed to load overview:', e); }
+    }
+    
+    async function loadFunnel() {
+      try {
+        const res = await fetch('/api/admin/analytics/funnel?days=' + currentDays);
+        const data = await res.json();
+        if (data.success) {
+          const f = data.funnel;
+          document.getElementById('funnel-visits').textContent = f.visits.toLocaleString();
+          document.getElementById('funnel-signups').textContent = f.signups.toLocaleString();
+          document.getElementById('funnel-uploaded').textContent = f.uploaded.toLocaleString();
+          document.getElementById('funnel-generated').textContent = f.generated.toLocaleString();
+          document.getElementById('funnel-purchased').textContent = f.purchased.toLocaleString();
+          
+          // Calculate rates
+          if (f.visits > 0) {
+            document.getElementById('funnel-signup-rate').textContent = ((f.signups / f.visits) * 100).toFixed(1) + '% of visits';
+          }
+          if (f.signups > 0) {
+            document.getElementById('funnel-upload-rate').textContent = ((f.uploaded / f.signups) * 100).toFixed(1) + '% of signups';
+            document.getElementById('funnel-generate-rate').textContent = ((f.generated / f.signups) * 100).toFixed(1) + '% of signups';
+            document.getElementById('funnel-purchase-rate').textContent = ((f.purchased / f.signups) * 100).toFixed(1) + '% of signups';
+          }
+        }
+      } catch (e) { console.error('Failed to load funnel:', e); }
+    }
+    
+    async function loadPages() {
+      try {
+        const res = await fetch('/api/admin/analytics/pages?days=' + currentDays);
+        const data = await res.json();
+        if (data.success && data.pages.length) {
+          document.getElementById('pages-tbody').innerHTML = data.pages.map(p => 
+            '<tr><td>' + (p.page_url || '/') + '</td><td>' + p.views + '</td><td>' + (p.unique_users || '-') + '</td></tr>'
+          ).join('');
+        } else {
+          document.getElementById('pages-tbody').innerHTML = '<tr><td colspan="3" style="color:#71717A;">No data yet</td></tr>';
+        }
+      } catch (e) { console.error('Failed to load pages:', e); }
+    }
+    
+    async function loadGenerations() {
+      try {
+        const res = await fetch('/api/admin/analytics/generations?days=' + currentDays);
+        const data = await res.json();
+        if (data.success && data.generations.popular_variations.length) {
+          document.getElementById('variations-tbody').innerHTML = data.generations.popular_variations.map(v => 
+            '<tr><td>' + (v.variation || 'Unknown') + '</td><td>' + v.count + '</td></tr>'
+          ).join('');
+        } else {
+          document.getElementById('variations-tbody').innerHTML = '<tr><td colspan="2" style="color:#71717A;">No data yet</td></tr>';
+        }
+      } catch (e) { console.error('Failed to load generations:', e); }
+    }
+    
+    async function loadEvents() {
+      try {
+        const filter = document.getElementById('event-filter').value;
+        const url = '/api/admin/analytics/events?limit=50' + (filter ? '&type=' + filter : '');
+        const res = await fetch(url);
+        const data = await res.json();
+        
+        if (data.success && data.events.length) {
+          const icons = {
+            page_view: '👁️',
+            user_signup: '🎉',
+            user_login: '🔑',
+            generation_completed: '✨',
+            generation_failed: '❌',
+            purchase_completed: '💰',
+            image_uploaded: '📤'
+          };
+          
+          document.getElementById('event-stream').innerHTML = data.events.map(e => {
+            const meta = e.metadata ? JSON.parse(e.metadata) : {};
+            let detail = e.email || e.user_id || 'Anonymous';
+            if (e.page_url) detail = e.page_url;
+            if (meta.variation_label) detail += ' - ' + meta.variation_label;
+            if (meta.error) detail = meta.error.substring(0, 50);
+            if (meta.type) detail += ' (' + meta.type + ')';
+            
+            return '<div class="event-item">' +
+              '<div class="event-icon ' + e.event_type + '">' + (icons[e.event_type] || '📌') + '</div>' +
+              '<div class="event-info">' +
+                '<div class="event-type">' + e.event_type.replace(/_/g, ' ') + '</div>' +
+                '<div class="event-detail">' + detail + '</div>' +
+              '</div>' +
+              '<div class="event-time">' + new Date(e.created_at).toLocaleString() + '</div>' +
+            '</div>';
+          }).join('');
+        } else {
+          document.getElementById('event-stream').innerHTML = '<div class="loading">No events yet. Activity will appear here as users interact with the site.</div>';
+        }
+      } catch (e) { 
+        console.error('Failed to load events:', e);
+        document.getElementById('event-stream').innerHTML = '<div class="loading">Failed to load events</div>';
+      }
+    }
+    
+    // Initial load
+    refreshData();
+    
+    // Auto-refresh every 30 seconds
+    setInterval(refreshData, 30000);
+  </script>
 </body>
 </html>`;
 }
