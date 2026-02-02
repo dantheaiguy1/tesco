@@ -3060,9 +3060,11 @@ app.get('/api/admin/analytics/events', async (c) => {
   
   try {
     let query = `
-      SELECT ae.*, u.email, u.name as user_name
+      SELECT ae.*, u.email, u.name as user_name,
+             s.original_image as session_thumbnail
       FROM analytics_events ae
       LEFT JOIN users u ON ae.user_id = u.id
+      LEFT JOIN sessions s ON ae.session_id = s.id
     `
     const params: any[] = []
     
@@ -3076,9 +3078,26 @@ app.get('/api/admin/analytics/events', async (c) => {
     
     const events = await db.prepare(query).bind(...params).all() as any
     
+    // For generation events, try to get the generated image from credit_transactions
+    const enrichedEvents = await Promise.all((events?.results || []).map(async (e: any) => {
+      if ((e.event_type === 'generation_completed' || e.event_type === 'image_uploaded') && e.session_id) {
+        // Get the most recent generated image for this session
+        const txn = await db.prepare(`
+          SELECT image_data FROM credit_transactions 
+          WHERE session_id = ? AND image_data IS NOT NULL AND image_data != ''
+          ORDER BY created_at DESC LIMIT 1
+        `).bind(e.session_id).first() as any
+        
+        if (txn?.image_data) {
+          e.generated_image = txn.image_data
+        }
+      }
+      return e
+    }))
+    
     return c.json({
       success: true,
-      events: events?.results || []
+      events: enrichedEvents
     })
   } catch (error) {
     console.error('Analytics events error:', error)
@@ -19647,6 +19666,21 @@ function getAnalyticsDashboardPage(user: any) {
     .event-type { font-size: 14px; font-weight: 500; color: white; }
     .event-detail { font-size: 12px; color: #71717A; }
     .event-time { font-size: 12px; color: #52525B; }
+    .event-thumb { 
+      width: 48px; 
+      height: 48px; 
+      border-radius: 8px; 
+      object-fit: cover; 
+      cursor: pointer;
+      border: 2px solid #27272A;
+      transition: all 0.2s;
+      flex-shrink: 0;
+    }
+    .event-thumb:hover {
+      border-color: #8B5CF6;
+      transform: scale(1.05);
+      box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
+    }
     
     /* Charts container */
     .chart-container { height: 300px; }
@@ -19939,8 +19973,20 @@ function getAnalyticsDashboardPage(user: any) {
             if (meta.error) detail = meta.error.substring(0, 50);
             if (meta.type) detail += ' (' + meta.type + ')';
             
+            // Get thumbnail - prefer generated image, fallback to session thumbnail
+            const thumbnail = e.generated_image || e.session_thumbnail;
+            const hasImage = thumbnail && thumbnail.length > 50;
+            
+            // Determine what to show in the icon area
+            let iconHtml;
+            if (hasImage) {
+              iconHtml = '<img class="event-thumb" src="' + thumbnail + '" alt="Thumbnail" onclick="showImageModal(this.src)">';
+            } else {
+              iconHtml = '<div class="event-icon ' + e.event_type + '">' + (icons[e.event_type] || '📌') + '</div>';
+            }
+            
             return '<div class="event-item">' +
-              '<div class="event-icon ' + e.event_type + '">' + (icons[e.event_type] || '📌') + '</div>' +
+              iconHtml +
               '<div class="event-info">' +
                 '<div class="event-type">' + e.event_type.replace(/_/g, ' ') + '</div>' +
                 '<div class="event-detail">' + detail + '</div>' +
@@ -19955,6 +20001,15 @@ function getAnalyticsDashboardPage(user: any) {
         console.error('Failed to load events:', e);
         document.getElementById('event-stream').innerHTML = '<div class="loading">Failed to load events</div>';
       }
+    }
+    
+    // Image modal for viewing full size
+    function showImageModal(src) {
+      const modal = document.createElement('div');
+      modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.9);z-index:9999;display:flex;align-items:center;justify-content:center;cursor:pointer;';
+      modal.innerHTML = '<img src="' + src + '" style="max-width:90%;max-height:90%;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,0.5);">';
+      modal.onclick = () => modal.remove();
+      document.body.appendChild(modal);
     }
     
     // Initial load
