@@ -1708,6 +1708,25 @@ async function ensureDatabase(db: D1Database) {
     await db.prepare('CREATE INDEX IF NOT EXISTS idx_analytics_created_at ON analytics_events(created_at DESC)').run()
     await db.prepare('CREATE INDEX IF NOT EXISTS idx_analytics_session_id ON analytics_events(session_id)').run()
     
+    // Image feedback table for thumbs up/down and regeneration feedback
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS image_feedback (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        variation_index INTEGER,
+        variation_type TEXT,
+        rating TEXT CHECK(rating IN ('up', 'down')),
+        feedback_reason TEXT,
+        original_prompt TEXT,
+        image_data TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `).run()
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_feedback_user_id ON image_feedback(user_id)').run()
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_feedback_session_id ON image_feedback(session_id)').run()
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_feedback_rating ON image_feedback(rating)').run()
+    
   } catch (err) {
     console.log('Database already initialized or error:', err)
   }
@@ -5211,6 +5230,179 @@ app.post('/api/sessions/:id/complete', async (c) => {
   } catch (error) {
     console.error('Complete generation error:', error)
     return c.json({ success: false, error: 'Failed to complete generation' }, 500)
+  }
+})
+
+// ============================================================================
+// FEEDBACK API ENDPOINTS
+// ============================================================================
+
+// API: Submit image feedback (thumbs up/down)
+app.post('/api/feedback', async (c) => {
+  const user = c.get('user')
+  if (!user) {
+    return c.json({ success: false, error: 'Authentication required' }, 401)
+  }
+  
+  const db = c.env.TESCO_DB
+  const body = await c.req.json() as any
+  const { session_id, variation_index, variation_type, rating, feedback_reason, image_data } = body
+  
+  if (!session_id || rating === undefined) {
+    return c.json({ success: false, error: 'Missing required fields' }, 400)
+  }
+  
+  try {
+    await db.prepare(`
+      INSERT INTO image_feedback (user_id, session_id, variation_index, variation_type, rating, feedback_reason, image_data)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      user.id,
+      session_id,
+      variation_index || 0,
+      variation_type || 'unknown',
+      rating,
+      feedback_reason || null,
+      image_data ? image_data.substring(0, 1000) : null // Store truncated image for reference
+    ).run()
+    
+    // Track in analytics
+    await trackEvent(db, {
+      eventType: rating === 'up' ? 'feedback_positive' : 'feedback_negative',
+      userId: user.id,
+      sessionId: session_id,
+      metadata: {
+        variation_index,
+        variation_type,
+        feedback_reason
+      }
+    })
+    
+    return c.json({ success: true })
+  } catch (error) {
+    console.error('Feedback error:', error)
+    return c.json({ success: false, error: 'Failed to save feedback' }, 500)
+  }
+})
+
+// API: Regenerate with feedback-based prompt modification
+app.post('/api/regenerate-with-feedback/:sessionId/:variationIndex', async (c) => {
+  const sessionId = c.req.param('sessionId')
+  const variationIndex = parseInt(c.req.param('variationIndex'))
+  const db = c.env.TESCO_DB
+  
+  // Check authentication
+  const user = c.get('user')
+  if (!user) {
+    return c.json({ success: false, error: 'Authentication required', needsAuth: true }, 401)
+  }
+  
+  const body = await c.req.json() as any
+  const { originalImage, productName, model, size, feedback_reason } = body
+  
+  // Verify session ownership
+  const session = await db.prepare('SELECT * FROM sessions WHERE id = ? AND user_id = ?').bind(sessionId, user.id).first() as any
+  if (!session) {
+    return c.json({ success: false, error: 'Session not found' }, 404)
+  }
+  
+  // Determine credit type based on model
+  const creditType = model === 'nano' ? 'better_credits' : 'cheaper_credits'
+  const creditTypeLabel = model === 'nano' ? 'Pro' : 'Standard'
+  const currentCredits = user[creditType] || 0
+  
+  if (currentCredits < CREDITS.PER_IMAGE) {
+    return c.json({
+      success: false,
+      error: 'Insufficient ' + creditTypeLabel + ' credits',
+      needsUpgrade: true,
+      required: CREDITS.PER_IMAGE,
+      current: currentCredits
+    }, 402)
+  }
+  
+  // Build negative prompt additions based on feedback
+  const feedbackPromptAdditions: Record<string, string> = {
+    'wrong_theme': 'IMPORTANT: Do NOT include any seasonal, festive, Christmas, holiday, or themed elements. Keep it neutral and timeless.',
+    'distorted': 'CRITICAL: Preserve the exact shape, proportions, and details of the product. Do not warp, stretch, or distort the product in any way.',
+    'wrong_colors': 'IMPORTANT: Maintain the exact original colors of the product. Do not alter, desaturate, or change the product colors.',
+    'bad_composition': 'IMPORTANT: Create a well-balanced, professional composition with the product clearly centered and properly framed.',
+    'background_issue': 'IMPORTANT: Choose a background that complements and suits this specific product type. Keep the background subtle and professional.',
+    'other': 'IMPORTANT: Create a high-quality, professional product image that accurately represents the product.'
+  }
+  
+  const feedbackAddition = feedbackPromptAdditions[feedback_reason] || feedbackPromptAdditions['other']
+  
+  // Get the variation prompts
+  const prompts = getPrompts(productName || 'product', size || 'medium')
+  const variation = prompts[variationIndex]
+  
+  if (!variation) {
+    return c.json({ success: false, error: 'Invalid variation index' }, 400)
+  }
+  
+  // Enhance the prompt with feedback
+  const enhancedPrompt = variation.prompt + '\n\n' + feedbackAddition
+  
+  try {
+    // Generate the image with enhanced prompt
+    const result = await generateWithNanoBanana(
+      c.env,
+      originalImage,
+      enhancedPrompt,
+      model === 'nano' ? 'nano-banana-pro' : 'nano-banana'
+    )
+    
+    if (!result.success) {
+      return c.json({ success: false, error: result.error || 'Generation failed' })
+    }
+    
+    // Deduct credit
+    await db.prepare(
+      `UPDATE users SET ${creditType} = ${creditType} - ? WHERE id = ?`
+    ).bind(CREDITS.PER_IMAGE, user.id).run()
+    
+    // Log transaction
+    await db.prepare(`
+      INSERT INTO credit_transactions (user_id, amount, type, description, session_id, image_data)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).bind(
+      user.id,
+      -CREDITS.PER_IMAGE,
+      creditType === 'better_credits' ? 'generation_pro' : 'generation_standard',
+      `Regenerated with feedback: ${variation.field} (${feedback_reason})`,
+      sessionId,
+      result.image
+    ).run()
+    
+    // Track in analytics
+    await trackEvent(db, {
+      eventType: 'regeneration_with_feedback',
+      userId: user.id,
+      sessionId: sessionId,
+      metadata: {
+        variation_index: variationIndex,
+        variation_type: variation.field,
+        feedback_reason,
+        model
+      }
+    })
+    
+    // Get updated credit balance
+    const updatedUser = await db.prepare('SELECT cheaper_credits, better_credits FROM users WHERE id = ?').bind(user.id).first() as any
+    
+    return c.json({
+      success: true,
+      image: result.image,
+      field: variation.field,
+      label: variation.label,
+      feedback_applied: feedback_reason,
+      credits_deducted: CREDITS.PER_IMAGE,
+      credits_remaining: updatedUser?.[creditType] || 0
+    })
+  } catch (error) {
+    console.error('Regenerate with feedback error:', error)
+    return c.json({ success: false, error: 'Regeneration failed' }, 500)
   }
 })
 
@@ -11076,6 +11268,78 @@ function getHomePage(user?: User) {
       cursor: pointer;
       font-size: 14px;
       pointer-events: auto;  /* Buttons remain clickable */
+      transition: transform 0.15s, background 0.15s;
+    }
+    .card-overlay button:hover { transform: scale(1.1); }
+    .card-overlay button.thumb-up:hover { background: #D1FAE5; }
+    .card-overlay button.thumb-down:hover { background: #FEE2E2; }
+    .card-overlay button.thumb-active { background: #10B981 !important; color: white; }
+    .card-overlay button.thumb-down.thumb-active { background: #EF4444 !important; }
+    
+    /* Feedback modal */
+    .feedback-modal {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.7);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 10000;
+    }
+    .feedback-content {
+      background: white;
+      border-radius: 16px;
+      padding: 24px;
+      max-width: 400px;
+      width: 90%;
+    }
+    .feedback-title {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 16px;
+      color: #1F2937;
+    }
+    .feedback-options {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+    .feedback-option {
+      padding: 12px 16px;
+      border: 2px solid #E5E7EB;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 14px;
+      color: #374151;
+      transition: all 0.2s;
+    }
+    .feedback-option:hover { border-color: #8B5CF6; background: #F5F3FF; }
+    .feedback-option.selected { border-color: #8B5CF6; background: #8B5CF6; color: white; }
+    .feedback-buttons {
+      display: flex;
+      gap: 12px;
+    }
+    .feedback-btn {
+      flex: 1;
+      padding: 12px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      border: none;
+    }
+    .feedback-btn-cancel {
+      background: #F3F4F6;
+      color: #374151;
+    }
+    .feedback-btn-regen {
+      background: linear-gradient(135deg, #8B5CF6 0%, #7C3AED 100%);
+      color: white;
+    }
+    .feedback-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
     }
     .card-label {
       font-size: 12px;
@@ -12760,6 +13024,8 @@ function getHomePage(user?: User) {
           lightboxImages[index] = { src: data.image, label: v.label };
           card.innerHTML = '<img src="' + data.image + '" onclick="openLightbox(' + index + ')">' +
             '<div class="card-overlay">' +
+              '<button class="thumb-up" id="thumb-up-' + index + '" onclick="event.stopPropagation(); submitFeedback(' + index + ', \\'up\\')">👍</button>' +
+              '<button class="thumb-down" id="thumb-down-' + index + '" onclick="event.stopPropagation(); showFeedbackModal(' + index + ')">👎</button>' +
               '<button onclick="event.stopPropagation(); regenerate(' + index + ')">🔄</button>' +
               '<button onclick="event.stopPropagation(); downloadImage(' + index + ')">⬇️</button>' +
             '</div>' +
@@ -12954,6 +13220,8 @@ function getHomePage(user?: User) {
           if (lightboxImages[index]) {
             card.innerHTML = '<img src="' + lightboxImages[index].src + '" onclick="openLightbox(' + index + ')">' +
               '<div class="card-overlay">' +
+                '<button class="thumb-up" id="thumb-up-' + index + '" onclick="event.stopPropagation(); submitFeedback(' + index + ', \\'up\\')">👍</button>' +
+                '<button class="thumb-down" id="thumb-down-' + index + '" onclick="event.stopPropagation(); showFeedbackModal(' + index + ')">👎</button>' +
                 '<button onclick="event.stopPropagation(); regenerate(' + index + ')">🔄</button>' +
                 '<button onclick="event.stopPropagation(); downloadImage(' + index + ')">⬇️</button>' +
               '</div>' +
@@ -12966,6 +13234,8 @@ function getHomePage(user?: User) {
           lightboxImages[index] = { src: data.image, label: v.label };
           card.innerHTML = '<img src="' + data.image + '" onclick="openLightbox(' + index + ')">' +
             '<div class="card-overlay">' +
+              '<button class="thumb-up" id="thumb-up-' + index + '" onclick="event.stopPropagation(); submitFeedback(' + index + ', \\'up\\')">👍</button>' +
+              '<button class="thumb-down" id="thumb-down-' + index + '" onclick="event.stopPropagation(); showFeedbackModal(' + index + ')">👎</button>' +
               '<button onclick="event.stopPropagation(); regenerate(' + index + ')">🔄</button>' +
               '<button onclick="event.stopPropagation(); downloadImage(' + index + ')">⬇️</button>' +
             '</div>' +
@@ -13055,6 +13325,195 @@ function getHomePage(user?: User) {
       a.download = filename;
       a.click();
     }
+
+    // ============================================================================
+    // FEEDBACK SYSTEM - Thumbs up/down with regenerate option
+    // ============================================================================
+    const feedbackReasons = [
+      { id: 'wrong_theme', label: '🎄 Wrong theme/context (e.g., Christmas, seasonal)' },
+      { id: 'distorted', label: '🔍 Product looks distorted or warped' },
+      { id: 'wrong_colors', label: '🎨 Colors are wrong or washed out' },
+      { id: 'bad_composition', label: '📐 Composition is off or unbalanced' },
+      { id: 'background_issue', label: '🖼️ Background doesn\\'t fit the product' },
+      { id: 'other', label: '💭 Other issue' }
+    ];
+    
+    let pendingFeedbackIndex = null;
+    let selectedFeedbackReason = null;
+    
+    // Submit positive feedback (thumbs up)
+    async function submitFeedback(index, rating, reason = null) {
+      if (!currentSessionId) return;
+      
+      const v = variationDefs[index];
+      const imageData = lightboxImages[index]?.src || null;
+      
+      try {
+        const res = await fetch('/api/feedback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            session_id: currentSessionId,
+            variation_index: index,
+            variation_type: v?.field || 'unknown',
+            rating: rating,
+            feedback_reason: reason,
+            image_data: imageData
+          })
+        });
+        
+        const data = await res.json();
+        if (data.success) {
+          // Visual feedback - highlight the button
+          const btn = document.getElementById('thumb-' + rating + '-' + index);
+          if (btn) {
+            btn.classList.add('thumb-active');
+            setTimeout(() => {
+              showNotification(rating === 'up' ? '👍 Thanks for the feedback!' : '👎 Feedback saved');
+            }, 100);
+          }
+        }
+      } catch (e) {
+        console.error('Feedback error:', e);
+      }
+    }
+    
+    // Show feedback modal for thumbs down
+    function showFeedbackModal(index) {
+      pendingFeedbackIndex = index;
+      selectedFeedbackReason = null;
+      
+      const modal = document.createElement('div');
+      modal.className = 'feedback-modal';
+      modal.id = 'feedback-modal';
+      modal.innerHTML = 
+        '<div class="feedback-content">' +
+          '<div class="feedback-title">What was wrong with this image?</div>' +
+          '<div class="feedback-options">' +
+            feedbackReasons.map(r => 
+              '<div class="feedback-option" data-reason="' + r.id + '" onclick="selectFeedbackReason(\\'' + r.id + '\\')">' + r.label + '</div>'
+            ).join('') +
+          '</div>' +
+          '<div class="feedback-buttons">' +
+            '<button class="feedback-btn feedback-btn-cancel" onclick="closeFeedbackModal()">Cancel</button>' +
+            '<button class="feedback-btn feedback-btn-regen" id="regen-with-feedback-btn" disabled onclick="regenerateWithFeedback()">🔄 Regenerate (1 credit)</button>' +
+          '</div>' +
+        '</div>';
+      
+      document.body.appendChild(modal);
+      
+      // Close on backdrop click
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeFeedbackModal();
+      });
+    }
+    
+    function selectFeedbackReason(reasonId) {
+      selectedFeedbackReason = reasonId;
+      document.querySelectorAll('.feedback-option').forEach(opt => {
+        opt.classList.toggle('selected', opt.dataset.reason === reasonId);
+      });
+      document.getElementById('regen-with-feedback-btn').disabled = false;
+    }
+    
+    function closeFeedbackModal() {
+      const modal = document.getElementById('feedback-modal');
+      if (modal) modal.remove();
+      pendingFeedbackIndex = null;
+      selectedFeedbackReason = null;
+    }
+    
+    async function regenerateWithFeedback() {
+      if (pendingFeedbackIndex === null || !selectedFeedbackReason) return;
+      
+      const index = pendingFeedbackIndex;
+      const reason = selectedFeedbackReason;
+      
+      // First submit the negative feedback
+      await submitFeedback(index, 'down', reason);
+      
+      // Close modal
+      closeFeedbackModal();
+      
+      // Now regenerate with feedback-based prompt modification
+      const card = document.getElementById('card-' + index);
+      const v = variationDefs[index];
+      card.innerHTML = '<div class="card-loading" style="width:100%; aspect-ratio:1; border-radius:6px;"></div>' +
+        '<div class="card-progress"><div class="card-progress-bar" id="progress-' + index + '" style="width:0%"></div></div>' +
+        '<div class="card-label">' + v.label + ' (improving...)</div>';
+      
+      // Animate progress
+      let progress = 0;
+      const progressBar = document.getElementById('progress-' + index);
+      const interval = setInterval(() => {
+        progress = Math.min(95, progress + 2);
+        if (progressBar) progressBar.style.width = progress + '%';
+      }, 500);
+      
+      try {
+        const res = await fetch('/api/regenerate-with-feedback/' + currentSessionId + '/' + index, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            originalImage: currentOriginalImage,
+            productName: currentProductName,
+            model: selectedModel,
+            size: selectedSize,
+            feedback_reason: reason
+          })
+        });
+        
+        clearInterval(interval);
+        if (progressBar) progressBar.style.width = '100%';
+        
+        const data = await res.json();
+        
+        if (data.success && data.image) {
+          lightboxImages[index] = { src: data.image, label: v.label };
+          card.innerHTML = '<img src="' + data.image + '" onclick="openLightbox(' + index + ')">' +
+            '<div class="card-overlay">' +
+              '<button class="thumb-up" id="thumb-up-' + index + '" onclick="event.stopPropagation(); submitFeedback(' + index + ', \\'up\\')">👍</button>' +
+              '<button class="thumb-down" id="thumb-down-' + index + '" onclick="event.stopPropagation(); showFeedbackModal(' + index + ')">👎</button>' +
+              '<button onclick="event.stopPropagation(); regenerate(' + index + ')">🔄</button>' +
+              '<button onclick="event.stopPropagation(); downloadImage(' + index + ')">⬇️</button>' +
+            '</div>' +
+            '<div class="card-label">' + v.label + '</div>';
+          updateCreditsDisplay();
+          saveGeneratedImage(index, v.field, data.image);
+          showNotification('✨ Image regenerated with your feedback!');
+        } else if (data.needsUpgrade) {
+          showPaywallModal(data.required, data.current);
+          // Restore previous image if exists
+          if (lightboxImages[index]) {
+            card.innerHTML = '<img src="' + lightboxImages[index].src + '" onclick="openLightbox(' + index + ')">' +
+              '<div class="card-overlay">' +
+                '<button class="thumb-up" id="thumb-up-' + index + '" onclick="event.stopPropagation(); submitFeedback(' + index + ', \\'up\\')">👍</button>' +
+                '<button class="thumb-down" id="thumb-down-' + index + '" onclick="event.stopPropagation(); showFeedbackModal(' + index + ')">👎</button>' +
+                '<button onclick="event.stopPropagation(); regenerate(' + index + ')">🔄</button>' +
+                '<button onclick="event.stopPropagation(); downloadImage(' + index + ')">⬇️</button>' +
+              '</div>' +
+              '<div class="card-label">' + v.label + '</div>';
+          }
+        } else {
+          showError('Regeneration failed. Please try again.');
+          if (lightboxImages[index]) {
+            card.innerHTML = '<img src="' + lightboxImages[index].src + '" onclick="openLightbox(' + index + ')">' +
+              '<div class="card-overlay">' +
+                '<button class="thumb-up" id="thumb-up-' + index + '" onclick="event.stopPropagation(); submitFeedback(' + index + ', \\'up\\')">👍</button>' +
+                '<button class="thumb-down" id="thumb-down-' + index + '" onclick="event.stopPropagation(); showFeedbackModal(' + index + ')">👎</button>' +
+                '<button onclick="event.stopPropagation(); regenerate(' + index + ')">🔄</button>' +
+                '<button onclick="event.stopPropagation(); downloadImage(' + index + ')">⬇️</button>' +
+              '</div>' +
+              '<div class="card-label">' + v.label + '</div>';
+          }
+        }
+      } catch (e) {
+        clearInterval(interval);
+        console.error('Regenerate with feedback error:', e);
+        showError('Regeneration failed');
+      }
+    }
+    // ============================================================================
 
     async function downloadAllAsZip() {
       const zip = new JSZip();
