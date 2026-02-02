@@ -3707,12 +3707,33 @@ app.post('/api/billing/webhook', async (c) => {
             const cheaperCredits = planType === 'pro' ? CREDITS.PRO_CHEAPER : CREDITS.STANDARD_CHEAPER;
             const betterCredits = planType === 'pro' ? CREDITS.PRO_BETTER : CREDITS.STANDARD_BETTER;
             
-            await addCredits(db, userId, cheaperCredits, 'cheaper', 'subscription',
+            console.log(`[Webhook] Adding credits for user ${userId}: ${cheaperCredits} cheaper, ${betterCredits} better (plan: ${planType})`);
+            
+            // Add credits with error handling
+            const cheaperResult = await addCredits(db, userId, cheaperCredits, 'cheaper', 'subscription',
               `${planType === 'pro' ? 'Pro' : 'Standard'} subscription started - Standard credits`,
               session.id);
-            await addCredits(db, userId, betterCredits, 'better', 'subscription',
-              `${planType === 'pro' ? 'Pro' : 'Standard'} subscription started - Pro credits`,
+            console.log(`[Webhook] Cheaper credits result:`, cheaperResult);
+            
+            const betterResult = await addCredits(db, userId, betterCredits, 'better', 'subscription',
+              `${planType === 'pro' ? 'Pro' : 'Standard'} subscription started - Premium credits`,
               session.id);
+            console.log(`[Webhook] Better credits result:`, betterResult);
+            
+            // Log error if credits failed but continue
+            if (!cheaperResult.success || !betterResult.success) {
+              console.error(`[Webhook] CRITICAL: Credit addition failed for user ${userId}!`, {
+                cheaper: cheaperResult,
+                better: betterResult
+              });
+              await logError(db, 'subscription_credits', `Credit addition failed for user ${userId}`, {
+                userId,
+                planType,
+                cheaperResult,
+                betterResult,
+                severity: 'critical'
+              });
+            }
             
             await db.prepare(`
               UPDATE users SET 
@@ -3722,6 +3743,8 @@ app.post('/api/billing/webhook', async (c) => {
                 updated_at = CURRENT_TIMESTAMP
               WHERE id = ?
             `).bind(planType, session.subscription, userId).run();
+            
+            console.log(`[Webhook] User ${userId} subscription activated: ${planType}`);
             
             // Send admin notification for subscription purchase
             const user = await db.prepare('SELECT email, name FROM users WHERE id = ?').bind(userId).first() as any;
@@ -14942,7 +14965,7 @@ function getRegisterPage() {
           </div>
           <div class="form-group">
             <label class="form-label">Mobile Phone <span style="color: #DC2626;">*</span></label>
-            <input type="tel" id="phone" class="form-input" placeholder="+44 7XXX XXXXXX" required autocomplete="tel" pattern="[+0-9\\s\\-()]{10,20}">
+            <input type="tel" id="phone" class="form-input" placeholder="+44 7XXX XXXXXX" required autocomplete="tel" pattern="[0-9+\\- ]{10,20}">
             <p style="font-size: 11px; color: #6B7280; margin-top: 4px;">For important account updates and exclusive offers</p>
           </div>
           <div class="form-group">
