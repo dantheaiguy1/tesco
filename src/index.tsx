@@ -16701,6 +16701,7 @@ function getDashboardPage(user: User) {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Dashboard - ShopShot</title>
+  ${GTM_HEAD}
   <link rel="icon" type="image/x-icon" href="/favicon.ico"><link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
@@ -16848,6 +16849,7 @@ function getDashboardPage(user: User) {
   </style>
 </head>
 <body>
+  ${GTM_BODY}
   <div class="dashboard">
     <div class="dash-header">
       <h1 class="dash-title">Dashboard</h1>
@@ -16998,6 +17000,34 @@ function getDashboardPage(user: User) {
       }
     }
     loadHistory();
+    
+    // Google Ads Conversion Tracking - fires on successful purchase
+    (function() {
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('checkout') === 'success') {
+        const purchaseType = urlParams.get('type') || 'unknown';
+        
+        // Fire Google Ads conversion event
+        if (typeof gtag !== 'undefined') {
+          gtag('event', 'ads_conversion_PURCHASE_1', {
+            'transaction_type': purchaseType,
+            'currency': 'GBP'
+          });
+          console.log('Google Ads conversion tracked:', purchaseType);
+        }
+        
+        // Also push to dataLayer for GTM
+        window.dataLayer = window.dataLayer || [];
+        window.dataLayer.push({
+          'event': 'purchase_complete',
+          'purchase_type': purchaseType
+        });
+        
+        // Clean up URL (remove checkout params) after tracking
+        const cleanUrl = window.location.pathname;
+        window.history.replaceState({}, document.title, cleanUrl);
+      }
+    })();
   </script>
 </body>
 </html>`
