@@ -2774,14 +2774,19 @@ app.post('/api/auth/register', async (c) => {
     const db = c.env.TESCO_DB;
     await ensureDatabase(db);
     
-    const { email, password, confirmPassword, name, phone, marketing_consent } = await c.req.json();
+    const body = await c.req.json();
+    const { email, password, confirmPassword, name, phone, marketing_consent } = body;
+    
+    console.log('[Register] Received:', { email, hasPassword: !!password, hasConfirm: !!confirmPassword, name, phone, marketing_consent });
     
     if (!email || !password) {
+      console.log('[Register] Failed: Missing email or password');
       return c.json({ success: false, error: 'Email and password required' }, 400);
     }
     
     // Validate phone number (required)
     if (!phone || phone.trim().length < 10) {
+      console.log('[Register] Failed: Invalid phone', phone);
       return c.json({ success: false, error: 'Valid mobile phone number required' }, 400);
     }
     
@@ -2834,7 +2839,8 @@ app.post('/api/auth/register', async (c) => {
           message: 'Verification code sent to your email'
         });
       }
-      return c.json({ success: false, error: 'Email already registered' }, 400);
+      console.log('[Register] Failed: Email already registered and verified:', email);
+      return c.json({ success: false, error: 'This email is already registered. Please log in instead.' }, 400);
     }
     
     // Generate verification code
