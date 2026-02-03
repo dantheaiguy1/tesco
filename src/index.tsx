@@ -239,7 +239,7 @@ async function generateImageWithGeminiDirect(
       
       if (!response.ok) {
         const errorText = await response.text();
-        console.error(`[Gemini Direct ERROR] Status: ${response.status}, Model: ${model}`);
+        console.error(`[Gemini Direct ERROR] Status: ${response.status}, Model: ${model}, Response: ${errorText.substring(0, 500)}`);
         
         // Check for rate limit (very unlikely with 500 RPM)
         if (response.status === 429 || response.status === 503) {
@@ -251,8 +251,10 @@ async function generateImageWithGeminiDirect(
         try {
           const errJson = JSON.parse(errorText);
           errorMsg = errJson.error?.message || `API error: ${response.status}`;
+          // Add status to error message for debugging
+          errorMsg = `[${response.status}] ${errorMsg}`;
         } catch {
-          errorMsg = `API error: ${response.status}`;
+          errorMsg = `API error: ${response.status} - ${errorText.substring(0, 100)}`;
         }
         return { success: false, error: errorMsg };
       }
@@ -5401,16 +5403,46 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
     const mimeType = originalImage.split(';')[0].split(':')[1]
     const imageBase64 = originalImage.split(',')[1]
     
-    // Use Vertex AI for image generation (Gemini Direct API doesn't support image gen models reliably)
-    const result = await generateImageWithVertex(
-      projectId,
-      clientEmail,
-      privateKey,
-      imageBase64,
-      mimeType,
-      prompt,
-      modelKey
-    )
+    // Try Gemini API Direct first (500 RPM, parallel generation)
+    // Fall back to Vertex AI if Gemini Direct fails or is not configured
+    let result: { success: boolean; image?: string; error?: string };
+    
+    if (useGeminiDirect) {
+      console.log(`[${variation.field}] Using Gemini API Direct (gemini-2.5-flash-image / gemini-3-pro-image-preview)`)
+      result = await generateImageWithGeminiDirect(
+        geminiApiKey,
+        imageBase64,
+        mimeType,
+        prompt,
+        modelKey
+      )
+      
+      // If Gemini Direct fails, fall back to Vertex AI if configured
+      if (!result.success && projectId && clientEmail && privateKey) {
+        console.log(`[${variation.field}] Gemini Direct failed, falling back to Vertex AI: ${result.error}`)
+        result = await generateImageWithVertex(
+          projectId,
+          clientEmail,
+          privateKey,
+          imageBase64,
+          mimeType,
+          prompt,
+          modelKey
+        )
+      }
+    } else {
+      // Vertex AI fallback
+      console.log(`[${variation.field}] Using Vertex AI (no Gemini API key configured)`)
+      result = await generateImageWithVertex(
+        projectId,
+        clientEmail,
+        privateKey,
+        imageBase64,
+        mimeType,
+        prompt,
+        modelKey
+      )
+    }
     
     const elapsed = Date.now() - startTime
     console.log(`[${variation.field}] Response in ${elapsed}ms, success: ${result.success}`)
