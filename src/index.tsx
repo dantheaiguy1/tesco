@@ -3067,32 +3067,34 @@ app.get('/api/admin/analytics/funnel', async (c) => {
         AND created_at > datetime('now', '-${days} days')
     `).first() as any
     
-    // Signups
+    // Signups - query actual users table (source of truth)
     const signups = await db.prepare(`
-      SELECT COUNT(DISTINCT user_id) as count
-      FROM analytics_events 
-      WHERE event_type = 'user_signup' AND created_at > datetime('now', '-${days} days')
+      SELECT COUNT(*) as count
+      FROM users 
+      WHERE email_verified = 1 AND created_at > datetime('now', '-${days} days')
     `).first() as any
     
-    // Users who uploaded
+    // Users who uploaded (from sessions table - more reliable)
     const uploaded = await db.prepare(`
       SELECT COUNT(DISTINCT user_id) as count
-      FROM analytics_events 
-      WHERE event_type = 'image_uploaded' AND created_at > datetime('now', '-${days} days')
+      FROM sessions 
+      WHERE created_at > datetime('now', '-${days} days')
     `).first() as any
     
-    // Users who generated
+    // Users who generated (from credit_transactions - source of truth for generations)
     const generated = await db.prepare(`
       SELECT COUNT(DISTINCT user_id) as count
-      FROM analytics_events 
-      WHERE event_type = 'generation_completed' AND created_at > datetime('now', '-${days} days')
+      FROM credit_transactions 
+      WHERE type IN ('generation_standard', 'generation_pro', 'generation') 
+        AND created_at > datetime('now', '-${days} days')
     `).first() as any
     
-    // Users who purchased
+    // Users who purchased (from credit_transactions - source of truth)
     const purchased = await db.prepare(`
       SELECT COUNT(DISTINCT user_id) as count
-      FROM analytics_events 
-      WHERE event_type = 'purchase_completed' AND created_at > datetime('now', '-${days} days')
+      FROM credit_transactions 
+      WHERE type IN ('topup', 'subscription') 
+        AND created_at > datetime('now', '-${days} days')
     `).first() as any
     
     return c.json({
@@ -3108,6 +3110,84 @@ app.get('/api/admin/analytics/funnel', async (c) => {
   } catch (error) {
     console.error('Analytics funnel error:', error)
     return c.json({ success: false, error: 'Failed to get funnel analytics' }, 500)
+  }
+})
+
+// Analytics: Get feedback statistics
+app.get('/api/admin/analytics/feedback', async (c) => {
+  const user = c.get('user') as any
+  if (!user) return c.json({ success: false, error: 'Not authenticated' }, 401)
+  if (user.role !== 'admin') return c.json({ success: false, error: 'Not authorized' }, 403)
+  
+  const db = c.env.TESCO_DB
+  const days = parseInt(c.req.query('days') || '30')
+  
+  try {
+    // Overall feedback stats
+    const totalUp = await db.prepare(`
+      SELECT COUNT(*) as count FROM image_feedback 
+      WHERE rating = 'up' AND created_at > datetime('now', '-${days} days')
+    `).first() as any
+    
+    const totalDown = await db.prepare(`
+      SELECT COUNT(*) as count FROM image_feedback 
+      WHERE rating = 'down' AND created_at > datetime('now', '-${days} days')
+    `).first() as any
+    
+    // Feedback by reason
+    const byReason = await db.prepare(`
+      SELECT feedback_reason, COUNT(*) as count 
+      FROM image_feedback 
+      WHERE rating = 'down' AND feedback_reason IS NOT NULL 
+        AND created_at > datetime('now', '-${days} days')
+      GROUP BY feedback_reason 
+      ORDER BY count DESC
+    `).all() as any
+    
+    // Feedback by variation type
+    const byVariation = await db.prepare(`
+      SELECT variation_type, 
+        SUM(CASE WHEN rating = 'up' THEN 1 ELSE 0 END) as thumbs_up,
+        SUM(CASE WHEN rating = 'down' THEN 1 ELSE 0 END) as thumbs_down,
+        COUNT(*) as total
+      FROM image_feedback 
+      WHERE created_at > datetime('now', '-${days} days')
+      GROUP BY variation_type 
+      ORDER BY thumbs_down DESC
+    `).all() as any
+    
+    // Recent feedback with user info
+    const recentFeedback = await db.prepare(`
+      SELECT f.*, u.email, u.name as user_name
+      FROM image_feedback f
+      LEFT JOIN users u ON f.user_id = u.id
+      WHERE f.created_at > datetime('now', '-${days} days')
+      ORDER BY f.created_at DESC
+      LIMIT 50
+    `).all() as any
+    
+    const thumbsUp = totalUp?.count || 0
+    const thumbsDown = totalDown?.count || 0
+    const total = thumbsUp + thumbsDown
+    const satisfactionRate = total > 0 ? Math.round((thumbsUp / total) * 100) : 0
+    
+    return c.json({
+      success: true,
+      feedback: {
+        overview: {
+          thumbs_up: thumbsUp,
+          thumbs_down: thumbsDown,
+          total: total,
+          satisfaction_rate: satisfactionRate
+        },
+        by_reason: byReason?.results || [],
+        by_variation: byVariation?.results || [],
+        recent: recentFeedback?.results || []
+      }
+    })
+  } catch (error) {
+    console.error('Analytics feedback error:', error)
+    return c.json({ success: false, error: 'Failed to get feedback analytics' }, 500)
   }
 })
 
@@ -20522,17 +20602,40 @@ function getAnalyticsDashboardPage(user: any) {
           <div class="stat-value" id="stat-satisfaction">-</div>
           <div class="stat-label">😊 Satisfaction</div>
         </div>
+        <div class="stat-card">
+          <div class="stat-value" id="stat-feedback-total">-</div>
+          <div class="stat-label">📊 Total Ratings</div>
+        </div>
       </div>
+      
+      <!-- Feedback by Variation Type -->
+      <div style="margin-bottom: 24px;">
+        <h3 style="font-size: 14px; color: #A1A1AA; margin-bottom: 12px;">📸 Feedback by Variation Type</h3>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Variation</th>
+              <th style="text-align: center;">👍</th>
+              <th style="text-align: center;">👎</th>
+              <th style="text-align: center;">Rate</th>
+            </tr>
+          </thead>
+          <tbody id="feedback-variations-tbody">
+            <tr><td colspan="4" class="loading">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      
       <div class="two-col">
         <div>
-          <h3 style="font-size: 14px; color: #A1A1AA; margin-bottom: 12px;">Feedback Reasons (Thumbs Down)</h3>
+          <h3 style="font-size: 14px; color: #A1A1AA; margin-bottom: 12px;">⚠️ Feedback Reasons (Thumbs Down)</h3>
           <div id="feedback-reasons" style="display: flex; flex-direction: column; gap: 8px;">
             <div class="loading">Loading...</div>
           </div>
         </div>
         <div>
-          <h3 style="font-size: 14px; color: #A1A1AA; margin-bottom: 12px;">Recent Feedback</h3>
-          <div id="feedback-recent" style="max-height: 200px; overflow-y: auto;">
+          <h3 style="font-size: 14px; color: #A1A1AA; margin-bottom: 12px;">🕐 Recent Feedback</h3>
+          <div id="feedback-recent" style="max-height: 300px; overflow-y: auto;">
             <div class="loading">Loading...</div>
           </div>
         </div>
@@ -20666,9 +20769,44 @@ function getAnalyticsDashboardPage(user: any) {
         const data = await res.json();
         if (data.success) {
           const f = data.feedback;
-          document.getElementById('stat-thumbsup').textContent = f.thumbs_up.toLocaleString();
-          document.getElementById('stat-thumbsdown').textContent = f.thumbs_down.toLocaleString();
-          document.getElementById('stat-satisfaction').textContent = f.satisfaction_rate + '%';
+          const o = f.overview;
+          document.getElementById('stat-thumbsup').textContent = o.thumbs_up.toLocaleString();
+          document.getElementById('stat-thumbsdown').textContent = o.thumbs_down.toLocaleString();
+          document.getElementById('stat-satisfaction').textContent = o.satisfaction_rate + '%';
+          document.getElementById('stat-feedback-total').textContent = o.total.toLocaleString();
+          
+          // Variation type labels for display
+          const variationLabels = {
+            'macro_texture': 'Macro Texture',
+            'label_branding': 'Label & Branding',
+            'construction_detail': 'Construction Detail',
+            'color_finish': 'Color & Finish',
+            'scale_reference': 'Scale Reference',
+            'hero_white': 'Hero White',
+            'inuse_action': 'In-Use Action',
+            'flatlay_styled': 'Flat Lay Styled',
+            'environment_context': 'Environment Context',
+            'multi_angle': 'Multi-Angle'
+          };
+          
+          // Feedback by variation type
+          if (f.by_variation && f.by_variation.length) {
+            document.getElementById('feedback-variations-tbody').innerHTML = f.by_variation.map(v => {
+              const up = v.thumbs_up || 0;
+              const down = v.thumbs_down || 0;
+              const total = up + down;
+              const rate = total > 0 ? Math.round((up / total) * 100) : 0;
+              const rateColor = rate >= 80 ? '#10B981' : rate >= 50 ? '#F59E0B' : '#EF4444';
+              return '<tr>' +
+                '<td style="color: #E4E4E7;">' + (variationLabels[v.variation_type] || v.variation_type || 'Unknown') + '</td>' +
+                '<td style="text-align: center; color: #10B981;">' + up + '</td>' +
+                '<td style="text-align: center; color: #EF4444;">' + down + '</td>' +
+                '<td style="text-align: center; color: ' + rateColor + '; font-weight: 600;">' + rate + '%</td>' +
+              '</tr>';
+            }).join('');
+          } else {
+            document.getElementById('feedback-variations-tbody').innerHTML = '<tr><td colspan="4" style="color:#71717A;">No feedback data yet</td></tr>';
+          }
           
           // Feedback reasons
           const reasonLabels = {
@@ -20680,7 +20818,7 @@ function getAnalyticsDashboardPage(user: any) {
             'other': '💭 Other'
           };
           
-          if (f.by_reason.length) {
+          if (f.by_reason && f.by_reason.length) {
             document.getElementById('feedback-reasons').innerHTML = f.by_reason.map(r => 
               '<div style="display: flex; justify-content: space-between; padding: 8px 12px; background: #27272A; border-radius: 6px;">' +
                 '<span style="color: #E4E4E7;">' + (reasonLabels[r.feedback_reason] || r.feedback_reason) + '</span>' +
@@ -20692,13 +20830,13 @@ function getAnalyticsDashboardPage(user: any) {
           }
           
           // Recent feedback
-          if (f.recent.length) {
+          if (f.recent && f.recent.length) {
             document.getElementById('feedback-recent').innerHTML = f.recent.map(r => 
               '<div style="display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid #27272A;">' +
                 '<span style="font-size: 20px;">' + (r.rating === 'up' ? '👍' : '👎') + '</span>' +
                 '<div style="flex: 1; min-width: 0;">' +
                   '<div style="color: #E4E4E7; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">' + (r.email || r.user_id) + '</div>' +
-                  '<div style="color: #71717A; font-size: 12px;">' + (r.variation_type || 'Unknown') + (r.feedback_reason ? ' - ' + r.feedback_reason : '') + '</div>' +
+                  '<div style="color: #71717A; font-size: 12px;">' + (variationLabels[r.variation_type] || r.variation_type || 'Unknown') + (r.feedback_reason ? ' - ' + reasonLabels[r.feedback_reason] || r.feedback_reason : '') + '</div>' +
                 '</div>' +
                 '<div style="color: #52525B; font-size: 11px;">' + new Date(r.created_at).toLocaleString() + '</div>' +
               '</div>'
