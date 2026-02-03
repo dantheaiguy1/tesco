@@ -179,10 +179,12 @@ async function generateImageWithGeminiDirect(
   modelKey: string = DEFAULT_MODEL
 ): Promise<{ success: boolean; image?: string; error?: string }> {
   // Map model keys to Gemini API model names for image generation
-  // Must use the specific image generation variant
+  // Per official docs: https://ai.google.dev/gemini-api/docs/image-generation
+  // - gemini-2.5-flash-image = "Nano Banana" (fast, standard)
+  // - gemini-3-pro-image-preview = "Nano Banana Pro" (best quality, slower)
   const geminiModels: Record<string, string> = {
-    nano: 'gemini-2.0-flash-exp-image-generation',   // Pro quality
-    flash: 'gemini-2.0-flash-exp-image-generation'   // Standard (same model, fast)
+    nano: 'gemini-3-pro-image-preview',    // Pro quality - best for quality-focused generation
+    flash: 'gemini-2.5-flash-image'         // Standard - fast, high-volume tasks
   };
   
   const model = geminiModels[modelKey] || geminiModels[DEFAULT_MODEL];
@@ -5399,31 +5401,16 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
     const mimeType = originalImage.split(';')[0].split(':')[1]
     const imageBase64 = originalImage.split(',')[1]
     
-    // Use Gemini Direct API (500 RPM limit) for concurrent generation
-    // Falls back to Vertex AI if Gemini API key not available
-    let result: { success: boolean; image?: string; error?: string }
-    
-    if (useGeminiDirect) {
-      console.log(`[${variation.field}] Using Gemini Direct API (high rate limits)`)
-      result = await generateImageWithGeminiDirect(
-        geminiApiKey,
-        imageBase64,
-        mimeType,
-        prompt,
-        modelKey
-      )
-    } else {
-      console.log(`[${variation.field}] Using Vertex AI (fallback)`)
-      result = await generateImageWithVertex(
-        projectId,
-        clientEmail,
-        privateKey,
-        imageBase64,
-        mimeType,
-        prompt,
-        modelKey
-      )
-    }
+    // Use Vertex AI for image generation (Gemini Direct API doesn't support image gen models reliably)
+    const result = await generateImageWithVertex(
+      projectId,
+      clientEmail,
+      privateKey,
+      imageBase64,
+      mimeType,
+      prompt,
+      modelKey
+    )
     
     const elapsed = Date.now() - startTime
     console.log(`[${variation.field}] Response in ${elapsed}ms, success: ${result.success}`)
