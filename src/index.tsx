@@ -220,7 +220,7 @@ async function generateImageWithGeminiDirect(
         await new Promise(r => setTimeout(r, delay));
       }
       
-      console.log(`[Gemini Direct] Model: ${modelKey} -> ${model}, Attempt: ${attempt + 1}/${maxRetries}`);
+      console.log(`[Gemini Direct] Using API: ${endpoint.split('?')[0]}, Model: ${modelKey} -> ${model}, Attempt: ${attempt + 1}/${maxRetries}`);
       
       // 60 second timeout
       const controller = new AbortController();
