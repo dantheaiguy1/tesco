@@ -2975,6 +2975,80 @@ app.get('/api/admin/analytics/generations', async (c) => {
   }
 })
 
+// Analytics: Get feedback stats (thumbs up/down)
+app.get('/api/admin/analytics/feedback', async (c) => {
+  const user = c.get('user') as any
+  if (!user) return c.json({ success: false, error: 'Not authenticated' }, 401)
+  if (user.role !== 'admin') return c.json({ success: false, error: 'Not authorized' }, 403)
+  
+  const db = c.env.TESCO_DB
+  const days = parseInt(c.req.query('days') || '30')
+  
+  try {
+    // Overall feedback counts
+    const totals = await db.prepare(`
+      SELECT 
+        COUNT(CASE WHEN rating = 'up' THEN 1 END) as thumbs_up,
+        COUNT(CASE WHEN rating = 'down' THEN 1 END) as thumbs_down,
+        COUNT(*) as total
+      FROM image_feedback 
+      WHERE created_at > datetime('now', '-${days} days')
+    `).first() as any
+    
+    // Feedback by reason (for thumbs down)
+    const byReason = await db.prepare(`
+      SELECT feedback_reason, COUNT(*) as count
+      FROM image_feedback 
+      WHERE rating = 'down' AND feedback_reason IS NOT NULL
+        AND created_at > datetime('now', '-${days} days')
+      GROUP BY feedback_reason
+      ORDER BY count DESC
+    `).all() as any
+    
+    // Feedback by variation type
+    const byVariation = await db.prepare(`
+      SELECT variation_type, 
+        COUNT(CASE WHEN rating = 'up' THEN 1 END) as up,
+        COUNT(CASE WHEN rating = 'down' THEN 1 END) as down
+      FROM image_feedback 
+      WHERE created_at > datetime('now', '-${days} days')
+      GROUP BY variation_type
+      ORDER BY (up + down) DESC
+    `).all() as any
+    
+    // Recent feedback with user info
+    const recent = await db.prepare(`
+      SELECT f.*, u.email, u.name as user_name
+      FROM image_feedback f
+      LEFT JOIN users u ON f.user_id = u.id
+      WHERE f.created_at > datetime('now', '-${days} days')
+      ORDER BY f.created_at DESC
+      LIMIT 20
+    `).all() as any
+    
+    const thumbsUp = totals?.thumbs_up || 0
+    const thumbsDown = totals?.thumbs_down || 0
+    const total = totals?.total || 0
+    const satisfactionRate = total > 0 ? Math.round((thumbsUp / total) * 100) : 0
+    
+    return c.json({
+      success: true,
+      feedback: {
+        thumbs_up: thumbsUp,
+        thumbs_down: thumbsDown,
+        total,
+        satisfaction_rate: satisfactionRate,
+        by_reason: byReason?.results || [],
+        by_variation: byVariation?.results || [],
+        recent: recent?.results || []
+      }
+    })
+  } catch (error) {
+    console.error('Analytics feedback error:', error)
+    return c.json({ success: false, error: 'Failed to get feedback analytics' }, 500)
+  }
+})
+
 // Analytics: Get user journey/funnel
 app.get('/api/admin/analytics/funnel', async (c) => {
   const user = c.get('user') as any
@@ -3439,25 +3513,34 @@ app.post('/api/auth/verify-email', async (c) => {
       VALUES (?, ?, ?, ?, 'better', 'signup_bonus', 'Welcome bonus - Premium credits')
     `).bind(generateId(), user.id, CREDITS.SIGNUP_BETTER, CREDITS.SIGNUP_BETTER).run();
     
-    // Send admin notification for new signup
+    // Send admin notification for new signup - MUST use waitUntil to prevent cancellation
     if (c.env.RESEND_API_KEY) {
-      sendNewUserNotification(c.env.RESEND_API_KEY, email, user.name).catch(err => {
-        console.error('Failed to send admin notification:', err);
-      });
+      console.log('[Admin Notification] Sending new user notification for:', email);
+      c.executionCtx.waitUntil(
+        sendNewUserNotification(c.env.RESEND_API_KEY, email, user.name)
+          .then(success => console.log('[Admin Notification] Email sent:', success))
+          .catch(err => console.error('[Admin Notification] Failed:', err))
+      );
+    } else {
+      console.log('[Admin Notification] RESEND_API_KEY not configured');
     }
     
-    // Add to Loops email marketing (triggers welcome sequence)
+    // Add to Loops email marketing (triggers welcome sequence) - also use waitUntil
     console.log('[Loops Debug] API Key exists:', !!c.env.LOOPS_API_KEY);
     if (c.env.LOOPS_API_KEY) {
       console.log('[Loops Debug] Attempting to add contact:', email);
-      try {
-        const loopsResult = await addContactToLoops(c.env.LOOPS_API_KEY, email, user.name, 'shopshot_signup');
-        console.log('[Loops Debug] Contact add result:', loopsResult);
-        const eventResult = await triggerLoopsEvent(c.env.LOOPS_API_KEY, email, 'user_signup');
-        console.log('[Loops Debug] Event trigger result:', eventResult);
-      } catch (err) {
-        console.error('[Loops Debug] Error:', err);
-      }
+      c.executionCtx.waitUntil(
+        (async () => {
+          try {
+            const loopsResult = await addContactToLoops(c.env.LOOPS_API_KEY, email, user.name, 'shopshot_signup');
+            console.log('[Loops Debug] Contact add result:', loopsResult);
+            const eventResult = await triggerLoopsEvent(c.env.LOOPS_API_KEY, email, 'user_signup');
+            console.log('[Loops Debug] Event trigger result:', eventResult);
+          } catch (err) {
+            console.error('[Loops Debug] Error:', err);
+          }
+        })()
+      );
     } else {
       console.log('[Loops Debug] LOOPS_API_KEY not found in environment');
     }
@@ -3842,21 +3925,28 @@ app.get('/api/auth/google/callback', async (c) => {
       VALUES (?, ?, ?, ?, 'better', 'signup_bonus', 'Welcome bonus - Premium credits')
     `).bind(generateId(), userId, CREDITS.SIGNUP_BETTER, CREDITS.SIGNUP_BETTER).run();
     
-    // Send admin notification for new Google signup
+    // Send admin notification for new Google signup - MUST use waitUntil to prevent cancellation
     if (c.env.RESEND_API_KEY) {
-      sendNewUserNotification(c.env.RESEND_API_KEY, googleUser.email, googleUser.name).catch(err => {
-        console.error('Failed to send admin notification:', err);
-      });
+      console.log('[Admin Notification] Sending Google signup notification for:', googleUser.email);
+      c.executionCtx.waitUntil(
+        sendNewUserNotification(c.env.RESEND_API_KEY, googleUser.email, googleUser.name)
+          .then(success => console.log('[Admin Notification] Google signup email sent:', success))
+          .catch(err => console.error('[Admin Notification] Google signup failed:', err))
+      );
     }
     
-    // Add to Loops email marketing (triggers welcome sequence)
+    // Add to Loops email marketing (triggers welcome sequence) - also use waitUntil
     if (c.env.LOOPS_API_KEY) {
-      addContactToLoops(c.env.LOOPS_API_KEY, googleUser.email, googleUser.name, 'google_signup').catch(err => {
-        console.error('Failed to add contact to Loops:', err);
-      });
-      triggerLoopsEvent(c.env.LOOPS_API_KEY, googleUser.email, 'user_signup').catch(err => {
-        console.error('Failed to trigger Loops event:', err);
-      });
+      c.executionCtx.waitUntil(
+        (async () => {
+          try {
+            await addContactToLoops(c.env.LOOPS_API_KEY, googleUser.email, googleUser.name, 'google_signup');
+            await triggerLoopsEvent(c.env.LOOPS_API_KEY, googleUser.email, 'user_signup');
+          } catch (err) {
+            console.error('[Loops] Google signup error:', err);
+          }
+        })()
+      );
     }
     
     user = { id: userId };
@@ -20414,6 +20504,41 @@ function getAnalyticsDashboardPage(user: any) {
       </div>
     </div>
     
+    <!-- User Feedback Section -->
+    <div class="section">
+      <div class="section-header">
+        <h2 class="section-title">👍 User Feedback</h2>
+      </div>
+      <div class="stats-grid" style="margin-bottom: 24px;">
+        <div class="stat-card">
+          <div class="stat-value" id="stat-thumbsup">-</div>
+          <div class="stat-label">👍 Thumbs Up</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="stat-thumbsdown">-</div>
+          <div class="stat-label">👎 Thumbs Down</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="stat-satisfaction">-</div>
+          <div class="stat-label">😊 Satisfaction</div>
+        </div>
+      </div>
+      <div class="two-col">
+        <div>
+          <h3 style="font-size: 14px; color: #A1A1AA; margin-bottom: 12px;">Feedback Reasons (Thumbs Down)</h3>
+          <div id="feedback-reasons" style="display: flex; flex-direction: column; gap: 8px;">
+            <div class="loading">Loading...</div>
+          </div>
+        </div>
+        <div>
+          <h3 style="font-size: 14px; color: #A1A1AA; margin-bottom: 12px;">Recent Feedback</h3>
+          <div id="feedback-recent" style="max-height: 200px; overflow-y: auto;">
+            <div class="loading">Loading...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
     <!-- Event Stream -->
     <div class="section">
       <div class="section-header">
@@ -20426,6 +20551,8 @@ function getAnalyticsDashboardPage(user: any) {
           <option value="generation_completed">Generations</option>
           <option value="generation_failed">Errors</option>
           <option value="purchase_completed">Purchases</option>
+          <option value="feedback_positive">Thumbs Up</option>
+          <option value="feedback_negative">Thumbs Down</option>
         </select>
       </div>
       <div class="event-stream" id="event-stream">
@@ -20453,6 +20580,7 @@ function getAnalyticsDashboardPage(user: any) {
         loadFunnel(),
         loadPages(),
         loadGenerations(),
+        loadFeedback(),
         loadEvents()
       ]);
       document.getElementById('last-updated').textContent = 'Updated: ' + new Date().toLocaleTimeString();
@@ -20532,6 +20660,56 @@ function getAnalyticsDashboardPage(user: any) {
       } catch (e) { console.error('Failed to load generations:', e); }
     }
     
+    async function loadFeedback() {
+      try {
+        const res = await fetch('/api/admin/analytics/feedback?days=' + currentDays);
+        const data = await res.json();
+        if (data.success) {
+          const f = data.feedback;
+          document.getElementById('stat-thumbsup').textContent = f.thumbs_up.toLocaleString();
+          document.getElementById('stat-thumbsdown').textContent = f.thumbs_down.toLocaleString();
+          document.getElementById('stat-satisfaction').textContent = f.satisfaction_rate + '%';
+          
+          // Feedback reasons
+          const reasonLabels = {
+            'wrong_theme': '🎄 Wrong theme/context',
+            'distorted': '🔍 Product distorted',
+            'wrong_colors': '🎨 Wrong colors',
+            'bad_composition': '📐 Bad composition',
+            'background_issue': '🖼️ Background issue',
+            'other': '💭 Other'
+          };
+          
+          if (f.by_reason.length) {
+            document.getElementById('feedback-reasons').innerHTML = f.by_reason.map(r => 
+              '<div style="display: flex; justify-content: space-between; padding: 8px 12px; background: #27272A; border-radius: 6px;">' +
+                '<span style="color: #E4E4E7;">' + (reasonLabels[r.feedback_reason] || r.feedback_reason) + '</span>' +
+                '<span style="color: #A1A1AA; font-weight: 500;">' + r.count + '</span>' +
+              '</div>'
+            ).join('');
+          } else {
+            document.getElementById('feedback-reasons').innerHTML = '<div style="color:#71717A; padding: 12px;">No negative feedback yet 🎉</div>';
+          }
+          
+          // Recent feedback
+          if (f.recent.length) {
+            document.getElementById('feedback-recent').innerHTML = f.recent.map(r => 
+              '<div style="display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid #27272A;">' +
+                '<span style="font-size: 20px;">' + (r.rating === 'up' ? '👍' : '👎') + '</span>' +
+                '<div style="flex: 1; min-width: 0;">' +
+                  '<div style="color: #E4E4E7; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">' + (r.email || r.user_id) + '</div>' +
+                  '<div style="color: #71717A; font-size: 12px;">' + (r.variation_type || 'Unknown') + (r.feedback_reason ? ' - ' + r.feedback_reason : '') + '</div>' +
+                '</div>' +
+                '<div style="color: #52525B; font-size: 11px;">' + new Date(r.created_at).toLocaleString() + '</div>' +
+              '</div>'
+            ).join('');
+          } else {
+            document.getElementById('feedback-recent').innerHTML = '<div style="color:#71717A; padding: 12px;">No feedback yet</div>';
+          }
+        }
+      } catch (e) { console.error('Failed to load feedback:', e); }
+    }
+    
     async function loadEvents() {
       try {
         const filter = document.getElementById('event-filter').value;
@@ -20547,7 +20725,10 @@ function getAnalyticsDashboardPage(user: any) {
             generation_completed: '✨',
             generation_failed: '❌',
             purchase_completed: '💰',
-            image_uploaded: '📤'
+            image_uploaded: '📤',
+            feedback_positive: '👍',
+            feedback_negative: '👎',
+            regeneration_with_feedback: '🔄'
           };
           
           document.getElementById('event-stream').innerHTML = data.events.map(e => {
