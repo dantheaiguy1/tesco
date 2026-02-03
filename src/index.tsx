@@ -280,17 +280,18 @@ async function generateImageWithVertex(
   });
   
   // Retry with exponential backoff for rate limiting (429 errors)
-  const maxRetries = 5;
+  // With sequential generation, we rarely need retries - 3 attempts is plenty
+  const maxRetries = 3;
   let lastError = '';
   
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       if (attempt > 0) {
-        // Exponential backoff with jitter: 3s, 6s, 12s, 24s + random 0-2s
-        const baseDelay = Math.pow(2, attempt) * 1500;
-        const jitter = Math.random() * 2000; // Random 0-2s jitter to prevent thundering herd
+        // Exponential backoff: 2s, 4s + small jitter
+        const baseDelay = Math.pow(2, attempt) * 1000;
+        const jitter = Math.random() * 1000;
         const delay = baseDelay + jitter;
-        console.log(`[Vertex AI] Retry ${attempt}/${maxRetries} after ${Math.round(delay)}ms delay (base: ${baseDelay}, jitter: ${Math.round(jitter)})...`);
+        console.log(`[Vertex AI] Retry ${attempt}/${maxRetries} after ${Math.round(delay)}ms delay...`);
         await new Promise(r => setTimeout(r, delay));
       }
       
@@ -376,7 +377,7 @@ async function generateImageWithVertex(
   }
   
   // All retries exhausted
-  return { success: false, error: `Generation failed after ${maxRetries} attempts. ${lastError}` };
+  return { success: false, error: `Generation failed. ${lastError}` };
 }
 
 // ============================================================================
@@ -13239,23 +13240,17 @@ function getHomePage(user?: User) {
 
       const startTime = Date.now();
       
-      // Process in batches to avoid rate limiting
-      // Reduced batch sizes and increased delays to prevent 429 errors
-      // Pro model: 2 at a time (slower, higher quality)
-      // Standard model: 3 at a time (faster)
-      const batchSize = selectedModel === 'nano' ? 2 : 3;
-      const delayBetweenBatches = selectedModel === 'nano' ? 2000 : 1500; // 2s for Pro, 1.5s for Standard
+      // Sequential generation - one at a time to avoid rate limits completely
+      // This is slower but much more reliable
+      const delayBetweenImages = 500; // Small delay between images
       
-      for (let b = 1; b < variationDefs.length; b += batchSize) {
-        const batch = [];
-        for (let i = b; i < Math.min(b + batchSize, variationDefs.length); i++) {
-          batch.push(generateSingle(i, startTime));
-        }
-        await Promise.allSettled(batch);
-        // Longer delay between batches to prevent rate limiting
-        if (b + batchSize < variationDefs.length) {
-          console.log('[Generate] Waiting ' + delayBetweenBatches + 'ms before next batch to avoid rate limits...');
-          await new Promise(r => setTimeout(r, delayBetweenBatches));
+      for (let i = 1; i < variationDefs.length; i++) {
+        console.log('[Generate] Starting variation ' + i + '/' + (variationDefs.length - 1) + '...');
+        await generateSingle(i, startTime);
+        
+        // Small delay between images to be gentle on the API
+        if (i < variationDefs.length - 1) {
+          await new Promise(r => setTimeout(r, delayBetweenImages));
         }
       }
       
