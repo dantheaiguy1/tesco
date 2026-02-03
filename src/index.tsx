@@ -3185,9 +3185,13 @@ app.get('/api/admin/analytics/feedback', async (c) => {
         recent: recentFeedback?.results || []
       }
     })
-  } catch (error) {
-    console.error('Analytics feedback error:', error)
-    return c.json({ success: false, error: 'Failed to get feedback analytics' }, 500)
+  } catch (error: any) {
+    console.error('Analytics feedback error:', error?.message || error)
+    return c.json({ 
+      success: false, 
+      error: 'Failed to get feedback analytics',
+      details: error?.message || 'Unknown error'
+    }, 500)
   }
 })
 
@@ -20767,13 +20771,14 @@ function getAnalyticsDashboardPage(user: any) {
       try {
         const res = await fetch('/api/admin/analytics/feedback?days=' + currentDays);
         const data = await res.json();
-        if (data.success) {
+        console.log('[Feedback] API response:', data);
+        if (data.success && data.feedback && data.feedback.overview) {
           const f = data.feedback;
           const o = f.overview;
-          document.getElementById('stat-thumbsup').textContent = o.thumbs_up.toLocaleString();
-          document.getElementById('stat-thumbsdown').textContent = o.thumbs_down.toLocaleString();
-          document.getElementById('stat-satisfaction').textContent = o.satisfaction_rate + '%';
-          document.getElementById('stat-feedback-total').textContent = o.total.toLocaleString();
+          document.getElementById('stat-thumbsup').textContent = (o.thumbs_up || 0).toLocaleString();
+          document.getElementById('stat-thumbsdown').textContent = (o.thumbs_down || 0).toLocaleString();
+          document.getElementById('stat-satisfaction').textContent = (o.satisfaction_rate || 0) + '%';
+          document.getElementById('stat-feedback-total').textContent = (o.total || 0).toLocaleString();
           
           // Variation type labels for display
           const variationLabels = {
@@ -20844,8 +20849,28 @@ function getAnalyticsDashboardPage(user: any) {
           } else {
             document.getElementById('feedback-recent').innerHTML = '<div style="color:#71717A; padding: 12px;">No feedback yet</div>';
           }
+        } else {
+          // API returned but no success or no feedback data
+          console.warn('[Feedback] API returned no data:', data);
+          document.getElementById('stat-thumbsup').textContent = '0';
+          document.getElementById('stat-thumbsdown').textContent = '0';
+          document.getElementById('stat-satisfaction').textContent = '0%';
+          document.getElementById('stat-feedback-total').textContent = '0';
+          document.getElementById('feedback-variations-tbody').innerHTML = '<tr><td colspan="4" style="color:#71717A;">No feedback data yet</td></tr>';
+          document.getElementById('feedback-reasons').innerHTML = '<div style="color:#71717A; padding: 12px;">No feedback data yet</div>';
+          document.getElementById('feedback-recent').innerHTML = '<div style="color:#71717A; padding: 12px;">No feedback yet</div>';
         }
-      } catch (e) { console.error('Failed to load feedback:', e); }
+      } catch (e) { 
+        console.error('Failed to load feedback:', e);
+        // Show error state
+        document.getElementById('stat-thumbsup').textContent = '-';
+        document.getElementById('stat-thumbsdown').textContent = '-';
+        document.getElementById('stat-satisfaction').textContent = '-';
+        document.getElementById('stat-feedback-total').textContent = '-';
+        document.getElementById('feedback-variations-tbody').innerHTML = '<tr><td colspan="4" style="color:#EF4444;">Error loading data</td></tr>';
+        document.getElementById('feedback-reasons').innerHTML = '<div style="color:#EF4444; padding: 12px;">Error loading data</div>';
+        document.getElementById('feedback-recent').innerHTML = '<div style="color:#EF4444; padding: 12px;">Error loading data</div>';
+      }
     }
     
     async function loadEvents() {
