@@ -137,17 +137,18 @@ const PRICING = {
 //
 // BETTER (Default): Nano Banana Pro - gemini-3-pro-image-preview
 //   - Best quality image generation (Gemini 3 Pro)
-//   - ~60-90 seconds per image (~10-15 minutes for 10)
+//   - ~10-30 seconds per image
 //   - Cost: ~$0.03-0.05 per product shoot
 //
-// CHEAPER: Flash 2.5 - gemini-2.5-flash-preview-image-generation
-//   - Good quality, significantly faster (stable replacement for 2.0)
-//   - ~1-2 seconds per image (~15 seconds for 10)
+// CHEAPER: Flash 2.5 - gemini-2.5-flash-image
+//   - Good quality, significantly faster
+//   - ~2-5 seconds per image
 //   - Cost: ~$0.01-0.02 per product shoot
 //
-// ENDPOINT: Must use GLOBAL endpoint for both models
+// API: Using Gemini API Direct (generativelanguage.googleapis.com) instead of Vertex AI
+// This has much higher rate limits (500 RPM vs ~10 RPM) for concurrent generation
 // ============================================================================
-const VERTEX_REGION = 'global';
+const VERTEX_REGION = 'global'; // Keep for fallback
 
 // Model configurations
 // BETTER: Nano Banana Pro (gemini-3-pro-image-preview) - Best quality, but preview model
@@ -165,6 +166,120 @@ const MODEL_INFO: Record<string, { name: string; speed: string; quality: string;
 
 // Default model - flash is faster and more reliable
 const DEFAULT_MODEL = 'flash';
+
+// ============================================================================
+// GEMINI API DIRECT - Higher rate limits (500 RPM) for concurrent generation
+// Uses generativelanguage.googleapis.com instead of Vertex AI
+// ============================================================================
+async function generateImageWithGeminiDirect(
+  apiKey: string,
+  imageBase64: string,
+  mimeType: string,
+  prompt: string,
+  modelKey: string = DEFAULT_MODEL
+): Promise<{ success: boolean; image?: string; error?: string }> {
+  // Map model keys to Gemini API model names
+  const geminiModels: Record<string, string> = {
+    nano: 'gemini-2.0-flash-exp',  // Pro uses experimental model with image gen
+    flash: 'gemini-2.0-flash-exp'  // Standard also uses flash for reliability
+  };
+  
+  const model = geminiModels[modelKey] || geminiModels[DEFAULT_MODEL];
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  
+  const requestBody = JSON.stringify({
+    contents: [{
+      role: 'user',
+      parts: [
+        {
+          inlineData: {
+            mimeType: mimeType,
+            data: imageBase64
+          }
+        },
+        { text: prompt }
+      ]
+    }],
+    generationConfig: {
+      responseModalities: ['TEXT', 'IMAGE']
+    }
+  });
+  
+  // Simple retry with short delays - Gemini API has high rate limits
+  const maxRetries = 2;
+  let lastError = '';
+  
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      if (attempt > 0) {
+        const delay = 1000 + Math.random() * 1000; // 1-2 second delay
+        console.log(`[Gemini Direct] Retry ${attempt}/${maxRetries} after ${Math.round(delay)}ms...`);
+        await new Promise(r => setTimeout(r, delay));
+      }
+      
+      console.log(`[Gemini Direct] Model: ${modelKey} -> ${model}, Attempt: ${attempt + 1}/${maxRetries}`);
+      
+      // 60 second timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000);
+      
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: requestBody,
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[Gemini Direct ERROR] Status: ${response.status}, Model: ${model}`);
+        
+        // Check for rate limit (very unlikely with 500 RPM)
+        if (response.status === 429 || response.status === 503) {
+          lastError = `Rate limited (${response.status})`;
+          continue;
+        }
+        
+        let errorMsg = 'AI generation error';
+        try {
+          const errJson = JSON.parse(errorText);
+          errorMsg = errJson.error?.message || `API error: ${response.status}`;
+        } catch {
+          errorMsg = `API error: ${response.status}`;
+        }
+        return { success: false, error: errorMsg };
+      }
+      
+      const data = await response.json() as any;
+      
+      // Extract image from response
+      if (data.candidates?.[0]?.content?.parts) {
+        for (const part of data.candidates[0].content.parts) {
+          if (part.inlineData?.data) {
+            const resultMimeType = part.inlineData.mimeType || 'image/png';
+            const imageData = `data:${resultMimeType};base64,${part.inlineData.data}`;
+            return { success: true, image: imageData };
+          }
+        }
+      }
+      
+      return { success: false, error: 'No image in response' };
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err);
+      console.error(`[Gemini Direct] Attempt ${attempt + 1} failed:`, lastError);
+      
+      if (err instanceof Error && err.name === 'AbortError') {
+        return { success: false, error: 'Request timed out' };
+      }
+    }
+  }
+  
+  return { success: false, error: `Generation failed. ${lastError}` };
+}
 
 // Generate JWT for Google OAuth2
 async function createJWT(clientEmail: string, privateKey: string): Promise<string> {
@@ -5199,7 +5314,8 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
     return c.json({ success: false, error: 'Authentication required', needsAuth: true }, 401)
   }
   
-  // Vertex AI credentials
+  // Gemini API Direct (preferred - higher rate limits) or Vertex AI (fallback)
+  const geminiApiKey = c.env.GEMINI_API_KEY
   const projectId = c.env.VERTEX_PROJECT_ID
   const clientEmail = c.env.VERTEX_CLIENT_EMAIL
   const privateKey = c.env.VERTEX_PRIVATE_KEY
@@ -5234,8 +5350,9 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
       return c.json({ success: false, error: 'No image provided', field: variationDefinitions[variationIndex]?.field }, 400)
     }
     
-    // Check for Vertex AI credentials
-    if (!projectId || !clientEmail || !privateKey) {
+    // Check for API credentials (prefer Gemini Direct, fallback to Vertex)
+    const useGeminiDirect = !!geminiApiKey
+    if (!useGeminiDirect && (!projectId || !clientEmail || !privateKey)) {
       return c.json({ success: false, error: 'AI service not configured', field: variationDefinitions[variationIndex]?.field }, 500)
     }
 
@@ -5281,16 +5398,31 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
     const mimeType = originalImage.split(';')[0].split(':')[1]
     const imageBase64 = originalImage.split(',')[1]
     
-    // Call Vertex AI with selected model
-    const result = await generateImageWithVertex(
-      projectId,
-      clientEmail,
-      privateKey,
-      imageBase64,
-      mimeType,
-      prompt,
-      modelKey
-    )
+    // Use Gemini Direct API (500 RPM limit) for concurrent generation
+    // Falls back to Vertex AI if Gemini API key not available
+    let result: { success: boolean; image?: string; error?: string }
+    
+    if (useGeminiDirect) {
+      console.log(`[${variation.field}] Using Gemini Direct API (high rate limits)`)
+      result = await generateImageWithGeminiDirect(
+        geminiApiKey,
+        imageBase64,
+        mimeType,
+        prompt,
+        modelKey
+      )
+    } else {
+      console.log(`[${variation.field}] Using Vertex AI (fallback)`)
+      result = await generateImageWithVertex(
+        projectId,
+        clientEmail,
+        privateKey,
+        imageBase64,
+        mimeType,
+        prompt,
+        modelKey
+      )
+    }
     
     const elapsed = Date.now() - startTime
     console.log(`[${variation.field}] Response in ${elapsed}ms, success: ${result.success}`)
@@ -13240,19 +13372,18 @@ function getHomePage(user?: User) {
 
       const startTime = Date.now();
       
-      // Sequential generation - one at a time to avoid rate limits completely
-      // This is slower but much more reliable
-      const delayBetweenImages = 500; // Small delay between images
+      // Parallel generation - ALL images at once!
+      // Gemini Direct API has 500 RPM limit, so we can safely do 10 concurrent requests
+      console.log('[Generate] Starting ALL ' + (variationDefs.length - 1) + ' variations in parallel...');
       
+      const allPromises = [];
       for (let i = 1; i < variationDefs.length; i++) {
-        console.log('[Generate] Starting variation ' + i + '/' + (variationDefs.length - 1) + '...');
-        await generateSingle(i, startTime);
-        
-        // Small delay between images to be gentle on the API
-        if (i < variationDefs.length - 1) {
-          await new Promise(r => setTimeout(r, delayBetweenImages));
-        }
+        allPromises.push(generateSingle(i, startTime));
       }
+      
+      // Wait for all to complete
+      await Promise.allSettled(allPromises);
+      console.log('[Generate] All variations completed!');
       
       try {
         const completeRes = await fetch('/api/sessions/' + currentSessionId + '/complete', {
