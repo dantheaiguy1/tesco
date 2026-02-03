@@ -286,9 +286,11 @@ async function generateImageWithVertex(
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       if (attempt > 0) {
-        // Exponential backoff: 2s, 4s, 8s, 16s
-        const delay = Math.pow(2, attempt) * 1000;
-        console.log(`[Vertex AI] Retry ${attempt}/${maxRetries} after ${delay}ms delay...`);
+        // Exponential backoff with jitter: 3s, 6s, 12s, 24s + random 0-2s
+        const baseDelay = Math.pow(2, attempt) * 1500;
+        const jitter = Math.random() * 2000; // Random 0-2s jitter to prevent thundering herd
+        const delay = baseDelay + jitter;
+        console.log(`[Vertex AI] Retry ${attempt}/${maxRetries} after ${Math.round(delay)}ms delay (base: ${baseDelay}, jitter: ${Math.round(jitter)})...`);
         await new Promise(r => setTimeout(r, delay));
       }
       
@@ -13238,17 +13240,22 @@ function getHomePage(user?: User) {
       const startTime = Date.now();
       
       // Process in batches to avoid rate limiting
-      // Pro model: smaller batches (3), Standard model: larger batches (4)
-      const batchSize = selectedModel === 'nano' ? 3 : 4;
+      // Reduced batch sizes and increased delays to prevent 429 errors
+      // Pro model: 2 at a time (slower, higher quality)
+      // Standard model: 3 at a time (faster)
+      const batchSize = selectedModel === 'nano' ? 2 : 3;
+      const delayBetweenBatches = selectedModel === 'nano' ? 2000 : 1500; // 2s for Pro, 1.5s for Standard
+      
       for (let b = 1; b < variationDefs.length; b += batchSize) {
         const batch = [];
         for (let i = b; i < Math.min(b + batchSize, variationDefs.length); i++) {
           batch.push(generateSingle(i, startTime));
         }
         await Promise.allSettled(batch);
-        // Small delay between batches to prevent rate limiting
+        // Longer delay between batches to prevent rate limiting
         if (b + batchSize < variationDefs.length) {
-          await new Promise(r => setTimeout(r, 500));
+          console.log('[Generate] Waiting ' + delayBetweenBatches + 'ms before next batch to avoid rate limits...');
+          await new Promise(r => setTimeout(r, delayBetweenBatches));
         }
       }
       
@@ -13366,11 +13373,13 @@ function getHomePage(user?: User) {
           retryCount[index] = (retryCount[index] || 0) + 1;
           window.retryCount = retryCount;
           
-          if (retryCount[index] <= 2) {
-            console.log('[Generate] Auto-retrying variation ' + index + ' (attempt ' + retryCount[index] + '/2)');
+          if (retryCount[index] <= 1) {
+            // Only 1 frontend retry (backend already does 5 retries with backoff)
+            const retryDelay = 3000 + (Math.random() * 2000); // 3-5 second delay
+            console.log('[Generate] Auto-retrying variation ' + index + ' after ' + Math.round(retryDelay) + 'ms (attempt ' + retryCount[index] + '/1)');
             card.innerHTML = '<div style="width:100%; aspect-ratio:1; background:#FEF3C7; border-radius:6px; display:flex; align-items:center; justify-content:center; color:#92400E;">🔄 Retrying...</div>' +
               '<div class="card-label">' + v.label + '</div>';
-            setTimeout(() => generateSingle(index), 1000);
+            setTimeout(() => generateSingle(index), retryDelay);
           } else {
             card.innerHTML = '<div style="width:100%; aspect-ratio:1; background:#FEE2E2; border-radius:6px; display:flex; align-items:center; justify-content:center; color:#DC2626; cursor:pointer" onclick="regenerate(' + index + ')">⚠️ Retry</div>' +
               '<div class="card-label">' + v.label + '</div>';
@@ -13398,11 +13407,13 @@ function getHomePage(user?: User) {
         retryCount[index] = (retryCount[index] || 0) + 1;
         window.retryCount = retryCount;
         
-        if (retryCount[index] <= 2) {
-          console.log('[Generate] Auto-retrying variation ' + index + ' after error (attempt ' + retryCount[index] + '/2)');
+        if (retryCount[index] <= 1) {
+          // Only 1 frontend retry (backend already does 5 retries with backoff)
+          const retryDelay = 3000 + (Math.random() * 2000); // 3-5 second delay
+          console.log('[Generate] Auto-retrying variation ' + index + ' after error (' + Math.round(retryDelay) + 'ms, attempt ' + retryCount[index] + '/1)');
           card.innerHTML = '<div style="width:100%; aspect-ratio:1; background:#FEF3C7; border-radius:6px; display:flex; align-items:center; justify-content:center; color:#92400E;">🔄 Retrying...</div>' +
             '<div class="card-label">' + variationDefs[index].label + '</div>';
-          setTimeout(() => generateSingle(index), 1000);
+          setTimeout(() => generateSingle(index), retryDelay);
         } else {
           card.innerHTML = '<div style="width:100%; aspect-ratio:1; background:#FEE2E2; border-radius:6px; display:flex; align-items:center; justify-content:center; color:#DC2626; cursor:pointer" onclick="regenerate(' + index + ')">⚠️ Retry</div>' +
             '<div class="card-label">' + variationDefs[index].label + '</div>';
