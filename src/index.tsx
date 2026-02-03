@@ -178,10 +178,11 @@ async function generateImageWithGeminiDirect(
   prompt: string,
   modelKey: string = DEFAULT_MODEL
 ): Promise<{ success: boolean; image?: string; error?: string }> {
-  // Map model keys to Gemini API model names
+  // Map model keys to Gemini API model names for image generation
+  // Must use the specific image generation variant
   const geminiModels: Record<string, string> = {
-    nano: 'gemini-2.0-flash-exp',  // Pro uses experimental model with image gen
-    flash: 'gemini-2.0-flash-exp'  // Standard also uses flash for reliability
+    nano: 'gemini-2.0-flash-exp-image-generation',   // Pro quality
+    flash: 'gemini-2.0-flash-exp-image-generation'   // Standard (same model, fast)
   };
   
   const model = geminiModels[modelKey] || geminiModels[DEFAULT_MODEL];
