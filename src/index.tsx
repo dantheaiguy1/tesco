@@ -1744,7 +1744,7 @@ async function ensureDatabase(db: D1Database) {
         subscription_status TEXT NOT NULL DEFAULT 'free' CHECK (subscription_status IN ('free', 'active', 'canceled', 'past_due')),
         stripe_customer_id TEXT,
         stripe_subscription_id TEXT,
-        subscription_plan TEXT NOT NULL DEFAULT 'free' CHECK (subscription_plan IN ('free', 'standard', 'pro')),
+        subscription_plan TEXT NOT NULL DEFAULT 'free' CHECK (subscription_plan IN ('free', 'starter', 'standard', 'pro')),
         billing_period_start DATETIME,
         billing_period_end DATETIME,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -4613,12 +4613,22 @@ app.post('/api/billing/create-checkout', async (c) => {
     }
   };
   
+  // Subscription plan price IDs (Stripe)
+  const SUBSCRIPTION_PRICE_IDS: Record<string, string> = {
+    starter: 'price_1SxnmqK5jVZf8VX1TwmwvuIs',    // Starter £9.99/mo - 100 Std + 10 Pro
+    standard: c.env.STRIPE_PRICE_ID_SUBSCRIPTION,  // Standard £29.99/mo - 500 Std + 45 Pro
+    pro: c.env.STRIPE_PRICE_ID_SUBSCRIPTION,       // Pro £49.99/mo - 300 Std + 175 Pro (uses same price ID, plan metadata differentiates)
+  };
+  
   // Determine price ID based on type
   let priceId: string;
   let mode: 'subscription' | 'payment';
   
   if (type === 'subscription') {
-    priceId = c.env.STRIPE_PRICE_ID_SUBSCRIPTION;
+    // Use plan-specific price ID for subscriptions
+    const planKey = (plan || 'standard') as string;
+    priceId = SUBSCRIPTION_PRICE_IDS[planKey] || c.env.STRIPE_PRICE_ID_SUBSCRIPTION;
+    console.log(`[Checkout] Subscription plan: ${planKey}, priceId: ${priceId}`);
     mode = 'subscription';
   } else {
     // For 'topup' or 'pack', look up the correct price ID
@@ -4727,25 +4737,43 @@ app.post('/api/billing/webhook', async (c) => {
         const checkoutType = session.metadata?.type;
         
         if (userId && checkoutType) {
-          const planType = session.metadata?.plan_type || 'pro'; // 'standard' or 'pro'
+          const planType = session.metadata?.plan_type || 'standard'; // 'starter', 'standard', or 'pro'
           const creditPackType = session.metadata?.credit_type || 'cheaper'; // 'cheaper' or 'better'
           const packAmount = session.metadata?.pack_amount || '25'; // '25', '50', '75', '100'
           
           if (checkoutType === 'subscription') {
-            // Add both types of credits for subscription
-            const cheaperCredits = planType === 'pro' ? CREDITS.PRO_CHEAPER : CREDITS.STANDARD_CHEAPER;
-            const betterCredits = planType === 'pro' ? CREDITS.PRO_BETTER : CREDITS.STANDARD_BETTER;
+            // Add both types of credits for subscription based on plan
+            let cheaperCredits: number;
+            let betterCredits: number;
+            let planDisplayName: string;
+            
+            switch (planType) {
+              case 'starter':
+                cheaperCredits = CREDITS.STARTER_CHEAPER;
+                betterCredits = CREDITS.STARTER_BETTER;
+                planDisplayName = 'Starter';
+                break;
+              case 'pro':
+                cheaperCredits = CREDITS.PRO_CHEAPER;
+                betterCredits = CREDITS.PRO_BETTER;
+                planDisplayName = 'Pro';
+                break;
+              default: // 'standard'
+                cheaperCredits = CREDITS.STANDARD_CHEAPER;
+                betterCredits = CREDITS.STANDARD_BETTER;
+                planDisplayName = 'Standard';
+            }
             
             console.log(`[Webhook] Adding credits for user ${userId}: ${cheaperCredits} cheaper, ${betterCredits} better (plan: ${planType})`);
             
             // Add credits with error handling
             const cheaperResult = await addCredits(db, userId, cheaperCredits, 'cheaper', 'subscription',
-              `${planType === 'pro' ? 'Pro' : 'Standard'} subscription started - Standard credits`,
+              `${planDisplayName} subscription started - Standard credits`,
               session.id);
             console.log(`[Webhook] Cheaper credits result:`, cheaperResult);
             
             const betterResult = await addCredits(db, userId, betterCredits, 'better', 'subscription',
-              `${planType === 'pro' ? 'Pro' : 'Standard'} subscription started - Premium credits`,
+              `${planDisplayName} subscription started - Premium credits`,
               session.id);
             console.log(`[Webhook] Better credits result:`, betterResult);
             
@@ -4880,10 +4908,24 @@ app.post('/api/billing/webhook', async (c) => {
           if (userId) {
             // Get user's subscription plan to determine credit amounts
             const user = await db.prepare('SELECT subscription_plan FROM users WHERE id = ?').bind(userId).first() as any;
-            const planType = user?.subscription_plan || 'pro';
+            const planType = user?.subscription_plan || 'standard';
             
-            const cheaperCredits = planType === 'pro' ? CREDITS.PRO_CHEAPER : CREDITS.STANDARD_CHEAPER;
-            const betterCredits = planType === 'pro' ? CREDITS.PRO_BETTER : CREDITS.STANDARD_BETTER;
+            let cheaperCredits: number;
+            let betterCredits: number;
+            
+            switch (planType) {
+              case 'starter':
+                cheaperCredits = CREDITS.STARTER_CHEAPER;
+                betterCredits = CREDITS.STARTER_BETTER;
+                break;
+              case 'pro':
+                cheaperCredits = CREDITS.PRO_CHEAPER;
+                betterCredits = CREDITS.PRO_BETTER;
+                break;
+              default: // 'standard'
+                cheaperCredits = CREDITS.STANDARD_CHEAPER;
+                betterCredits = CREDITS.STANDARD_BETTER;
+            }
             
             await addCredits(db, userId, cheaperCredits, 'cheaper', 'subscription',
               'Monthly subscription renewal - Standard credits', invoice.id);
