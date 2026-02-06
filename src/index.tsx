@@ -2397,6 +2397,12 @@ app.get('/contact', (c) => {
   return c.html(getContactPage())
 })
 
+// Background Removal Tool (free funnel / SEO landing page)
+app.get('/tools/remove-background', async (c) => {
+  const user = c.get('user')
+  return c.html(getBackgroundRemovalPage(user))
+})
+
 // Blog Index Page
 app.get('/blog', (c) => {
   return c.html(getBlogIndexPage())
@@ -11140,6 +11146,12 @@ function getHomePage(user?: User) {
   <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png">
   <link rel="icon" type="image/png" sizes="512x512" href="/favicon-512.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#3B82F6">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="ShopShot">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -13064,6 +13076,12 @@ function getHomePage(user?: User) {
 </head>
 <body class="${isLoggedIn ? '' : 'guest-mode'}">
   ${GTM_BODY}
+  <script>
+    // Register PWA Service Worker
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    }
+  </script>
   <!-- Guest Header (logged out users only) -->
   <header class="guest-header">
     <a href="/" class="guest-logo" style="text-decoration: none;">
@@ -16947,12 +16965,16 @@ function getLoginPage() {
       }
     }
     
-    // Google Sign In
+    // Google Sign In (login page)
     function signInWithGoogle() {
       let url = '/api/auth/google';
       // Always pass redirect - default to /app if not set
       const targetRedirect = redirectTo || '/app';
       url += '?redirect=' + encodeURIComponent(targetRedirect);
+      // Pass referral code if present
+      const urlParams = new URLSearchParams(window.location.search);
+      const ref = urlParams.get('ref');
+      if (ref) url += '&ref=' + encodeURIComponent(ref);
       window.location.href = url;
     }
     
@@ -17305,7 +17327,7 @@ function getRegisterPage() {
       btn.textContent = 'Create Account & Subscribe';
     }
     
-    // Google Sign In
+    // Google Sign In (register page)
     function signInWithGoogle() {
       let url = '/api/auth/google';
       const params = [];
@@ -17313,6 +17335,10 @@ function getRegisterPage() {
       const targetRedirect = redirectTo || '/app';
       params.push('redirect=' + encodeURIComponent(targetRedirect));
       if (selectedPlan) params.push('plan=' + selectedPlan);
+      // Pass referral code if present
+      const urlParams = new URLSearchParams(window.location.search);
+      const ref = urlParams.get('ref');
+      if (ref) params.push('ref=' + encodeURIComponent(ref));
       url += '?' + params.join('&');
       window.location.href = url;
     }
@@ -17397,6 +17423,10 @@ function getRegisterPage() {
       }
       
       try {
+        // Capture referral code from URL params
+        const urlParams = new URLSearchParams(window.location.search);
+        const referralCode = urlParams.get('ref') || '';
+        
         const res = await fetch('/api/auth/register', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -17406,7 +17436,8 @@ function getRegisterPage() {
             phone: phone,
             password: password,
             confirmPassword: confirmPassword,
-            marketing_consent: document.getElementById('marketing_consent').checked
+            marketing_consent: document.getElementById('marketing_consent').checked,
+            referral_code: referralCode
           })
         });
         
@@ -19251,6 +19282,9 @@ function getDashboardPage(user: User) {
       </div>
     </div>
     
+    <!-- Referral Panel -->
+    <div id="referral-panel-container" class="mb-6"></div>
+    
     <h2 class="section-title">Credit History</h2>
     <p style="font-size:13px;color:#6B7280;margin-bottom:16px;">Click on any generated image to view it in full size</p>
     <div class="history-list" id="history-list">
@@ -19370,6 +19404,17 @@ function getDashboardPage(user: User) {
         // Clean up URL (remove checkout params) after tracking
         const cleanUrl = window.location.pathname;
         window.history.replaceState({}, document.title, cleanUrl);
+      }
+    })();
+  </script>
+  <script src="/static/referral.js"></script>
+  <script>
+    // Load and render referral panel
+    (async function() {
+      const data = await loadReferralData();
+      if (data) {
+        const container = document.getElementById('referral-panel-container');
+        if (container) container.innerHTML = getReferralPanelHTML(data);
       }
     })();
   </script>
@@ -25071,6 +25116,194 @@ function getSocialStudioPage(user: any) {
   </script>
 </body>
 </html>`;
+}
+
+// ============================================================================
+// BACKGROUND REMOVAL TOOL PAGE (SEO landing page + free funnel)
+// ============================================================================
+function getBackgroundRemovalPage(user?: User) {
+  const isLoggedIn = !!user;
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Free AI Background Remover - ShopShot</title>
+  <meta name="description" content="Remove backgrounds from product photos instantly using AI. Free tool by ShopShot - upload your image and get a clean white background in seconds.">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico"><link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/manifest.json">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+  ${GTM_HEAD}
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+          colors: {
+            'brand': { 'blue': '#3B82F6', 'purple': '#8B5CF6', 'dark': '#0F172A', 'gray': '#64748B', 'light': '#F8FAFC' }
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-brand-light min-h-screen">
+  ${GTM_BODY}
+  
+  <!-- Header -->
+  <header class="bg-white/80 backdrop-blur-lg sticky top-0 z-40 border-b border-slate-100">
+    <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+      <a href="/" class="flex items-center gap-3">
+        <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-500 rounded-xl flex items-center justify-center shadow-lg">
+          <svg class="w-6 h-6 text-white" viewBox="0 0 24 24" fill="currentColor">
+            <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/>
+            <circle cx="12" cy="12" r="4" fill="currentColor"/>
+          </svg>
+        </div>
+        <span class="text-xl font-bold text-brand-dark">ShopShot</span>
+      </a>
+      <nav class="flex items-center gap-3">
+        <a href="/pricing" class="text-sm text-brand-gray hover:text-brand-dark transition">Pricing</a>
+        ${isLoggedIn ? '<a href="/dashboard" class="text-sm text-brand-gray hover:text-brand-dark transition">Dashboard</a>' : '<a href="/get-started" class="bg-gradient-to-r from-blue-500 to-purple-500 text-white px-4 py-2 rounded-xl text-sm font-semibold">Get Started Free</a>'}
+      </nav>
+    </div>
+  </header>
+
+  <main class="max-w-4xl mx-auto px-6 py-12">
+    <!-- Hero -->
+    <div class="text-center mb-10">
+      <div class="inline-flex items-center gap-2 bg-green-100 text-green-700 rounded-full px-4 py-1.5 text-sm font-medium mb-4">
+        <i class="fas fa-wand-magic-sparkles"></i> Free AI Tool
+      </div>
+      <h1 class="text-4xl sm:text-5xl font-bold text-brand-dark mb-4">
+        Remove Product Backgrounds<br>
+        <span class="bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent">Instantly with AI</span>
+      </h1>
+      <p class="text-lg text-brand-gray max-w-xl mx-auto">
+        Upload any product photo and get a clean white background in seconds. 
+        No signup required for your first removal.
+      </p>
+    </div>
+
+    <!-- Upload Area -->
+    <div class="max-w-xl mx-auto">
+      <div id="upload-area" class="border-2 border-dashed border-slate-300 rounded-2xl p-8 text-center cursor-pointer hover:border-purple-400 hover:bg-purple-50/30 transition"
+           onclick="document.getElementById('bg-file-input').click()"
+           ondragover="event.preventDefault(); this.classList.add('border-purple-500','bg-purple-50/50')"
+           ondragleave="this.classList.remove('border-purple-500','bg-purple-50/50')"
+           ondrop="event.preventDefault(); this.classList.remove('border-purple-500','bg-purple-50/50'); handleBgDrop(event)">
+        <i class="fas fa-cloud-upload text-4xl text-brand-gray mb-3"></i>
+        <p class="text-brand-dark font-semibold mb-1">Drop your product image here</p>
+        <p class="text-sm text-brand-gray">or click to browse. JPG, PNG up to 10MB</p>
+        <input type="file" id="bg-file-input" accept="image/*" class="hidden" onchange="handleBgFile(event)">
+      </div>
+
+      <!-- Preview & Result -->
+      <div id="bg-result-area" class="hidden mt-6">
+        <div class="grid grid-cols-2 gap-4">
+          <div class="bg-white rounded-xl overflow-hidden shadow-sm border border-slate-100">
+            <div class="px-3 py-2 border-b border-slate-100 text-xs font-semibold text-brand-gray uppercase">Original</div>
+            <div class="p-2 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCI+PHJlY3Qgd2lkdGg9IjEwIiBoZWlnaHQ9IjEwIiBmaWxsPSIjZjFmNWY5Ii8+PHJlY3QgeD0iMTAiIHk9IjEwIiB3aWR0aD0iMTAiIGhlaWdodD0iMTAiIGZpbGw9IiNmMWY1ZjkiLz48L3N2Zz4=')]">
+              <img id="bg-original-img" class="w-full rounded" alt="Original">
+            </div>
+          </div>
+          <div class="bg-white rounded-xl overflow-hidden shadow-sm border border-slate-100">
+            <div class="px-3 py-2 border-b border-slate-100 text-xs font-semibold text-brand-gray uppercase">Background Removed</div>
+            <div class="p-2 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCI+PHJlY3Qgd2lkdGg9IjEwIiBoZWlnaHQ9IjEwIiBmaWxsPSIjZjFmNWY5Ii8+PHJlY3QgeD0iMTAiIHk9IjEwIiB3aWR0aD0iMTAiIGhlaWdodD0iMTAiIGZpbGw9IiNmMWY1ZjkiLz48L3N2Zz4=')]">
+              <img id="bg-result-img" class="w-full rounded" alt="Result">
+            </div>
+          </div>
+        </div>
+        <div id="bg-loading" class="hidden text-center py-8">
+          <div class="w-10 h-10 border-4 border-purple-500/30 border-t-purple-500 rounded-full animate-spin mx-auto mb-3"></div>
+          <p class="text-brand-gray text-sm">Removing background with AI...</p>
+        </div>
+        <div class="flex items-center justify-center gap-3 mt-4">
+          <button id="bg-download-btn" onclick="downloadBgResult()" class="hidden bg-gradient-to-r from-blue-500 to-purple-500 text-white px-6 py-3 rounded-xl font-semibold shadow-lg">
+            <i class="fas fa-download mr-2"></i>Download
+          </button>
+          <button onclick="resetBgTool()" class="px-4 py-3 border border-slate-200 rounded-xl text-brand-gray hover:bg-slate-50 transition text-sm">
+            <i class="fas fa-redo mr-1"></i>Try Another
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- CTA Banner -->
+    <div class="mt-16 bg-gradient-to-r from-blue-500 to-purple-500 rounded-2xl p-8 text-center text-white">
+      <h2 class="text-2xl font-bold mb-3">Need more than background removal?</h2>
+      <p class="text-white/80 mb-6 max-w-lg mx-auto">ShopShot generates 10 professional product photos from a single upload. Studio shots, lifestyle scenes, marketplace-ready images - all in seconds.</p>
+      <a href="/get-started" class="inline-block bg-white text-brand-dark px-8 py-3 rounded-xl font-bold shadow-lg hover:shadow-xl transition">
+        Get 8 Free Credits <i class="fas fa-arrow-right ml-2"></i>
+      </a>
+    </div>
+  </main>
+
+  <script>
+    let bgResultImage = null;
+    
+    function handleBgFile(e) {
+      const file = e.target.files[0];
+      if (file) processBgImage(file);
+    }
+    
+    function handleBgDrop(e) {
+      const file = e.dataTransfer.files[0];
+      if (file && file.type.startsWith('image/')) processBgImage(file);
+    }
+    
+    async function processBgImage(file) {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const imageData = e.target.result;
+        document.getElementById('bg-original-img').src = imageData;
+        document.getElementById('bg-result-area').classList.remove('hidden');
+        document.getElementById('bg-loading').classList.remove('hidden');
+        document.getElementById('bg-download-btn').classList.add('hidden');
+        document.getElementById('bg-result-img').src = '';
+        
+        try {
+          const res = await fetch('/api/tools/remove-background', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image: imageData })
+          });
+          const data = await res.json();
+          
+          if (data.success && data.image) {
+            bgResultImage = data.image;
+            document.getElementById('bg-result-img').src = data.image;
+            document.getElementById('bg-download-btn').classList.remove('hidden');
+          } else {
+            alert('Background removal failed: ' + (data.error || 'Please try again'));
+          }
+        } catch (err) {
+          alert('Error: ' + err.message);
+        } finally {
+          document.getElementById('bg-loading').classList.add('hidden');
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+    
+    function downloadBgResult() {
+      if (!bgResultImage) return;
+      const a = document.createElement('a');
+      a.href = bgResultImage;
+      a.download = 'shopshot-no-background.png';
+      a.click();
+    }
+    
+    function resetBgTool() {
+      document.getElementById('bg-result-area').classList.add('hidden');
+      document.getElementById('bg-file-input').value = '';
+      bgResultImage = null;
+    }
+  </script>
+</body>
+</html>`
 }
 
 // ============================================================================

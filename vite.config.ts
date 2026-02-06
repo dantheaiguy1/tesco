@@ -7,7 +7,7 @@ export default defineConfig({
   plugins: [
     build({
       outputDir: 'dist',
-      staticPaths: ['/static/*', '/images/*']
+      staticPaths: ['/static/*', '/images/*', '/manifest.json', '/sw.js']
     }),
     devServer({
       adapter,

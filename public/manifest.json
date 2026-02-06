@@ -1,0 +1,48 @@
+{
+  "name": "ShopShot - AI Product Photography",
+  "short_name": "ShopShot",
+  "description": "Upload 1 photo, get 10 professional product images in seconds using AI.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F8FAFC",
+  "theme_color": "#3B82F6",
+  "orientation": "any",
+  "categories": ["business", "productivity", "photo"],
+  "icons": [
+    {
+      "src": "/favicon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/favicon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "Generate Images",
+      "url": "/app",
+      "description": "Upload a product photo and generate professional shots"
+    },
+    {
+      "name": "Dashboard",
+      "url": "/dashboard",
+      "description": "View your credits and session history"
+    },
+    {
+      "name": "Pricing",
+      "url": "/pricing",
+      "description": "View plans and buy credits"
+    }
+  ]
+}
