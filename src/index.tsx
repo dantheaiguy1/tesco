@@ -67,7 +67,7 @@ type User = {
   cheaper_credits: number;    // Flash/Nano Banana credits
   better_credits: number;     // Pro/Nano Banana Pro credits
   subscription_status: 'free' | 'active' | 'canceled' | 'past_due';
-  subscription_plan: 'free' | 'standard' | 'pro';
+  subscription_plan: 'free' | 'starter' | 'standard' | 'pro';
   stripe_customer_id: string | null;
   email_verified: boolean;
   google_id: string | null;
@@ -85,9 +85,9 @@ type Variables = {
 // - BETTER: For Pro model (Nano Banana Pro) - £0.107/credit API cost
 
 const CREDITS = {
-  // Signup bonus (free tier)
-  SIGNUP_CHEAPER: 10,         // Free cheaper credits on registration
-  SIGNUP_BETTER: 5,           // Free better credits on registration
+  // Signup bonus (free tier) - reduced to encourage upgrades
+  SIGNUP_CHEAPER: 5,          // Free cheaper credits on registration (was 10)
+  SIGNUP_BETTER: 3,           // Free better credits on registration (was 5)
   
   // Per-image costs (always 1 credit of the appropriate type)
   PER_IMAGE: 1,
@@ -96,10 +96,12 @@ const CREDITS = {
   VIDEO_360: 40,              // 40 credits for 8-second 360° spin video (~£5 value)
   
   // Subscription allocations
-  STANDARD_CHEAPER: 500,      // Standard plan: 500 cheaper credits/month
-  STANDARD_BETTER: 45,        // Standard plan: 45 better credits/month
+  STARTER_CHEAPER: 100,       // Starter plan: 100 cheaper credits/month (~10 shoots)
+  STARTER_BETTER: 10,         // Starter plan: 10 better credits/month (~1 shoot)
+  STANDARD_CHEAPER: 500,      // Standard plan: 500 cheaper credits/month (~50 shoots)
+  STANDARD_BETTER: 50,        // Standard plan: 50 better credits/month (~5 shoots)
   PRO_CHEAPER: 300,           // Pro plan: 300 cheaper credits/month
-  PRO_BETTER: 175,            // Pro plan: 175 better credits/month
+  PRO_BETTER: 200,            // Pro plan: 200 better credits/month (~20 shoots)
   
   // Credit pack amounts (for top-ups) - 100% margin pricing
   PACKS: {
@@ -120,8 +122,9 @@ const CREDITS = {
 
 const PRICING = {
   // Subscriptions (monthly)
-  STANDARD: 39.99,            // £39.99/month - 500 cheaper + 45 better
-  PRO: 59.99,                 // £59.99/month - 300 cheaper + 175 better
+  STARTER: 9.99,              // £9.99/month - 100 cheaper + 10 better (~11 shoots)
+  STANDARD: 29.99,            // £29.99/month - 500 cheaper + 50 better (~55 shoots)
+  PRO: 49.99,                 // £49.99/month - 300 cheaper + 200 better (~50 shoots, premium quality)
   
   // Credit packs
   PACK_25: 25.00,
@@ -1159,6 +1162,160 @@ async function sendPasswordResetEmail(apiKey: string, to: string, resetLink: str
 }
 
 // ============================================================================
+// CREDIT DEPLETION EMAILS
+// ============================================================================
+async function sendLowCreditsEmail(apiKey: string, to: string, name: string | null, standardCredits: number, proCredits: number): Promise<boolean> {
+  try {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        from: 'ShopShot <noreply@shopshot.co.uk>',
+        to: [to],
+        subject: 'Running low on credits? 📸',
+        html: `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          </head>
+          <body style="font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #F3F4F6; padding: 40px 20px; margin: 0;">
+            <div style="max-width: 480px; margin: 0 auto; background: white; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.08);">
+              <div style="background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%); padding: 32px; text-align: center;">
+                <h1 style="color: white; margin: 0; font-size: 28px; font-weight: 700;">⚡ Low Credits Alert</h1>
+              </div>
+              <div style="padding: 40px 32px;">
+                <p style="color: #1F2937; margin: 0 0 16px; font-size: 16px;">
+                  Hi ${name || 'there'}!
+                </p>
+                <p style="color: #4B5563; margin: 0 0 24px; font-size: 15px; line-height: 1.6;">
+                  You're running low on ShopShot credits:
+                </p>
+                <div style="background: #FEF3C7; border-radius: 12px; padding: 20px; margin-bottom: 24px;">
+                  <div style="display: flex; justify-content: space-around; text-align: center;">
+                    <div>
+                      <div style="font-size: 28px; font-weight: 700; color: #059669;">${standardCredits}</div>
+                      <div style="font-size: 13px; color: #6B7280;">Standard</div>
+                    </div>
+                    <div>
+                      <div style="font-size: 28px; font-weight: 700; color: #7C3AED;">${proCredits}</div>
+                      <div style="font-size: 13px; color: #6B7280;">Pro</div>
+                    </div>
+                  </div>
+                </div>
+                <p style="color: #4B5563; margin: 0 0 24px; font-size: 15px; line-height: 1.6;">
+                  Top up now to keep creating stunning product photos. Our Starter plan is just <strong>£9.99/month</strong> for ~11 product shoots!
+                </p>
+                <a href="https://www.shopshot.co.uk/pricing" style="display: block; background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%); color: white; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-weight: 600; font-size: 15px; text-align: center;">
+                  Get More Credits →
+                </a>
+              </div>
+              <div style="background: #F9FAFB; padding: 20px 32px; text-align: center; border-top: 1px solid #E5E7EB;">
+                <p style="color: #9CA3AF; font-size: 12px; margin: 0;">
+                  Questions? Just reply to this email.
+                </p>
+              </div>
+            </div>
+          </body>
+          </html>
+        `
+      })
+    });
+    
+    if (!response.ok) {
+      const error = await response.text();
+      console.error('[Low Credits Email] Resend error:', error);
+      return false;
+    }
+    console.log('[Low Credits Email] Sent to:', to);
+    return true;
+  } catch (error) {
+    console.error('[Low Credits Email] Error:', error);
+    return false;
+  }
+}
+
+async function sendOutOfCreditsEmail(apiKey: string, to: string, name: string | null): Promise<boolean> {
+  try {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        from: 'ShopShot <noreply@shopshot.co.uk>',
+        to: [to],
+        subject: "You're out of credits! Here's 20% off 🎁",
+        html: `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          </head>
+          <body style="font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #F3F4F6; padding: 40px 20px; margin: 0;">
+            <div style="max-width: 480px; margin: 0 auto; background: white; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.08);">
+              <div style="background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%); padding: 32px; text-align: center;">
+                <h1 style="color: white; margin: 0; font-size: 28px; font-weight: 700;">😢 Credits Exhausted</h1>
+              </div>
+              <div style="padding: 40px 32px;">
+                <p style="color: #1F2937; margin: 0 0 16px; font-size: 16px;">
+                  Hi ${name || 'there'}!
+                </p>
+                <p style="color: #4B5563; margin: 0 0 24px; font-size: 15px; line-height: 1.6;">
+                  You've used all your ShopShot credits. But don't worry - we've got a special offer for you!
+                </p>
+                <div style="background: linear-gradient(135deg, #10B981 0%, #059669 100%); border-radius: 12px; padding: 24px; margin-bottom: 24px; text-align: center;">
+                  <div style="font-size: 14px; color: rgba(255,255,255,0.9); margin-bottom: 4px;">First-time subscriber discount</div>
+                  <div style="font-size: 36px; font-weight: 800; color: white;">20% OFF</div>
+                  <div style="font-size: 13px; color: rgba(255,255,255,0.8); margin-top: 4px;">Use code: <strong>WELCOME20</strong></div>
+                </div>
+                <p style="color: #4B5563; margin: 0 0 8px; font-size: 14px;">
+                  <strong>Plans from just £9.99/month:</strong>
+                </p>
+                <ul style="color: #6B7280; margin: 0 0 24px; padding-left: 20px; font-size: 14px; line-height: 1.8;">
+                  <li><strong>Starter</strong> - £9.99/mo (~11 shoots)</li>
+                  <li><strong>Standard</strong> - £29.99/mo (~55 shoots) ⭐</li>
+                  <li><strong>Pro</strong> - £49.99/mo (~50 premium shoots)</li>
+                </ul>
+                <a href="https://www.shopshot.co.uk/pricing" style="display: block; background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%); color: white; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-weight: 600; font-size: 15px; text-align: center;">
+                  Upgrade Now & Save 20% →
+                </a>
+                <p style="color: #9CA3AF; font-size: 12px; margin: 24px 0 0; text-align: center;">
+                  Offer valid for 7 days. Cancel anytime.
+                </p>
+              </div>
+              <div style="background: #F9FAFB; padding: 20px 32px; text-align: center; border-top: 1px solid #E5E7EB;">
+                <p style="color: #9CA3AF; font-size: 12px; margin: 0;">
+                  Questions? Just reply to this email - Daniel reads every message.
+                </p>
+              </div>
+            </div>
+          </body>
+          </html>
+        `
+      })
+    });
+    
+    if (!response.ok) {
+      const error = await response.text();
+      console.error('[Out of Credits Email] Resend error:', error);
+      return false;
+    }
+    console.log('[Out of Credits Email] Sent to:', to);
+    return true;
+  } catch (error) {
+    console.error('[Out of Credits Email] Error:', error);
+    return false;
+  }
+}
+
+// ============================================================================
 // ERROR LOGGING HELPER
 // ============================================================================
 async function logError(
@@ -1314,12 +1471,14 @@ async function deductCredits(
   type: string, 
   description: string,
   sessionId?: string,
-  imageData?: string
+  imageData?: string,
+  ctx?: ExecutionContext,
+  resendApiKey?: string
 ): Promise<{ success: boolean; newBalance?: number; error?: string; transactionId?: string }> {
   const column = creditType === 'better' ? 'better_credits' : 'cheaper_credits';
   
-  // Get current balance
-  const user = await db.prepare(`SELECT ${column} as balance FROM users WHERE id = ?`).bind(userId).first() as any;
+  // Get current balance and user info for potential email
+  const user = await db.prepare(`SELECT ${column} as balance, cheaper_credits, better_credits, email, name, email_low_credits_sent, email_out_credits_sent FROM users WHERE id = ?`).bind(userId).first() as any;
   if (!user) return { success: false, error: 'User not found' };
   
   if (user.balance < amount) {
@@ -1337,6 +1496,29 @@ async function deductCredits(
     INSERT INTO credit_transactions (id, user_id, amount, balance_after, credit_type, type, description, session_id, image_data)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(transactionId, userId, -amount, newBalance, creditType, type, description, sessionId || null, null).run(); // Don't store image_data to avoid SQLITE_TOOBIG error
+  
+  // Check if we should send credit depletion emails
+  if (ctx && resendApiKey) {
+    const totalCredits = (creditType === 'cheaper' ? newBalance : user.cheaper_credits) + 
+                         (creditType === 'better' ? newBalance : user.better_credits);
+    const cheaperCredits = creditType === 'cheaper' ? newBalance : user.cheaper_credits;
+    const betterCredits = creditType === 'better' ? newBalance : user.better_credits;
+    
+    // Out of credits email (both types at 0)
+    if (cheaperCredits === 0 && betterCredits <= 3 && !user.email_out_credits_sent) {
+      ctx.waitUntil((async () => {
+        await sendOutOfCreditsEmail(resendApiKey, user.email, user.name);
+        await db.prepare('UPDATE users SET email_out_credits_sent = 1 WHERE id = ?').bind(userId).run();
+      })());
+    }
+    // Low credits email (total <= 5 but not 0)
+    else if (totalCredits <= 5 && totalCredits > 0 && !user.email_low_credits_sent) {
+      ctx.waitUntil((async () => {
+        await sendLowCreditsEmail(resendApiKey, user.email, user.name, cheaperCredits, betterCredits);
+        await db.prepare('UPDATE users SET email_low_credits_sent = 1 WHERE id = ?').bind(userId).run();
+      })());
+    }
+  }
   
   return { success: true, newBalance, transactionId };
 }
@@ -1616,6 +1798,14 @@ async function ensureDatabase(db: D1Database) {
     } catch (e) { /* Column exists */ }
     try {
       await db.prepare('ALTER TABLE users ADD COLUMN password_reset_expires DATETIME').run();
+    } catch (e) { /* Column exists */ }
+    
+    // Add email tracking columns for credit depletion emails
+    try {
+      await db.prepare('ALTER TABLE users ADD COLUMN email_low_credits_sent INTEGER NOT NULL DEFAULT 0').run();
+    } catch (e) { /* Column exists */ }
+    try {
+      await db.prepare('ALTER TABLE users ADD COLUMN email_out_credits_sent INTEGER NOT NULL DEFAULT 0').run();
     } catch (e) { /* Column exists */ }
     
     // Credit transactions table (dual credit system)
@@ -5462,7 +5652,9 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
       'generation',
       `Image: ${variation.label} (${creditTypeName})`,
       sessionId,
-      result.image // Store the generated image with the transaction
+      result.image, // Store the generated image with the transaction
+      c.executionCtx,
+      c.env.RESEND_API_KEY
     )
     
     // Update session stats
@@ -5725,7 +5917,9 @@ app.post('/api/regenerate-with-feedback/:sessionId/:variationIndex', async (c) =
       creditType === 'better' ? 'generation_pro' : 'generation_standard',
       `Regenerated with feedback: ${variation.field} (${feedback_reason})`,
       sessionId,
-      result.image
+      result.image,
+      c.executionCtx,
+      c.env.RESEND_API_KEY
     )
     
     // Track in analytics
@@ -5868,7 +6062,9 @@ app.post('/api/regenerate/:sessionId/:variationIndex', async (c) => {
       'regeneration',
       `Regenerate ${variation.label}: ${productName} (${creditTypeName})`,
       sessionId,
-      result.image // Store the generated image with the transaction
+      result.image, // Store the generated image with the transaction
+      c.executionCtx,
+      c.env.RESEND_API_KEY
     )
     
     return c.json({ 
@@ -12578,8 +12774,8 @@ function getHomePage(user?: User) {
     <!-- Paywall Modal -->
     <div id="paywall-modal" class="paywall-overlay" onclick="if(event.target === this) closePaywall()">
       <div class="paywall-modal">
-        <div class="paywall-icon">🚫</div>
-        <h2 class="paywall-title">Out of Credits!</h2>
+        <div class="paywall-icon">⚡</div>
+        <h2 class="paywall-title">Need More Credits!</h2>
         <p class="paywall-text" id="paywall-text">You've run out of credits. Get more to continue generating images.</p>
         <div class="paywall-credits">
           <div class="credits-stat">
@@ -12591,15 +12787,29 @@ function getHomePage(user?: User) {
             <div class="credits-stat-value" id="paywall-current" style="color:#DC2626">0</div>
           </div>
         </div>
-        <div class="paywall-credit-info">
-          <p><strong>Standard Credits</strong> → Amazing quality, fast & reliable</p>
-          <p><strong>Pro Credits</strong> → Best quality possible (beta model, may be slow)</p>
+        
+        <!-- Special offer banner -->
+        <div style="background:linear-gradient(135deg, #10B981 0%, #059669 100%); border-radius:12px; padding:16px; margin:16px 0; text-align:center;">
+          <div style="font-size:13px; color:rgba(255,255,255,0.9);">First-time subscriber?</div>
+          <div style="font-size:24px; font-weight:800; color:white;">20% OFF with code WELCOME20</div>
         </div>
+        
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-bottom:16px;">
+          <div style="background:#F3F4F6; border-radius:8px; padding:12px; text-align:center;">
+            <div style="font-size:18px; font-weight:700; color:#1F2937;">£9.99/mo</div>
+            <div style="font-size:12px; color:#6B7280;">Starter • ~11 shoots</div>
+          </div>
+          <div style="background:#F0F9FF; border-radius:8px; padding:12px; text-align:center; border:2px solid #3B82F6;">
+            <div style="font-size:18px; font-weight:700; color:#1F2937;">£29.99/mo</div>
+            <div style="font-size:12px; color:#6B7280;">Standard • ~55 shoots ⭐</div>
+          </div>
+        </div>
+        
         <div class="paywall-btns">
-          <a href="/pricing" class="paywall-btn paywall-btn-primary" style="background:linear-gradient(135deg, #7C3AED 0%, #5B21B6 100%)">
-            💳 Get More Credits
+          <a href="/pricing" class="paywall-btn paywall-btn-primary" style="background:linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%)">
+            🚀 Get More Credits
           </a>
-          <button onclick="closePaywall()" class="paywall-btn paywall-btn-secondary">Continue Without Credits</button>
+          <button onclick="closePaywall()" class="paywall-btn paywall-btn-secondary">Maybe Later</button>
         </div>
         <p style="font-size:12px; color:#9CA3AF; margin-top:16px;">Your existing images are safe and won't be deleted.</p>
       </div>
@@ -12614,7 +12824,7 @@ function getHomePage(user?: User) {
         
         <div class="preview-count">
           <span>🎉</span>
-          <span>Get <strong>15 free credits</strong> when you sign up!</span>
+          <span>Get <strong>8 free credits</strong> when you sign up!</span>
         </div>
         
         <div class="benefit-list">
@@ -17531,6 +17741,7 @@ function getGetStartedPage() {
 // ============================================================================
 function getPricingPage(user?: User) {
   const userPlan = user?.subscription_plan || 'free';
+  const isStarter = userPlan === 'starter';
   const isStandard = userPlan === 'standard';
   const isPro = userPlan === 'pro';
   
@@ -17569,9 +17780,10 @@ function getPricingPage(user?: User) {
     .section-title { font-size: 28px; font-weight: 700; color: #1F2937; margin: 48px 0 24px; text-align: center; }
     .section-subtitle { font-size: 14px; color: #6B7280; text-align: center; margin: -16px 0 32px; }
     
-    /* Subscription Plans Grid */
-    .plans-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-bottom: 64px; }
-    @media (max-width: 900px) { .plans-grid { grid-template-columns: 1fr; } }
+    /* Subscription Plans Grid - 4 columns */
+    .plans-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 64px; }
+    @media (max-width: 1100px) { .plans-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 600px) { .plans-grid { grid-template-columns: 1fr; } }
     
     .plan-card {
       background: white;
@@ -17742,8 +17954,8 @@ function getPricingPage(user?: User) {
     
     <div class="plans-grid">
       <!-- Free Tier -->
-      <div class="plan-card ${!isStandard && !isPro && user ? 'current' : ''}">
-        ${!isStandard && !isPro && user ? '<div class="badge current">Current Plan</div>' : ''}
+      <div class="plan-card ${!isStarter && !isStandard && !isPro && user ? 'current' : ''}">
+        ${!isStarter && !isStandard && !isPro && user ? '<div class="badge current">Current Plan</div>' : ''}
         <div class="plan-name">Free</div>
         <div class="plan-price">£0</div>
         <div class="plan-period">to get started</div>
@@ -17752,24 +17964,23 @@ function getPricingPage(user?: User) {
           <div class="credit-row">
             <div class="credit-type">
               <div class="credit-dot cheaper"></div>
-              <span class="credit-label">Standard Credits</span>
+              <span class="credit-label">Standard</span>
             </div>
             <span class="credit-amount">${CREDITS.SIGNUP_CHEAPER}</span>
           </div>
           <div class="credit-row">
             <div class="credit-type">
               <div class="credit-dot better"></div>
-              <span class="credit-label">Pro Credits</span>
+              <span class="credit-label">Pro</span>
             </div>
             <span class="credit-amount">${CREDITS.SIGNUP_BETTER}</span>
           </div>
         </div>
         
         <ul class="plan-features">
-          <li>Both AI models available</li>
-          <li>Download in high quality</li>
-          <li>No credit card required</li>
-          <li>Try before you buy</li>
+          <li>Try both AI models</li>
+          <li>High quality downloads</li>
+          <li>No credit card needed</li>
         </ul>
         
         ${user 
@@ -17777,36 +17988,69 @@ function getPricingPage(user?: User) {
           : '<a href="/register" class="plan-btn plan-btn-secondary" style="text-decoration:none;display:block;text-align:center;">Sign Up Free</a>'}
       </div>
       
-      <!-- Standard Plan -->
-      <div class="plan-card featured ${isStandard ? 'current' : ''}">
-        ${isStandard ? '<div class="badge current">Current Plan</div>' : '<div class="badge popular">Most Popular</div>'}
-        <div class="plan-name">Standard</div>
-        <div class="plan-price">£${PRICING.STANDARD}<span>/mo</span></div>
-        <div class="plan-period">billed monthly</div>
+      <!-- Starter Plan - NEW -->
+      <div class="plan-card ${isStarter ? 'current' : ''}">
+        ${isStarter ? '<div class="badge current">Current Plan</div>' : '<div class="badge" style="background:#10B981;color:white;">New!</div>'}
+        <div class="plan-name">Starter</div>
+        <div class="plan-price">£${PRICING.STARTER}<span>/mo</span></div>
+        <div class="plan-period">~11 product shoots</div>
         
         <div class="plan-credits">
           <div class="credit-row">
             <div class="credit-type">
               <div class="credit-dot cheaper"></div>
-              <span class="credit-label">Standard Credits</span>
+              <span class="credit-label">Standard</span>
+            </div>
+            <span class="credit-amount">${CREDITS.STARTER_CHEAPER}</span>
+          </div>
+          <div class="credit-row">
+            <div class="credit-type">
+              <div class="credit-dot better"></div>
+              <span class="credit-label">Pro</span>
+            </div>
+            <span class="credit-amount">${CREDITS.STARTER_BETTER}</span>
+          </div>
+        </div>
+        
+        <ul class="plan-features">
+          <li>Perfect for testing</li>
+          <li>Both AI models</li>
+          <li>Cancel anytime</li>
+        </ul>
+        
+        <button class="plan-btn plan-btn-primary" onclick="startCheckout('starter')" ${!user ? 'disabled title="Please sign up first"' : isStarter ? 'disabled' : ''}>
+          ${isStarter ? 'Current Plan' : 'Get Starter'}
+        </button>
+      </div>
+      
+      <!-- Standard Plan -->
+      <div class="plan-card featured ${isStandard ? 'current' : ''}">
+        ${isStandard ? '<div class="badge current">Current Plan</div>' : '<div class="badge popular">Most Popular</div>'}
+        <div class="plan-name">Standard</div>
+        <div class="plan-price">£${PRICING.STANDARD}<span>/mo</span></div>
+        <div class="plan-period">~55 product shoots</div>
+        
+        <div class="plan-credits">
+          <div class="credit-row">
+            <div class="credit-type">
+              <div class="credit-dot cheaper"></div>
+              <span class="credit-label">Standard</span>
             </div>
             <span class="credit-amount">${CREDITS.STANDARD_CHEAPER}</span>
           </div>
           <div class="credit-row">
             <div class="credit-type">
               <div class="credit-dot better"></div>
-              <span class="credit-label">Pro Credits</span>
+              <span class="credit-label">Pro</span>
             </div>
             <span class="credit-amount">${CREDITS.STANDARD_BETTER}</span>
           </div>
         </div>
         
         <ul class="plan-features">
-          <li>~50 full product shoots/month</li>
-          <li>Access to both AI models</li>
-          <li>Priority generation queue</li>
-          <li>Credits roll over (up to 2x)</li>
-          <li>Cancel anytime</li>
+          <li>Best for regular sellers</li>
+          <li>Priority generation</li>
+          <li>Credits roll over (2x)</li>
         </ul>
         
         <button class="plan-btn plan-btn-primary" onclick="startCheckout('standard')" ${!user ? 'disabled title="Please sign up first"' : isStandard ? 'disabled' : ''}>
@@ -17816,40 +18060,86 @@ function getPricingPage(user?: User) {
       
       <!-- Pro Plan -->
       <div class="plan-card ${isPro ? 'current' : ''}">
-        ${isPro ? '<div class="badge current">Current Plan</div>' : '<div class="badge best">Best Value</div>'}
+        ${isPro ? '<div class="badge current">Current Plan</div>' : '<div class="badge best">Best Quality</div>'}
         <div class="plan-name">Pro</div>
         <div class="plan-price">£${PRICING.PRO}<span>/mo</span></div>
-        <div class="plan-period">billed monthly</div>
+        <div class="plan-period">~50 shoots (premium)</div>
         
         <div class="plan-credits">
           <div class="credit-row">
             <div class="credit-type">
               <div class="credit-dot cheaper"></div>
-              <span class="credit-label">Standard Credits</span>
+              <span class="credit-label">Standard</span>
             </div>
             <span class="credit-amount">${CREDITS.PRO_CHEAPER}</span>
           </div>
           <div class="credit-row">
             <div class="credit-type">
               <div class="credit-dot better"></div>
-              <span class="credit-label">Pro Credits</span>
+              <span class="credit-label">Pro</span>
             </div>
             <span class="credit-amount">${CREDITS.PRO_BETTER}</span>
           </div>
         </div>
         
         <ul class="plan-features">
-          <li>~47 full product shoots/month</li>
           <li><strong>4x more Pro credits</strong></li>
-          <li>Best quality image generation</li>
+          <li>Best quality AI model</li>
           <li>Priority support</li>
-          <li>Cancel anytime</li>
         </ul>
         
         <button class="plan-btn plan-btn-pro" onclick="startCheckout('pro')" ${!user ? 'disabled title="Please sign up first"' : isPro ? 'disabled' : ''}>
           ${isPro ? 'Current Plan' : 'Get Pro'}
         </button>
       </div>
+    </div>
+    
+    <!-- Quick Comparison Table -->
+    <div style="background:white;border-radius:16px;padding:24px;margin-bottom:48px;overflow-x:auto;">
+      <h3 style="margin:0 0 16px;font-size:18px;font-weight:600;">Quick Comparison</h3>
+      <table style="width:100%;border-collapse:collapse;font-size:14px;">
+        <thead>
+          <tr style="border-bottom:2px solid #E5E7EB;">
+            <th style="text-align:left;padding:12px 8px;font-weight:600;">Plan</th>
+            <th style="text-align:center;padding:12px 8px;font-weight:600;">Price</th>
+            <th style="text-align:center;padding:12px 8px;font-weight:600;">Shoots/Month</th>
+            <th style="text-align:left;padding:12px 8px;font-weight:600;">Best For</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="border-bottom:1px solid #E5E7EB;">
+            <td style="padding:12px 8px;font-weight:500;">Free</td>
+            <td style="text-align:center;padding:12px 8px;">£0</td>
+            <td style="text-align:center;padding:12px 8px;">~1</td>
+            <td style="padding:12px 8px;color:#6B7280;">Trying it out</td>
+          </tr>
+          <tr style="border-bottom:1px solid #E5E7EB;">
+            <td style="padding:12px 8px;font-weight:500;">Starter</td>
+            <td style="text-align:center;padding:12px 8px;">£9.99</td>
+            <td style="text-align:center;padding:12px 8px;">~11</td>
+            <td style="padding:12px 8px;color:#6B7280;">Casual sellers, testing</td>
+          </tr>
+          <tr style="border-bottom:1px solid #E5E7EB;background:#F0F9FF;">
+            <td style="padding:12px 8px;font-weight:600;">Standard ⭐</td>
+            <td style="text-align:center;padding:12px 8px;font-weight:600;">£29.99</td>
+            <td style="text-align:center;padding:12px 8px;font-weight:600;">~55</td>
+            <td style="padding:12px 8px;color:#6B7280;">Regular sellers</td>
+          </tr>
+          <tr>
+            <td style="padding:12px 8px;font-weight:500;">Pro</td>
+            <td style="text-align:center;padding:12px 8px;">£49.99</td>
+            <td style="text-align:center;padding:12px 8px;">~50 (premium)</td>
+            <td style="padding:12px 8px;color:#6B7280;">Quality-focused, marketing</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    
+    <!-- Social Proof -->
+    <div style="background:linear-gradient(135deg,#7C3AED 0%,#5B21B6 100%);border-radius:16px;padding:32px;margin-bottom:48px;color:white;text-align:center;">
+      <div style="font-size:32px;margin-bottom:8px;">⭐⭐⭐⭐⭐</div>
+      <p style="font-size:18px;margin:0 0 8px;font-weight:500;">"It will save me hours of set and light design, scene creation, photography and editing."</p>
+      <p style="font-size:14px;margin:0;opacity:0.8;">— Sparklyscotty Gifts, Small Business Owner</p>
     </div>
     
     <!-- Credit Packs Section -->
