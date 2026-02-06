@@ -1,7 +1,7 @@
 module.exports = {
   apps: [
     {
-      name: 'tesco-image-generator',
+      name: 'shopshot',
       script: 'npx',
       args: 'wrangler pages dev dist --d1=TESCO_DB --local --persist-to=.wrangler/state --ip 0.0.0.0 --port 3000',
       env: {
