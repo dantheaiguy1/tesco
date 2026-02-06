@@ -97,8 +97,8 @@ let selectedStyle = 'default';
  */
 function getVariationSelectorHTML() {
   return `
-    <div id="variation-selector" class="hidden">
-      <div class="bg-white rounded-2xl shadow-lg border border-slate-100 max-w-2xl mx-auto max-h-[80vh] overflow-hidden flex flex-col">
+    <div id="variation-selector" class="hidden" onclick="if(event.target===this)closeVariationSelector()">
+      <div class="bg-white rounded-2xl shadow-lg border border-slate-100 max-w-2xl mx-auto max-h-[80vh] overflow-hidden flex flex-col" onclick="event.stopPropagation()">
         <!-- Header -->
         <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
           <div>
@@ -187,11 +187,23 @@ function toggleVariation(key) {
 
 function selectStylePreset(key) {
   selectedStyle = key;
+  syncStylePresetUI();
+}
+
+// Robust style preset UI sync using classList instead of fragile regex replacement
+function syncStylePresetUI() {
+  const activeClasses = ['border-purple-500', 'bg-purple-50', 'text-purple-700'];
+  const inactiveClasses = ['border-slate-200', 'text-brand-gray'];
+  
   document.querySelectorAll('.style-preset-btn').forEach(btn => {
-    if (btn.dataset.style === key) {
-      btn.className = btn.className.replace(/border-slate-200 text-brand-gray hover:border-purple-300/g, 'border-purple-500 bg-purple-50 text-purple-700');
+    if (btn.dataset.style === selectedStyle) {
+      // Make active
+      inactiveClasses.forEach(c => btn.classList.remove(c));
+      activeClasses.forEach(c => btn.classList.add(c));
     } else {
-      btn.className = btn.className.replace(/border-purple-500 bg-purple-50 text-purple-700/g, 'border-slate-200 text-brand-gray hover:border-purple-300');
+      // Make inactive
+      activeClasses.forEach(c => btn.classList.remove(c));
+      inactiveClasses.forEach(c => btn.classList.add(c));
     }
   });
 }
@@ -220,21 +232,29 @@ function resetVariations() {
   ];
   selectedStyle = 'default';
   updateVariationUI();
-  selectStylePreset('default');
+  syncStylePresetUI();
 }
 
 function openVariationSelector() {
   const selector = document.getElementById('variation-selector');
   if (selector) {
     selector.classList.remove('hidden');
-    selector.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.7);backdrop-filter:blur(4px);z-index:60;display:flex;align-items:center;justify-content:center;padding:20px;';
+    // z-index 10001 = higher than all page overlays (lightbox=10000, feedback=10000, etc.)
+    selector.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.7);backdrop-filter:blur(4px);z-index:10001;display:flex;align-items:center;justify-content:center;padding:20px;';
     updateVariationUI();
+    // Sync style preset buttons to current selection
+    syncStylePresetUI();
   }
 }
 
 function closeVariationSelector() {
   const selector = document.getElementById('variation-selector');
-  if (selector) selector.classList.add('hidden');
+  if (selector) {
+    // CRITICAL: Clear ALL inline styles set by openVariationSelector()
+    // Without this, the inline display:flex overrides Tailwind's .hidden display:none
+    selector.style.cssText = '';
+    selector.classList.add('hidden');
+  }
 }
 
 function applyVariationSelection() {
@@ -242,6 +262,8 @@ function applyVariationSelection() {
     alert('Please select at least 1 shot type.');
     return;
   }
+  
+  // Close the modal first
   closeVariationSelector();
   
   // Update the variationDefs array used by the generation engine
@@ -249,13 +271,20 @@ function applyVariationSelection() {
     updateVariationDefs(selectedVariations, selectedStyle);
   }
   
-  // Show confirmation
+  // Show confirmation on the customise button
   const btn = document.getElementById('customize-shots-btn');
   if (btn) {
     const label = btn.querySelector('span') || btn;
     const orig = label.textContent;
-    label.textContent = `${selectedVariations.length} shots selected`;
-    setTimeout(() => { label.textContent = orig; }, 2000);
+    const styleName = STYLE_PRESETS[selectedStyle]?.label || 'Default';
+    label.textContent = `✓ ${selectedVariations.length} shots · ${styleName}`;
+    btn.style.borderColor = '#8B5CF6';
+    btn.style.background = '#F5F3FF';
+    setTimeout(() => {
+      label.textContent = orig;
+      btn.style.borderColor = '';
+      btn.style.background = '';
+    }, 3000);
   }
 }
 
