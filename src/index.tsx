@@ -5593,7 +5593,35 @@ function getPrompts(productName: string, productSize: string = 'medium'): Record
     
     'environment_context': `Lifestyle product photography: ${productName} photographed in its natural usage environment. Contextual scene where the product is the hero. This is ${context} shown where it would actually be used. Golden hour or soft indoor lighting. Editorial lifestyle style.`,
     
-    'multi_angle': `Product documentation: composite image showing ${productName} from 3 angles - front view (top-left), back view (top-right), side profile (bottom-center). Clean white background for all three. Technical documentation showing complete product.`
+    'multi_angle': `Product documentation: composite image showing ${productName} from 3 angles - front view (top-left), back view (top-right), side profile (bottom-center). Clean white background for all three. Technical documentation showing complete product.`,
+    
+    // === EXPANDED SHOT TYPES (from Variation Selector) ===
+    'material_closeup': `Professional product photography: ultra close-up macro shot of the ${productName} material. Focus on the grain, weave, or texture pattern. Dramatic side lighting. Shallow depth of field.`,
+    'hardware_detail': `Professional product photography: extreme close-up of ${productName} hardware details - zips, buttons, clasps, hinges. Side lighting highlighting metallic finish. Dark background.`,
+    'stitching_detail': `Professional product photography: macro shot of ${productName} seams and stitching. Shows quality of thread work and construction precision. Side lighting.`,
+    'inside_view': `Professional product photography: interior view of ${productName} showing lining, inner pockets, or internal structure. Studio lighting on neutral background.`,
+    'packaging_shot': `Professional product photography: ${productName} artfully displayed with its retail packaging or box. Styled product unboxing scene. Clean studio setting.`,
+    'hero_gradient': `Professional product photography: ${productName} centered on smooth gradient background transitioning from light to dark. Soft studio lighting. Commercial catalog style.`,
+    'hero_dark': `Professional product photography: ${productName} on dramatic dark/black background. Rim lighting highlighting edges. Moody luxury feel.`,
+    'three_quarter': `Professional product photography: classic 3/4 angle shot of ${productName}. Shows depth and dimension. Even studio lighting. Clean white background.`,
+    'top_down': `Professional product photography: directly overhead bird's-eye view of ${productName}. Flat, symmetrical composition. Even lighting, no shadows.`,
+    'side_profile': `Professional product photography: exact side-on profile of ${productName}. Clean white background. Product perfectly level. Catalog documentation style.`,
+    'back_view': `Professional product photography: rear view of ${productName} showing back construction, labels, ports. Clean studio background. Even lighting.`,
+    'shadow_play': `Professional product photography: ${productName} with dramatic shadow and light interplay. Hard directional light creating bold geometric shadows. Artistic commercial style.`,
+    'floating': `Professional product photography: ${productName} appearing to float in space with soft drop shadow below. Pure white background. Weightless, premium feel.`,
+    'instagram_aesthetic': `Lifestyle product photography: ${productName} in an Instagram-worthy pastel-toned scene. Soft natural lighting. Trendy props. Muted aesthetic with clean lines.`,
+    'tiktok_style': `Product photography: ${productName} in a bold, high-contrast, eye-catching composition. Bright colors. Dynamic angles. Gen-Z aesthetic.`,
+    'pinterest_styled': `Styled product photography: ${productName} in an aspirational Pinterest-worthy scene. Beautiful composition with complementary lifestyle props. Warm, inviting lighting.`,
+    'unboxing_moment': `Product photography: ${productName} fresh from its packaging in an unboxing reveal moment. Tissue paper, box lid askew. Excitement and discovery feel.`,
+    'before_after': `Product photography: split-screen composition with ${productName} in raw state on the left and styled/finished on the right. Transformation reveal.`,
+    'gift_wrapped': `Product photography: ${productName} styled as a gift with tissue paper, ribbon, or bow. Gift-giving occasion setting. Warm, celebratory lighting.`,
+    'kitchen_scene': `Lifestyle product photography: ${productName} photographed in a bright, modern kitchen setting. Marble countertops, fresh ingredients nearby. Warm natural light.`,
+    'desk_workspace': `Lifestyle product photography: ${productName} on a styled modern workspace desk. Laptop, coffee, notebook nearby. Productive, clean aesthetic.`,
+    'outdoor_natural': `Lifestyle product photography: ${productName} in an outdoor natural setting. Golden hour light, grass, trees visible. Fresh air feel.`,
+    'cozy_home': `Lifestyle product photography: ${productName} in a warm, cozy home interior. Soft blankets, warm lighting, comfortable atmosphere.`,
+    'gym_fitness': `Lifestyle product photography: ${productName} in a gym or fitness setting. Clean equipment, motivational atmosphere. Action-ready composition.`,
+    'travel_adventure': `Lifestyle product photography: ${productName} in a travel/adventure context. Maps, luggage, or scenic backdrop. Wanderlust aesthetic.`,
+    'seasonal_festive': `Lifestyle product photography: ${productName} styled with seasonal decor. Festive props appropriate to current season. Celebratory warm lighting.`
   }
 }
 
@@ -5621,6 +5649,8 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
     const originalImage = body.originalImage
     const productName = body.productName || 'product'
     const customPrompt = body.customPrompt // User-provided custom prompt
+    const styleModifier = body.styleModifier || '' // Style preset modifier
+    const variationField = body.variationField // Optional: explicit variation field name
     const modelKey = body.model || DEFAULT_MODEL // 'nano' or 'flash'
     const productSize = body.productSize || 'medium' // tiny, small, medium, large
     
@@ -5654,7 +5684,10 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
 
     const prompts: Record<string, string> = getPrompts(productName, productSize)
     
-    const variation = variationDefinitions[variationIndex]
+    // Support both index-based and field-based variation lookup
+    const variation = variationField 
+      ? { field: variationField, label: variationField }
+      : variationDefinitions[variationIndex]
     if (!variation) {
       return c.json({ success: false, error: 'Invalid variation index', field: 'unknown' }, 400)
     }
@@ -5681,9 +5714,12 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
       }
     }
     
-    // Use custom prompt if provided, otherwise use default + brand colors
+    // Use custom prompt if provided, otherwise use default + brand colors + style
     const basePrompt = customPrompt || prompts[variation.field];
-    const prompt = basePrompt + brandColorPrompt;
+    if (!basePrompt) {
+      return c.json({ success: false, error: 'No prompt found for variation: ' + variation.field, field: variation.field }, 400)
+    }
+    const prompt = basePrompt + brandColorPrompt + (styleModifier ? '\n\n' + styleModifier : '');
     const isCustom = !!customPrompt
     const modelInfo = MODEL_INFO[modelKey] || MODEL_INFO[DEFAULT_MODEL]
     console.log(`[${variation.field}] Generating with ${modelInfo.name} (${modelKey}) using ${creditTypeName} credits...`)
@@ -13334,6 +13370,22 @@ function getHomePage(user?: User) {
         </div>
       </div>
 
+      <!-- Customise & Batch Controls -->
+      <div style="display:flex; gap:8px; margin-bottom:10px;">
+        <button id="customize-shots-btn" onclick="openVariationSelector()" 
+                style="flex:1; padding:10px 16px; background:#F8FAFC; border:1px solid #E2E8F0; border-radius:10px; font-size:13px; font-weight:600; color:#334155; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:6px; transition:all 0.2s;"
+                onmouseover="this.style.borderColor='#8B5CF6';this.style.background='#F5F3FF'" onmouseout="this.style.borderColor='#E2E8F0';this.style.background='#F8FAFC'">
+          <i class="fas fa-sliders" style="color:#8B5CF6;"></i>
+          <span>Customise Shots</span>
+        </button>
+        <button onclick="toggleBatchMode()" 
+                style="flex:1; padding:10px 16px; background:#F8FAFC; border:1px solid #E2E8F0; border-radius:10px; font-size:13px; font-weight:600; color:#334155; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:6px; transition:all 0.2s;"
+                onmouseover="this.style.borderColor='#F97316';this.style.background='#FFF7ED'" onmouseout="this.style.borderColor='#E2E8F0';this.style.background='#F8FAFC'">
+          <i class="fas fa-layer-group" style="color:#F97316;"></i>
+          <span>Batch Mode</span>
+        </button>
+      </div>
+
       <!-- Generate Button -->
       <button id="generate-btn" class="generate-btn" onclick="generateVariations()" disabled>
         Generate 10 Professional Shots
@@ -13995,6 +14047,8 @@ function getHomePage(user?: User) {
             originalImage: currentOriginalImage,
             productName: document.getElementById('product-name-edit')?.value || 'Product',
             customPrompt: customPrompts[index],
+            variationField: v.field,
+            styleModifier: typeof getActiveStyleModifier === 'function' ? getActiveStyleModifier() : '',
             model: modelToUse,
             productSize: selectedSize
           })
@@ -15585,6 +15639,64 @@ function getHomePage(user?: User) {
       }
     }
     ` : ''}
+  </script>
+  
+  <!-- Feature scripts -->
+  <script src="/static/variation-selector.js"></script>
+  <script src="/static/batch-upload.js"></script>
+  <script src="/static/marketplace-export.js"></script>
+  <script src="/static/comparison-slider.js"></script>
+  <script src="/static/referral.js"></script>
+  
+  <script>
+    // Variation selector integration
+    function updateVariationDefs(selectedVars, styleName) {
+      // Look up labels from the VARIATION_LIBRARY
+      const allShots = {};
+      Object.values(VARIATION_LIBRARY).forEach(cat => {
+        Object.entries(cat.shots).forEach(([key, shot]) => {
+          allShots[key] = shot;
+        });
+      });
+      
+      // Rebuild variationDefs from selected variations
+      const newDefs = [{ field: 'original', label: 'Original', isOriginal: true }];
+      selectedVars.forEach((key, idx) => {
+        const shot = allShots[key];
+        newDefs.push({ field: key, label: (idx + 1) + '. ' + (shot?.label || key) });
+      });
+      
+      // Replace the global variationDefs (defined in the main script)
+      if (typeof variationDefs !== 'undefined') {
+        variationDefs.length = 0;
+        newDefs.forEach(d => variationDefs.push(d));
+      }
+      
+      // Update generate button text
+      const genBtn = document.getElementById('generate-btn');
+      if (genBtn && !genBtn.disabled) {
+        genBtn.textContent = 'Generate ' + selectedVars.length + ' Professional Shots';
+      }
+    }
+    
+    // Inject batch upload panel after upload-container
+    (function() {
+      const container = document.querySelector('.upload-wrapper');
+      if (container) {
+        const batchDiv = document.createElement('div');
+        batchDiv.innerHTML = getBatchUploadHTML();
+        container.appendChild(batchDiv.firstElementChild);
+      }
+    })();
+  </script>
+  
+  <!-- Variation Selector Modal -->
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      const selectorDiv = document.createElement('div');
+      selectorDiv.innerHTML = getVariationSelectorHTML();
+      document.body.appendChild(selectorDiv.firstElementChild);
+    });
   </script>
 </body>
 </html>`
