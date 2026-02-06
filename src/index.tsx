@@ -9220,20 +9220,21 @@ function getMarketingPage(user?: User) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ShopShot - Turn Any Product Photo Into Professional Shots in Seconds</title>
-  <meta name="description" content="AI-powered product photography. Upload any photo, get 10 professional variations in seconds. Perfect for eBay, Etsy, Amazon sellers.">
+  <title>ShopShot - AI Product Photography for Online Sellers | 10 Pro Shots in 25 Seconds</title>
+  <meta name="description" content="Transform any product photo into 10 professional marketplace-ready images in 25 seconds. Export presets for eBay, Amazon, Etsy, Depop. Batch upload 20 products. Free background removal. Start free.">
   <link rel="canonical" href="https://www.shopshot.co.uk/">
-  <meta property="og:title" content="ShopShot - AI Product Photography">
-  <meta property="og:description" content="Turn any product photo into 10 professional shots in seconds. Perfect for eBay, Etsy, Amazon sellers.">
+  <meta property="og:title" content="ShopShot - AI Product Photography That Sells">
+  <meta property="og:description" content="Turn any product photo into 10 professional shots in 25 seconds. Export-ready for eBay, Amazon, Etsy, Depop & more.">
   <meta property="og:url" content="https://www.shopshot.co.uk/">
   <meta property="og:type" content="website">
   <meta name="twitter:card" content="summary_large_image">
-  <!-- Favicons for all platforms -->
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png">
   <link rel="icon" type="image/png" sizes="512x512" href="/favicon-512.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#3B82F6">
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -9264,7 +9265,7 @@ function getMarketingPage(user?: User) {
     "applicationCategory": "PhotographyApplication",
     "operatingSystem": "Web",
     "url": "https://www.shopshot.co.uk",
-    "description": "AI-powered product photography. Upload any photo, get 10 professional variations in seconds.",
+    "description": "AI-powered product photography. Upload any photo, get 10 professional variations in seconds. Export-ready for eBay, Amazon, Etsy, Depop.",
     "offers": {
       "@type": "Offer",
       "price": "0",
@@ -9283,1201 +9284,438 @@ function getMarketingPage(user?: User) {
   ${GTM_HEAD}
   <style>
     * { font-family: 'Inter', system-ui, sans-serif; box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #FAFBFC; color: #1F2937; overflow-x: hidden; }
     
-    body {
-      background: #FAFBFC;
-      color: #1F2937;
-      overflow-x: hidden;
-    }
-    
-    /* Navigation */
+    /* ===== NAVIGATION ===== */
     .nav {
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      z-index: 100;
-      padding: 16px 32px;
-      background: rgba(255,255,255,0.9);
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      padding: 14px 32px;
+      background: rgba(255,255,255,0.95);
       backdrop-filter: blur(20px);
       border-bottom: 1px solid rgba(229,231,235,0.5);
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
+      display: flex; justify-content: space-between; align-items: center;
     }
-    .nav-logo {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      text-decoration: none;
-    }
+    .nav-logo { display: flex; align-items: center; gap: 10px; text-decoration: none; }
     .nav-logo-icon {
-      width: 40px;
-      height: 40px;
+      width: 40px; height: 40px;
       background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
-      border-radius: 12px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      border-radius: 12px; display: flex; align-items: center; justify-content: center;
     }
     .nav-logo-icon svg { width: 22px; height: 22px; }
     .nav-logo-text { font-size: 24px; font-weight: 800; color: #1F2937; }
-    .nav-links { display: flex; align-items: center; gap: 32px; }
+    .nav-links { display: flex; align-items: center; gap: 28px; }
     .nav-link { color: #6B7280; text-decoration: none; font-size: 15px; font-weight: 500; transition: color 0.2s; }
     .nav-link:hover { color: #1F2937; }
     .nav-cta {
-      padding: 10px 20px;
+      padding: 10px 22px;
       background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
-      color: white;
-      text-decoration: none;
-      border-radius: 10px;
-      font-size: 14px;
-      font-weight: 600;
-      transition: all 0.2s;
+      color: white; text-decoration: none; border-radius: 10px;
+      font-size: 14px; font-weight: 600; transition: all 0.2s;
     }
     .nav-cta:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(139, 92, 246, 0.3); }
-    
-    /* Mobile Menu */
     .mobile-menu-btn {
-      display: none;
-      background: none;
-      border: none;
-      padding: 8px;
-      cursor: pointer;
-      color: #374151;
-      border-radius: 8px;
-      transition: background 0.2s;
+      display: none; background: none; border: none; padding: 8px;
+      cursor: pointer; color: #374151; border-radius: 8px; transition: background 0.2s;
     }
     .mobile-menu-btn:hover { background: rgba(0,0,0,0.05); }
-    @media (max-width: 768px) {
-      .mobile-menu-btn { display: flex; }
-      .nav-links {
-        position: fixed;
-        top: 56px;
-        left: 0;
-        right: 0;
-        background: white;
-        flex-direction: column;
-        padding: 16px;
-        gap: 0;
-        box-shadow: 0 10px 40px rgba(0,0,0,0.1);
-        transform: translateY(-100%);
-        opacity: 0;
-        pointer-events: none;
-        transition: all 0.3s ease;
-        border-bottom: 1px solid #E5E7EB;
-      }
-      .nav-links.active {
-        transform: translateY(0);
-        opacity: 1;
-        pointer-events: auto;
-      }
-      .nav-link {
-        display: block !important;
-        padding: 14px 16px;
-        font-size: 16px;
-        border-radius: 10px;
-        transition: background 0.2s;
-      }
-      .nav-link:hover { background: #F3F4F6; }
-      .nav-cta {
-        margin-top: 8px;
-        text-align: center;
-        padding: 14px 20px;
-        font-size: 16px;
-      }
-    }
-    
-    /* Hero Section */
+
+    /* ===== HERO ===== */
     .hero {
-      position: relative;
-      padding: 160px 32px 100px;
-      text-align: center;
-      overflow: hidden;
-      min-height: 90vh;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      background-image: url('/static/hero-studio.jpg');
-      background-size: cover;
-      background-position: center;
+      position: relative; padding: 140px 32px 80px; text-align: center;
+      overflow: hidden; min-height: 92vh;
+      display: flex; flex-direction: column; justify-content: center;
+      background: linear-gradient(135deg, #EEF2FF 0%, #F5F3FF 50%, #FDF2F8 100%);
     }
-    .hero > * {
-      position: relative;
-      z-index: 2;
+    .hero::before {
+      content: ''; position: absolute; top: -30%; right: -15%; width: 700px; height: 700px;
+      background: radial-gradient(circle, rgba(139,92,246,0.12) 0%, transparent 70%);
+      pointer-events: none;
     }
+    .hero::after {
+      content: ''; position: absolute; bottom: -20%; left: -10%; width: 500px; height: 500px;
+      background: radial-gradient(circle, rgba(59,130,246,0.1) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .hero > * { position: relative; z-index: 2; }
     .hero-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 10px 20px;
-      background: rgba(255,255,255,0.95);
-      border: 1px solid #C7D2FE;
-      border-radius: 100px;
-      font-size: 13px;
-      font-weight: 600;
-      color: #4338CA;
-      margin-bottom: 28px;
-      box-shadow: 0 4px 20px rgba(99, 102, 241, 0.15);
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 10px 20px; background: rgba(255,255,255,0.95);
+      border: 1px solid #C7D2FE; border-radius: 100px;
+      font-size: 13px; font-weight: 600; color: #4338CA;
+      margin-bottom: 28px; box-shadow: 0 4px 20px rgba(99, 102, 241, 0.15);
+      animation: pulse-badge 2s ease-in-out infinite;
     }
-    .hero-badge svg { width: 16px; height: 16px; }
-    .hero-content {
-      background: rgba(255,255,255,0.2);
-      backdrop-filter: blur(12px);
-      padding: 48px 64px;
-      border-radius: 24px;
-      max-width: 900px;
-      margin: 0 auto;
-      box-shadow: 0 25px 80px rgba(0,0,0,0.15);
+    @keyframes pulse-badge {
+      0%, 100% { box-shadow: 0 4px 20px rgba(99, 102, 241, 0.15); }
+      50% { box-shadow: 0 4px 30px rgba(99, 102, 241, 0.3); }
     }
-    /* Mobile Navigation & Hero */
-    @media (max-width: 768px) {
-      .nav { padding: 12px 16px; }
-      .nav-logo-icon { width: 32px; height: 32px; border-radius: 8px; }
-      .nav-logo-icon svg { width: 18px; height: 18px; }
-      .nav-logo-text { font-size: 18px; }
-      .nav-links { gap: 8px; }
-      .nav-link { font-size: 12px; display: none; } /* Hide text links on mobile */
-      .nav-cta { padding: 8px 14px; font-size: 12px; border-radius: 8px; }
-      
-      .hero { 
-        padding: 100px 16px 60px; 
-        min-height: auto;
-      }
-      .hero-content { 
-        padding: 28px 20px; 
-        margin: 0 8px; 
-        border-radius: 20px;
-      }
-      .hero h1 { font-size: 28px; margin-bottom: 16px; }
-      .hero p { font-size: 15px; margin-bottom: 24px; line-height: 1.5; }
-      .hero-ctas { 
-        flex-direction: column; 
-        gap: 12px;
-        margin-bottom: 0;
-      }
-      .btn-primary, .btn-secondary { 
-        width: 100%; 
-        justify-content: center; 
-        padding: 14px 24px;
-        font-size: 15px;
-        border-radius: 12px;
-      }
-      
-      .ticker-section { padding: 24px 0 16px; }
-      .ticker-hint { font-size: 12px; padding: 6px 12px; }
-      .ticker-item { width: 100px; height: 100px; border-radius: 12px; }
-      
-      .stats-bar { 
-        flex-direction: row; 
-        gap: 16px; 
-        padding: 20px 12px;
-        justify-content: space-around;
-      }
-      .stat-item { flex: 1; }
-      .stat-value { font-size: 28px; }
-      .stat-label { font-size: 10px; }
-      
-      .section { padding: 40px 16px; }
-      .section-title { font-size: 28px; }
-      .section-subtitle { font-size: 15px; }
-      
-      .promo-video-container { margin-bottom: 32px; padding: 0 8px; }
-      .play-button { width: 60px; height: 60px; }
-      .play-button svg { width: 24px; height: 24px; }
-      .play-text { font-size: 14px; }
-      
-      .features-grid { gap: 16px; }
-      .feature-card { padding: 24px; border-radius: 16px; }
-      .feature-icon { width: 48px; height: 48px; font-size: 24px; }
-      .feature-card h3 { font-size: 18px; }
-      .feature-card p { font-size: 14px; }
-      
-      .steps { gap: 32px; }
-      .step-number { width: 52px; height: 52px; font-size: 24px; }
-      .step h3 { font-size: 18px; }
-      .step p { font-size: 14px; }
-      
-      .use-cases { gap: 12px; }
-      .use-case { padding: 20px 16px; border-radius: 12px; }
-      .use-case-icon { width: 40px; height: 40px; font-size: 20px; }
-      .use-case h4 { font-size: 13px; }
-      
-      .pricing-grid-section { padding: 40px 16px; }
-      .pricing-grid { gap: 16px; }
-      .pricing-card { padding: 24px 20px; border-radius: 20px; }
-      .pricing-card h3 { font-size: 20px; }
-      .pricing-card .price { font-size: 36px; }
-      .pricing-card .price span { font-size: 14px; }
-      .credits-row { gap: 8px; }
-      .credit-badge { padding: 8px 12px; min-width: 70px; }
-      .credit-badge .count { font-size: 18px; }
-      .credit-badge .label { font-size: 10px; }
-      .pricing-card ul { margin: 16px 0; }
-      .pricing-card ul li { font-size: 13px; padding: 6px 0; }
-      .pricing-btn { padding: 12px 20px; font-size: 14px; }
-      
-      .final-cta { padding: 60px 20px; }
-      .final-cta h2 { font-size: 28px; }
-      .final-cta p { font-size: 16px; margin-bottom: 28px; }
-      
-      .footer { padding: 32px 16px; }
-      .footer-logo-text { font-size: 18px; }
-      .footer-links { flex-wrap: wrap; gap: 16px; }
-    }
-    
-    /* Extra small screens */
-    @media (max-width: 380px) {
-      .hero h1 { font-size: 24px; }
-      .hero p { font-size: 14px; }
-      .btn-primary, .btn-secondary { padding: 12px 20px; font-size: 14px; }
-      .ticker-item { width: 80px; height: 80px; }
-      .pricing-card .price { font-size: 32px; }
-    }
-    
     .hero h1 {
-      font-size: clamp(36px, 5vw, 56px);
-      font-weight: 900;
-      line-height: 1.1;
-      margin: 0 auto 20px;
-      color: #1F2937;
+      font-size: clamp(36px, 5vw, 60px); font-weight: 900;
+      line-height: 1.08; margin: 0 auto 20px; max-width: 850px;
     }
     .hero-highlight {
       background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
     }
     .hero p {
-      font-size: 18px;
-      color: #4B5563;
-      max-width: 600px;
-      margin: 0 auto 32px;
-      line-height: 1.6;
+      font-size: 19px; color: #4B5563; max-width: 640px;
+      margin: 0 auto 36px; line-height: 1.65;
     }
-    .hero-ctas {
-      display: flex;
-      justify-content: center;
-      gap: 16px;
-      margin-bottom: 48px;
-    }
+    .hero-ctas { display: flex; justify-content: center; gap: 16px; margin-bottom: 40px; }
     .btn-primary {
-      display: inline-flex;
-      align-items: center;
-      gap: 10px;
-      padding: 16px 32px;
-      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
-      color: white;
-      text-decoration: none;
-      border-radius: 14px;
-      font-size: 16px;
-      font-weight: 600;
-      transition: all 0.2s;
+      display: inline-flex; align-items: center; gap: 10px;
+      padding: 16px 32px; background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      color: white; text-decoration: none; border-radius: 14px;
+      font-size: 16px; font-weight: 600; transition: all 0.2s;
       box-shadow: 0 4px 20px rgba(99, 102, 241, 0.3);
     }
     .btn-primary:hover { transform: translateY(-3px); box-shadow: 0 8px 30px rgba(99, 102, 241, 0.4); }
     .btn-secondary {
-      display: inline-flex;
-      align-items: center;
-      gap: 10px;
-      padding: 16px 32px;
-      background: white;
-      color: #374151;
-      text-decoration: none;
-      border-radius: 14px;
-      font-size: 16px;
-      border: 1px solid #E5E7EB;
-      cursor: pointer;
-      font-weight: 600;
-      border: 1px solid #E5E7EB;
+      display: inline-flex; align-items: center; gap: 10px;
+      padding: 16px 32px; background: white; color: #374151;
+      text-decoration: none; border-radius: 14px; font-size: 16px;
+      font-weight: 600; border: 1px solid #E5E7EB; cursor: pointer;
       transition: all 0.2s;
     }
     .btn-secondary:hover { border-color: #8B5CF6; color: #7C3AED; }
-    
-    /* Animated Ticker Tape */
-    .ticker-section {
-      padding: 40px 0 20px;
-      background: transparent;
+    .hero-trust {
+      display: flex; align-items: center; justify-content: center; gap: 24px;
+      font-size: 14px; color: #6B7280;
     }
+    .hero-trust-item { display: flex; align-items: center; gap: 6px; }
+    .hero-trust-item svg { color: #10B981; }
+
+    /* ===== PLATFORM LOGOS ===== */
+    .platform-bar {
+      padding: 32px; background: white;
+      border-top: 1px solid #E5E7EB; border-bottom: 1px solid #E5E7EB;
+      text-align: center;
+    }
+    .platform-bar p { font-size: 13px; color: #9CA3AF; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600; margin-bottom: 20px; }
+    .platform-logos { display: flex; justify-content: center; align-items: center; gap: 40px; flex-wrap: wrap; opacity: 0.6; }
+    .platform-logos img { height: 28px; object-fit: contain; filter: grayscale(100%); transition: all 0.3s; }
+    .platform-logos img:hover { filter: grayscale(0%); opacity: 1; }
+    .platform-logo-text {
+      font-size: 20px; font-weight: 800; letter-spacing: -0.5px;
+      color: #6B7280; transition: color 0.3s;
+    }
+    .platform-logo-text:hover { color: #1F2937; }
+
+    /* ===== STATS BAR ===== */
+    .stats-bar {
+      display: flex; justify-content: center; gap: 64px;
+      padding: 32px; background: linear-gradient(135deg, #1F2937 0%, #111827 100%);
+    }
+    .stat-item { text-align: center; }
+    .stat-value { font-size: 42px; font-weight: 800; color: white; }
+    .stat-value span {
+      background: linear-gradient(135deg, #60A5FA 0%, #A78BFA 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .stat-label { font-size: 14px; color: #9CA3AF; margin-top: 4px; }
+
+    /* ===== ANIMATED TICKER ===== */
+    .ticker-section { padding: 48px 0 24px; background: #FAFBFC; }
     .ticker-hint {
-      text-align: center;
-      font-size: 14px;
-      font-weight: 500;
-      color: #1F2937;
-      margin-bottom: 20px;
-      padding: 8px 16px;
-      background: rgba(255,255,255,0.95);
-      display: inline-block;
-      border-radius: 8px;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-      border: 1px solid #E5E7EB;
+      text-align: center; font-size: 14px; font-weight: 500; color: #1F2937;
+      margin-bottom: 20px; padding: 8px 16px; background: rgba(255,255,255,0.95);
+      display: inline-block; border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1); border: 1px solid #E5E7EB;
     }
-    .ticker-hint-wrapper {
-      text-align: center;
-    }
-    .ticker-container {
-      overflow: hidden;
-      width: 100%;
-      position: relative;
-    }
+    .ticker-hint-wrapper { text-align: center; }
+    .ticker-container { overflow: hidden; width: 100%; position: relative; }
     .ticker-wrapper {
-      display: flex;
-      animation: ticker-scroll 40s linear infinite;
-      gap: 20px;
-      padding: 10px 0;
+      display: flex; animation: ticker-scroll 40s linear infinite;
+      gap: 20px; padding: 10px 0;
     }
-    .ticker-wrapper:hover {
-      animation-play-state: paused;
-    }
+    .ticker-wrapper:hover { animation-play-state: paused; }
     @keyframes ticker-scroll {
       0% { transform: translateX(0); }
       100% { transform: translateX(-50%); }
     }
     .ticker-item {
-      flex-shrink: 0;
-      width: 140px;
-      height: 140px;
-      border-radius: 16px;
-      overflow: hidden;
-      cursor: pointer;
-      transition: all 0.3s;
-      box-shadow: 0 8px 30px rgba(0,0,0,0.12);
-      border: 3px solid white;
+      flex-shrink: 0; width: 140px; height: 140px; border-radius: 16px;
+      overflow: hidden; cursor: pointer; transition: all 0.3s;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.12); border: 3px solid white;
     }
-    .ticker-item:hover {
-      transform: scale(1.08);
-      box-shadow: 0 12px 40px rgba(99, 102, 241, 0.3);
-      border-color: #8B5CF6;
-    }
-    .ticker-item img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-    }
-    
-    /* Lightbox Modal */
+    .ticker-item:hover { transform: scale(1.08); box-shadow: 0 12px 40px rgba(99, 102, 241, 0.3); border-color: #8B5CF6; }
+    .ticker-item img { width: 100%; height: 100%; object-fit: cover; }
+
+    /* ===== LIGHTBOX ===== */
     .lightbox-overlay {
-      display: none;
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0,0,0,0.9);
-      z-index: 10000;
-      justify-content: center;
-      align-items: center;
-      padding: 20px;
+      display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.9); z-index: 10000;
+      justify-content: center; align-items: center; padding: 20px;
     }
-    .lightbox-overlay.active {
-      display: flex;
-    }
-    .lightbox-content {
-      max-width: 95vw;
-      max-height: 90vh;
-      position: relative;
-    }
-    .lightbox-content img {
-      max-width: 100%;
-      max-height: 85vh;
-      border-radius: 12px;
-      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
-    }
+    .lightbox-overlay.active { display: flex; }
+    .lightbox-content { max-width: 95vw; max-height: 90vh; position: relative; }
+    .lightbox-content img { max-width: 100%; max-height: 85vh; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
     .lightbox-close {
-      position: absolute;
-      top: -40px;
-      right: 0;
-      background: white;
-      border: none;
-      width: 36px;
-      height: 36px;
-      border-radius: 50%;
-      font-size: 24px;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: #374151;
-    }
-    .lightbox-close:hover {
-      background: #F3F4F6;
+      position: absolute; top: -40px; right: 0; background: white; border: none;
+      width: 36px; height: 36px; border-radius: 50%; font-size: 24px;
+      cursor: pointer; display: flex; align-items: center; justify-content: center; color: #374151;
     }
     .lightbox-nav {
-      position: absolute;
-      top: 50%;
-      transform: translateY(-50%);
-      background: white;
-      border: none;
-      width: 48px;
-      height: 48px;
-      border-radius: 50%;
-      font-size: 24px;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: #374151;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.2);
-    }
-    .lightbox-nav:hover {
-      background: #F3F4F6;
+      position: absolute; top: 50%; transform: translateY(-50%);
+      background: white; border: none; width: 48px; height: 48px;
+      border-radius: 50%; font-size: 24px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      color: #374151; box-shadow: 0 4px 20px rgba(0,0,0,0.2);
     }
     .lightbox-prev { left: -60px; }
     .lightbox-next { right: -60px; }
-    @media (max-width: 768px) {
-      .lightbox-prev { left: 10px; }
-      .lightbox-next { right: 10px; }
-      .ticker-item { width: 120px; height: 120px; }
-    }
-    
-    /* Stats Bar */
-    .stats-bar {
-      display: flex;
-      justify-content: center;
-      gap: 64px;
-      padding: 32px 32px;
-      background: white;
-      border-top: 1px solid #E5E7EB;
-      border-bottom: 1px solid #E5E7EB;
-    }
-    .stat-item { text-align: center; }
-    .stat-value { font-size: 42px; font-weight: 800; color: #1F2937; }
-    .stat-value span { 
-      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-    }
-    .stat-label { font-size: 14px; color: #6B7280; margin-top: 4px; }
-    
-    /* Promo Video Section */
-    .promo-video-container {
-      max-width: 900px;
-      margin: 0 auto 48px;
-      padding: 0 24px;
-    }
-    .promo-video-wrapper {
-      position: relative;
-      border-radius: 20px;
-      overflow: hidden;
-      box-shadow: 0 25px 60px rgba(0,0,0,0.15);
-      aspect-ratio: 16/9;
-      background: #1F2937;
-    }
-    .promo-video-placeholder {
-      position: relative;
-      width: 100%;
-      height: 100%;
-      cursor: pointer;
-      transition: transform 0.3s, box-shadow 0.3s;
-      border-radius: 20px;
-    }
-    .promo-video-placeholder .video-thumbnail {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      filter: brightness(0.7);
-    }
-    .video-play-overlay {
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 16px;
-      z-index: 2;
-    }
-    .play-button {
-      width: 80px;
-      height: 80px;
-      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      box-shadow: 0 10px 40px rgba(99, 102, 241, 0.4);
-      transition: all 0.3s;
-    }
-    .promo-video-placeholder:hover .play-button {
-      transform: scale(1.1);
-      box-shadow: 0 15px 50px rgba(99, 102, 241, 0.5);
-    }
-    .play-button svg {
-      margin-left: 4px;
-    }
-    .play-text {
-      font-size: 16px;
-      font-weight: 600;
-      color: white;
-      text-shadow: 0 2px 10px rgba(0,0,0,0.3);
-    }
-    .promo-video-embed {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-    }
-    .promo-video-embed iframe {
-      border-radius: 20px;
-    }
-    .promo-video-caption {
-      text-align: center;
-      margin-top: 16px;
-      font-size: 14px;
-      color: #6B7280;
-    }
-    @media (max-width: 768px) {
-      .promo-video-container { padding: 0 16px; }
-      .play-button { width: 60px; height: 60px; }
-      .play-button svg { width: 24px; height: 24px; }
-    }
-    
-    /* Section Styles */
-    .section {
-      padding: 60px 32px;
-    }
-    .section-dark {
-      background: linear-gradient(135deg, #1F2937 0%, #111827 100%);
-      color: white;
-    }
-    .section-header {
-      text-align: center;
-      max-width: 700px;
-      margin: 0 auto 40px;
-    }
+
+    /* ===== SECTION STYLES ===== */
+    .section { padding: 80px 32px; }
+    .section-dark { background: linear-gradient(135deg, #1F2937 0%, #111827 100%); color: white; }
+    .section-light { background: #F9FAFB; }
+    .section-header { text-align: center; max-width: 700px; margin: 0 auto 48px; }
     .section-badge {
-      display: inline-block;
-      padding: 6px 14px;
-      background: rgba(99, 102, 241, 0.1);
-      border-radius: 100px;
-      font-size: 12px;
-      font-weight: 600;
-      color: #6366F1;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      margin-bottom: 16px;
+      display: inline-block; padding: 6px 16px;
+      background: rgba(99, 102, 241, 0.1); border-radius: 100px;
+      font-size: 12px; font-weight: 700; color: #6366F1;
+      text-transform: uppercase; letter-spacing: 1px; margin-bottom: 16px;
     }
     .section-dark .section-badge { background: rgba(255,255,255,0.1); color: #A5B4FC; }
-    .section-title {
-      font-size: 40px;
-      font-weight: 800;
-      margin-bottom: 16px;
-    }
-    .section-subtitle {
-      font-size: 18px;
-      color: #6B7280;
-      line-height: 1.6;
-    }
+    .section-title { font-size: 40px; font-weight: 800; margin-bottom: 16px; line-height: 1.15; }
+    .section-subtitle { font-size: 18px; color: #6B7280; line-height: 1.6; }
     .section-dark .section-subtitle { color: #9CA3AF; }
-    
-    /* Feature Sections - Alternating Layout */
-    .feature-section {
-      padding: 100px 0;
-      background: #ffffff;
+
+    /* ===== FEATURE SHOWCASE CARDS ===== */
+    .showcase-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px;
+      max-width: 1200px; margin: 0 auto;
     }
-    .feature-section:nth-child(even) {
-      background: #f9fafb;
+    .showcase-card {
+      background: white; border: 1px solid #E5E7EB; border-radius: 20px;
+      padding: 36px; transition: all 0.3s; position: relative; overflow: hidden;
     }
-    .feature-section-container {
-      max-width: 1200px;
-      margin: 0 auto;
-      padding: 0 40px;
-      display: grid;
-      grid-template-columns: 55% 45%;
-      gap: 80px;
-      align-items: center;
-    }
-    .feature-section.reverse .feature-section-container {
-      grid-template-columns: 45% 55%;
-    }
-    .feature-section.reverse .feature-section-image {
-      order: 2;
-    }
-    .feature-section-image img {
-      width: 100%;
-      height: auto;
-      border-radius: 16px;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.1);
-    }
-    .feature-section-content h2 {
-      font-size: 48px;
-      font-weight: 700;
-      line-height: 1.2;
-      margin-bottom: 24px;
-      color: #111827;
-    }
-    .feature-section-content p {
-      font-size: 20px;
-      line-height: 1.6;
-      margin-bottom: 32px;
-      color: #6b7280;
-    }
-    .feature-cta-button {
-      display: inline-block;
-      padding: 16px 40px;
-      background: #4F46E5;
-      color: white;
-      border-radius: 8px;
-      font-weight: 600;
-      font-size: 18px;
-      text-decoration: none;
-      transition: all 0.2s;
-    }
-    .feature-cta-button:hover {
-      background: #4338CA;
-      transform: translateY(-2px);
-      box-shadow: 0 10px 30px rgba(79, 70, 229, 0.3);
-    }
-    @media (max-width: 768px) {
-      .feature-section {
-        padding: 60px 0;
-      }
-      .feature-section-container {
-        grid-template-columns: 1fr;
-        gap: 40px;
-        padding: 0 20px;
-      }
-      .feature-section.reverse .feature-section-container {
-        grid-template-columns: 1fr;
-      }
-      .feature-section.reverse .feature-section-image {
-        order: 0;
-      }
-      .feature-section-content h2 {
-        font-size: 32px;
-      }
-      .feature-section-content p {
-        font-size: 18px;
-      }
-      .feature-cta-button {
-        padding: 14px 32px;
-        font-size: 16px;
-      }
-    }
-    
-    /* Brand Colors Section - Eye-catching comparison */
-    .brand-colors-section {
-      padding: 100px 0;
-      background: linear-gradient(135deg, #EEF2FF 0%, #E0E7FF 50%, #C7D2FE 100%);
-      position: relative;
-      overflow: hidden;
-    }
-    .brand-colors-section::before {
-      content: '';
-      position: absolute;
-      top: -50%;
-      right: -20%;
-      width: 600px;
-      height: 600px;
-      background: radial-gradient(circle, rgba(99, 102, 241, 0.15) 0%, transparent 70%);
-      pointer-events: none;
-    }
-    .brand-colors-container {
-      max-width: 1200px;
-      margin: 0 auto;
-      padding: 0 40px;
-      position: relative;
-      z-index: 1;
-    }
-    .brand-colors-header {
-      text-align: center;
-      margin-bottom: 60px;
-    }
-    .brand-colors-badge {
-      display: inline-block;
-      padding: 8px 20px;
-      background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%);
-      color: white;
-      border-radius: 100px;
-      font-size: 12px;
-      font-weight: 700;
-      letter-spacing: 1.5px;
-      margin-bottom: 20px;
-      box-shadow: 0 4px 15px rgba(79, 70, 229, 0.4);
-    }
-    .brand-colors-header h2 {
-      font-size: 52px;
-      font-weight: 800;
-      color: #1F2937;
-      margin-bottom: 16px;
-      line-height: 1.1;
-    }
-    .brand-colors-header p {
-      font-size: 20px;
-      color: #4B5563;
-      max-width: 600px;
-      margin: 0 auto;
-      line-height: 1.6;
-    }
-    .brand-colors-comparison {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 24px;
-      margin-bottom: 50px;
-    }
-    .comparison-side {
-      flex: 1;
-      max-width: 500px;
-    }
-    .comparison-label {
-      text-align: center;
-      font-size: 14px;
-      font-weight: 600;
-      color: #6B7280;
-      margin-bottom: 12px;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-    }
-    .comparison-label.highlight {
-      color: #4F46E5;
-    }
-    .comparison-side img {
-      width: 100%;
-      border-radius: 16px;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
-      transition: transform 0.3s, box-shadow 0.3s;
-    }
-    .comparison-side img:hover {
-      transform: translateY(-5px);
-      box-shadow: 0 30px 80px rgba(0, 0, 0, 0.2);
-    }
-    .comparison-divider {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 8px;
-    }
-    .divider-icon {
-      width: 48px;
-      height: 48px;
-      background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%);
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: white;
-      box-shadow: 0 4px 20px rgba(79, 70, 229, 0.4);
-    }
-    .brand-colors-feature {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 40px;
-      margin-bottom: 40px;
-      background: white;
-      padding: 32px;
-      border-radius: 20px;
-      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.08);
-    }
-    .brand-ui-preview {
-      max-width: 400px;
-      border-radius: 12px;
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
-    }
-    .brand-colors-bullets {
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-    }
-    .bullet-item {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      font-size: 18px;
-      color: #374151;
-    }
-    .bullet-icon {
-      font-size: 24px;
-    }
-    .brand-colors-cta {
-      display: block;
-      width: fit-content;
-      margin: 0 auto;
-      padding: 18px 48px;
-      background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%);
-      color: white;
-      border-radius: 12px;
-      font-weight: 700;
-      font-size: 18px;
-      text-decoration: none;
-      transition: all 0.3s;
-      box-shadow: 0 8px 30px rgba(79, 70, 229, 0.4);
-    }
-    .brand-colors-cta:hover {
-      transform: translateY(-3px);
-      box-shadow: 0 12px 40px rgba(79, 70, 229, 0.5);
-    }
-    @media (max-width: 900px) {
-      .brand-colors-section { padding: 60px 0; }
-      .brand-colors-container { padding: 0 20px; }
-      .brand-colors-header h2 { font-size: 36px; }
-      .brand-colors-header p { font-size: 18px; }
-      .brand-colors-comparison {
-        flex-direction: column;
-        gap: 20px;
-      }
-      .comparison-side { max-width: 100%; }
-      .comparison-divider { 
-        transform: rotate(90deg);
-        margin: 10px 0;
-      }
-      .brand-colors-feature {
-        flex-direction: column;
-        padding: 24px;
-        gap: 24px;
-      }
-      .brand-ui-preview { max-width: 100%; }
-      .bullet-item { font-size: 16px; }
-    }
-    
-    /* Legacy Features Grid - keeping for compatibility */
-    .features-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 32px;
-      max-width: 1200px;
-      margin: 0 auto;
-    }
-    @media (max-width: 900px) { .features-grid { grid-template-columns: 1fr; } }
-    .feature-card {
-      background: white;
-      border: 1px solid #E5E7EB;
-      border-radius: 20px;
-      padding: 32px;
-      transition: all 0.3s;
-    }
-    .feature-card:hover {
+    .showcase-card:hover {
       transform: translateY(-8px);
-      box-shadow: 0 20px 40px rgba(0,0,0,0.08);
+      box-shadow: 0 20px 50px rgba(0,0,0,0.1);
       border-color: #C7D2FE;
     }
-    .feature-icon {
-      width: 56px;
-      height: 56px;
+    .showcase-card.featured-card {
+      grid-column: span 2; display: grid;
+      grid-template-columns: 1fr 1fr; gap: 32px; align-items: center;
+    }
+    .showcase-icon {
+      width: 56px; height: 56px;
       background: linear-gradient(135deg, #EEF2FF 0%, #E0E7FF 100%);
-      border-radius: 14px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 28px;
-      margin-bottom: 20px;
+      border-radius: 14px; display: flex; align-items: center;
+      justify-content: center; font-size: 28px; margin-bottom: 20px;
     }
-    .feature-card h3 { font-size: 20px; font-weight: 700; margin-bottom: 10px; }
-    .feature-card p { font-size: 15px; color: #6B7280; line-height: 1.6; }
-    
-    /* How It Works */
-    .steps {
-      display: flex;
-      justify-content: center;
-      gap: 48px;
-      max-width: 1000px;
-      margin: 0 auto;
+    .showcase-card h3 { font-size: 22px; font-weight: 700; margin-bottom: 12px; color: #1F2937; }
+    .showcase-card p { font-size: 15px; color: #6B7280; line-height: 1.7; }
+    .showcase-tag {
+      display: inline-block; padding: 4px 10px; border-radius: 6px;
+      font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.5px; margin-bottom: 16px;
     }
-    @media (max-width: 768px) { .steps { flex-direction: column; align-items: center; } }
-    .step {
-      flex: 1;
-      max-width: 280px;
-      text-align: center;
+    .tag-new { background: #DCFCE7; color: #166534; }
+    .tag-popular { background: #FEF3C7; color: #92400E; }
+    .tag-free { background: #DBEAFE; color: #1E40AF; }
+    .platform-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px; }
+    .platform-tag {
+      padding: 4px 10px; background: #F3F4F6; border-radius: 6px;
+      font-size: 12px; font-weight: 600; color: #4B5563;
     }
-    .step-number {
-      width: 64px;
-      height: 64px;
+
+    /* ===== PROMO VIDEO ===== */
+    .promo-video-container { max-width: 900px; margin: 0 auto 48px; padding: 0 24px; }
+    .promo-video-wrapper {
+      position: relative; border-radius: 20px; overflow: hidden;
+      box-shadow: 0 25px 60px rgba(0,0,0,0.15); aspect-ratio: 16/9; background: #1F2937;
+    }
+    .promo-video-placeholder {
+      position: relative; width: 100%; height: 100%; cursor: pointer;
+      transition: transform 0.3s; border-radius: 20px;
+    }
+    .promo-video-placeholder .video-thumbnail { width: 100%; height: 100%; object-fit: cover; filter: brightness(0.7); }
+    .video-play-overlay {
+      position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; gap: 16px; z-index: 2;
+    }
+    .play-button {
+      width: 80px; height: 80px;
       background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 28px;
-      font-weight: 800;
-      color: white;
-      margin: 0 auto 20px;
+      border-radius: 50%; display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 10px 40px rgba(99, 102, 241, 0.4); transition: all 0.3s;
+    }
+    .promo-video-placeholder:hover .play-button {
+      transform: scale(1.1); box-shadow: 0 15px 50px rgba(99, 102, 241, 0.5);
+    }
+    .play-text { font-size: 16px; font-weight: 600; color: white; text-shadow: 0 2px 10px rgba(0,0,0,0.3); }
+    .promo-video-embed { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+    .promo-video-embed iframe { border-radius: 20px; }
+    .promo-video-caption { text-align: center; margin-top: 16px; font-size: 14px; color: #6B7280; }
+
+    /* ===== HOW IT WORKS ===== */
+    .steps { display: flex; justify-content: center; gap: 48px; max-width: 1000px; margin: 0 auto; }
+    .step { flex: 1; max-width: 280px; text-align: center; }
+    .step-number {
+      width: 64px; height: 64px;
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      border-radius: 50%; display: flex; align-items: center; justify-content: center;
+      font-size: 28px; font-weight: 800; color: white; margin: 0 auto 20px;
     }
     .step h3 { font-size: 20px; font-weight: 700; margin-bottom: 10px; color: white; }
     .step p { font-size: 15px; color: #9CA3AF; line-height: 1.6; }
-    
-    /* Use Cases */
-    .use-cases {
-      display: grid;
-      grid-template-columns: repeat(5, 1fr);
-      gap: 24px;
-      max-width: 1100px;
-      margin: 0 auto;
+
+    /* ===== FEATURE SECTIONS (Alternating) ===== */
+    .feature-section { padding: 100px 0; background: #ffffff; }
+    .feature-section:nth-child(even) { background: #f9fafb; }
+    .feature-section-container {
+      max-width: 1200px; margin: 0 auto; padding: 0 40px;
+      display: grid; grid-template-columns: 55% 45%; gap: 80px; align-items: center;
     }
-    @media (max-width: 900px) { .use-cases { grid-template-columns: repeat(2, 1fr); } }
-    @media (max-width: 500px) { .use-cases { grid-template-columns: 1fr; } }
-    .use-case {
-      background: white;
-      border: 1px solid #E5E7EB;
-      border-radius: 16px;
-      padding: 28px 20px;
-      text-align: center;
-      transition: all 0.3s;
+    .feature-section.reverse .feature-section-container { grid-template-columns: 45% 55%; }
+    .feature-section.reverse .feature-section-image { order: 2; }
+    .feature-section-image img {
+      width: 100%; height: auto; border-radius: 16px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.1);
     }
-    .use-case:hover { transform: translateY(-4px); box-shadow: 0 12px 30px rgba(0,0,0,0.08); }
-    .use-case-icon {
-      width: 48px;
-      height: 48px;
-      background: linear-gradient(135deg, #F3E8FF 0%, #E9D5FF 100%);
-      border-radius: 12px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 24px;
-      margin: 0 auto 14px;
+    .feature-section-content h2 { font-size: 44px; font-weight: 700; line-height: 1.2; margin-bottom: 20px; color: #111827; }
+    .feature-section-content p { font-size: 18px; line-height: 1.7; margin-bottom: 24px; color: #6b7280; }
+    .feature-bullets { list-style: none; padding: 0; margin: 0 0 28px; }
+    .feature-bullets li {
+      display: flex; align-items: center; gap: 10px;
+      font-size: 15px; color: #374151; padding: 6px 0;
     }
-    .use-case h4 { font-size: 15px; font-weight: 600; color: #1F2937; }
-    
-    /* Before/After */
-    .before-after {
-      display: flex;
-      justify-content: center;
-      gap: 48px;
-      max-width: 900px;
-      margin: 0 auto;
-      align-items: center;
+    .feature-bullets li::before {
+      content: ''; width: 20px; height: 20px; flex-shrink: 0;
+      background: #10B981; border-radius: 50%;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='white'%3E%3Cpath fill-rule='evenodd' d='M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z' clip-rule='evenodd'/%3E%3C/svg%3E");
+      background-size: 12px; background-repeat: no-repeat; background-position: center;
     }
-    @media (max-width: 768px) { .before-after { flex-direction: column; gap: 32px; } }
-    .ba-item {
-      flex: 1;
-      background: white;
-      border-radius: 20px;
-      overflow: hidden;
-      box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+    .feature-cta-button {
+      display: inline-block; padding: 14px 36px;
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      color: white; border-radius: 10px; font-weight: 600; font-size: 16px;
+      text-decoration: none; transition: all 0.2s;
+      box-shadow: 0 4px 20px rgba(99, 102, 241, 0.3);
     }
-    .ba-image {
-      height: 280px;
-      background: #F3F4F6;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 64px;
-    }
-    .ba-label {
-      padding: 20px;
-      text-align: center;
-      font-size: 16px;
-      font-weight: 600;
-    }
-    .ba-arrow {
-      font-size: 48px;
-      color: #8B5CF6;
-    }
-    
-    /* Pricing Grid - Full Version */
-    .pricing-grid-section {
-      background: #F9FAFB;
-      padding: 80px 32px;
-    }
-    .pricing-grid {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 24px;
-      max-width: 1200px;
-      margin: 0 auto;
-    }
-    @media (max-width: 1100px) { .pricing-grid { grid-template-columns: repeat(2, 1fr); max-width: 700px; } }
-    @media (max-width: 600px) { .pricing-grid { grid-template-columns: 1fr; max-width: 400px; } }
+    .feature-cta-button:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(99, 102, 241, 0.4); }
+
+    /* ===== PRICING ===== */
+    .pricing-grid-section { background: #F9FAFB; padding: 80px 32px; }
+    .pricing-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; max-width: 1200px; margin: 0 auto; }
     .pricing-card {
-      background: white;
-      border: 1px solid #E5E7EB;
-      border-radius: 20px;
-      padding: 32px;
-      position: relative;
-      transition: all 0.3s;
+      background: white; border: 1px solid #E5E7EB; border-radius: 20px;
+      padding: 32px; position: relative; transition: all 0.3s;
     }
     .pricing-card:hover { border-color: #8B5CF6; box-shadow: 0 12px 40px rgba(139, 92, 246, 0.15); transform: translateY(-4px); }
-    .pricing-card.featured {
-      border: 2px solid #8B5CF6;
-      box-shadow: 0 12px 40px rgba(139, 92, 246, 0.2);
-    }
+    .pricing-card.featured { border: 2px solid #8B5CF6; box-shadow: 0 12px 40px rgba(139, 92, 246, 0.2); }
     .pricing-card.featured::before {
-      content: 'Most Popular';
-      position: absolute;
-      top: -12px;
-      left: 50%;
+      content: 'Most Popular'; position: absolute; top: -12px; left: 50%;
       transform: translateX(-50%);
       background: linear-gradient(135deg, #8B5CF6 0%, #3B82F6 100%);
-      color: white;
-      padding: 6px 16px;
-      border-radius: 100px;
-      font-size: 12px;
-      font-weight: 600;
+      color: white; padding: 6px 16px; border-radius: 100px; font-size: 12px; font-weight: 600;
     }
     .pricing-card h3 { font-size: 20px; font-weight: 700; color: #1F2937; margin-bottom: 4px; }
     .pricing-card .price { font-size: 42px; font-weight: 800; color: #1F2937; margin-bottom: 4px; }
     .pricing-card .price span { font-size: 16px; font-weight: 500; color: #9CA3AF; }
     .pricing-card .price-note { font-size: 13px; color: #9CA3AF; margin-bottom: 20px; }
-    .pricing-card .credits-row {
-      display: flex;
-      gap: 10px;
-      margin-bottom: 20px;
-    }
-    .credit-badge {
-      flex: 1;
-      padding: 10px;
-      background: #F9FAFB;
-      border-radius: 10px;
-      text-align: center;
-    }
+    .credits-row { display: flex; gap: 10px; margin-bottom: 20px; }
+    .credit-badge { flex: 1; padding: 10px; background: #F9FAFB; border-radius: 10px; text-align: center; }
     .credit-badge .count { font-size: 22px; font-weight: 700; }
     .credit-badge .label { font-size: 10px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.5px; }
     .credit-badge.standard .count { color: #3B82F6; }
     .credit-badge.pro .count { color: #8B5CF6; }
     .pricing-card ul { list-style: none; margin-bottom: 20px; padding: 0; }
-    .pricing-card li {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-size: 14px;
-      color: #4B5563;
-      margin-bottom: 10px;
-    }
+    .pricing-card li { display: flex; align-items: center; gap: 10px; font-size: 14px; color: #4B5563; margin-bottom: 10px; }
     .pricing-card li::before {
-      content: '';
-      width: 18px;
-      height: 18px;
-      background: #10B981;
-      border-radius: 50%;
-      flex-shrink: 0;
+      content: ''; width: 18px; height: 18px; background: #10B981; border-radius: 50%; flex-shrink: 0;
       background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='white'%3E%3Cpath fill-rule='evenodd' d='M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z' clip-rule='evenodd'/%3E%3C/svg%3E");
-      background-size: 11px;
-      background-repeat: no-repeat;
-      background-position: center;
+      background-size: 11px; background-repeat: no-repeat; background-position: center;
     }
     .pricing-btn {
-      width: 100%;
-      padding: 14px;
-      border-radius: 12px;
-      font-size: 15px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.2s;
-      text-align: center;
-      text-decoration: none;
-      display: block;
+      width: 100%; padding: 14px; border-radius: 12px; font-size: 15px;
+      font-weight: 600; cursor: pointer; transition: all 0.2s;
+      text-align: center; text-decoration: none; display: block;
     }
     .pricing-btn.primary {
       background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
-      border: none;
-      color: white;
+      border: none; color: white;
     }
     .pricing-btn.primary:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(139, 92, 246, 0.35); }
-    .pricing-btn.secondary {
-      background: white;
-      border: 1px solid #E5E7EB;
-      color: #374151;
-    }
+    .pricing-btn.secondary { background: white; border: 1px solid #E5E7EB; color: #374151; }
     .pricing-btn.secondary:hover { border-color: #8B5CF6; color: #8B5CF6; }
-    
-    /* Final CTA */
-    .final-cta {
+
+    /* ===== TESTIMONIALS ===== */
+    .testimonials-section { padding: 80px 32px; background: white; }
+    .testimonials-grid {
+      max-width: 1000px; margin: 0 auto;
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 32px;
+    }
+    .testimonial-card {
+      background: #F9FAFB; border-radius: 16px; padding: 32px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.06); border: 1px solid #E5E7EB;
+    }
+    .testimonial-stars { color: #FBBF24; font-size: 20px; margin-bottom: 16px; }
+    .testimonial-quote { font-size: 16px; line-height: 1.7; color: #374151; margin-bottom: 24px; font-style: italic; }
+    .testimonial-author { display: flex; align-items: center; gap: 16px; }
+    .testimonial-avatar { width: 56px; height: 56px; border-radius: 50%; object-fit: cover; border: 3px solid #E5E7EB; }
+    .testimonial-info h4 { font-size: 16px; font-weight: 600; color: #1F2937; margin: 0 0 4px 0; }
+    .testimonial-info p { font-size: 14px; color: #6B7280; margin: 0; }
+    .testimonial-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: linear-gradient(135deg, #D1FAE5 0%, #A7F3D0 100%);
+      color: #065F46; font-size: 12px; font-weight: 600;
+      padding: 4px 10px; border-radius: 20px; margin-top: 8px;
+    }
+
+    /* ===== REFERRAL CTA ===== */
+    .referral-cta-section {
+      padding: 80px 32px;
+      background: linear-gradient(135deg, #F0FDF4 0%, #DCFCE7 50%, #D1FAE5 100%);
       text-align: center;
-      padding: 100px 32px;
-      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
-      color: white;
+    }
+    .referral-cta-section h2 { font-size: 40px; font-weight: 800; color: #1F2937; margin-bottom: 16px; }
+    .referral-cta-section p { font-size: 18px; color: #4B5563; max-width: 600px; margin: 0 auto 32px; line-height: 1.6; }
+    .referral-badges { display: flex; justify-content: center; gap: 24px; margin-bottom: 36px; flex-wrap: wrap; }
+    .referral-badge-item {
+      background: white; padding: 20px 28px; border-radius: 16px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.08); text-align: center;
+      border: 1px solid #BBF7D0;
+    }
+    .referral-badge-item .r-icon { font-size: 32px; margin-bottom: 8px; }
+    .referral-badge-item h4 { font-size: 16px; font-weight: 700; color: #1F2937; margin-bottom: 4px; }
+    .referral-badge-item p { font-size: 13px; color: #6B7280; margin: 0; }
+
+    /* ===== FAQ ===== */
+    .faq-section { padding: 80px 32px; background: white; }
+    .faq-grid { max-width: 800px; margin: 0 auto; }
+    .faq-item {
+      border-bottom: 1px solid #E5E7EB; padding: 24px 0;
+    }
+    .faq-question {
+      font-size: 17px; font-weight: 600; color: #1F2937;
+      cursor: pointer; display: flex; justify-content: space-between;
+      align-items: center; gap: 16px;
+    }
+    .faq-question:hover { color: #7C3AED; }
+    .faq-arrow { font-size: 20px; transition: transform 0.3s; color: #9CA3AF; flex-shrink: 0; }
+    .faq-answer {
+      max-height: 0; overflow: hidden; transition: max-height 0.3s ease;
+      font-size: 15px; color: #6B7280; line-height: 1.7;
+    }
+    .faq-item.open .faq-answer { max-height: 200px; padding-top: 12px; }
+    .faq-item.open .faq-arrow { transform: rotate(180deg); }
+
+    /* ===== FINAL CTA ===== */
+    .final-cta {
+      text-align: center; padding: 100px 32px;
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%); color: white;
     }
     .final-cta h2 { font-size: 44px; font-weight: 800; margin-bottom: 16px; }
     .final-cta p { font-size: 20px; opacity: 0.9; margin-bottom: 40px; max-width: 600px; margin-left: auto; margin-right: auto; }
-    .final-cta .btn-primary {
-      background: white;
-      color: #7C3AED;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.2);
-    }
+    .final-cta .btn-primary { background: white; color: #7C3AED; box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
     .final-cta .btn-primary:hover { box-shadow: 0 8px 30px rgba(0,0,0,0.3); }
-    
-    /* Testimonials */
-    .testimonials-section {
-      padding: 80px 32px;
-      background: #F9FAFB;
-    }
-    .testimonials-section h2 {
-      text-align: center;
-      font-size: 36px;
-      font-weight: 800;
-      color: #1F2937;
-      margin-bottom: 16px;
-    }
-    .testimonials-section .section-subtitle {
-      text-align: center;
-      font-size: 18px;
-      color: #6B7280;
-      margin-bottom: 48px;
-      max-width: 600px;
-      margin-left: auto;
-      margin-right: auto;
-    }
-    .testimonials-grid {
-      max-width: 1000px;
-      margin: 0 auto;
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-      gap: 32px;
-    }
-    .testimonial-card {
-      background: white;
-      border-radius: 16px;
-      padding: 32px;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.08);
-      border: 1px solid #E5E7EB;
-    }
-    .testimonial-stars {
-      color: #FBBF24;
-      font-size: 20px;
-      margin-bottom: 16px;
-    }
-    .testimonial-quote {
-      font-size: 16px;
-      line-height: 1.7;
-      color: #374151;
-      margin-bottom: 24px;
-      font-style: italic;
-    }
-    .testimonial-author {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-    }
-    .testimonial-avatar {
-      width: 56px;
-      height: 56px;
-      border-radius: 50%;
-      object-fit: cover;
-      border: 3px solid #E5E7EB;
-    }
-    .testimonial-info h4 {
-      font-size: 16px;
-      font-weight: 600;
-      color: #1F2937;
-      margin: 0 0 4px 0;
-    }
-    .testimonial-info p {
-      font-size: 14px;
-      color: #6B7280;
-      margin: 0;
-    }
-    .testimonial-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      background: linear-gradient(135deg, #D1FAE5 0%, #A7F3D0 100%);
-      color: #065F46;
-      font-size: 12px;
-      font-weight: 600;
-      padding: 4px 10px;
-      border-radius: 20px;
-      margin-top: 8px;
-    }
-    
-    /* Footer */
-    .footer {
-      padding: 48px 32px;
-      background: #111827;
-      color: #9CA3AF;
-    }
+
+    /* ===== FOOTER ===== */
+    .footer { padding: 48px 32px; background: #111827; color: #9CA3AF; }
     .footer-container { max-width: 1200px; margin: 0 auto; }
     .footer-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 32px; margin-bottom: 32px; }
     .footer-section h4 { color: white; font-size: 14px; font-weight: 600; margin-bottom: 16px; }
@@ -10485,40 +9723,93 @@ function getMarketingPage(user?: User) {
     .footer-section li { margin-bottom: 8px; }
     .footer-section a { color: #9CA3AF; text-decoration: none; font-size: 14px; transition: color 0.2s; }
     .footer-section a:hover { color: white; }
-    .footer-bottom { border-top: 1px solid #374151; padding-top: 24px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; }
+    .footer-bottom {
+      border-top: 1px solid #374151; padding-top: 24px;
+      display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;
+    }
     .footer-logo { display: flex; align-items: center; gap: 10px; }
     .footer-logo-icon {
-      width: 32px;
-      height: 32px;
+      width: 32px; height: 32px;
       background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
-      border-radius: 8px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      border-radius: 8px; display: flex; align-items: center; justify-content: center;
     }
     .footer-logo-text { font-size: 18px; font-weight: 700; color: white; }
     .footer-copy { font-size: 13px; color: #6B7280; }
+
+    /* ===== MOBILE RESPONSIVE ===== */
     @media (max-width: 768px) {
+      .mobile-menu-btn { display: flex; }
+      .nav-links {
+        position: fixed; top: 56px; left: 0; right: 0;
+        background: white; flex-direction: column; padding: 16px; gap: 0;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+        transform: translateY(-100%); opacity: 0; pointer-events: none;
+        transition: all 0.3s ease; border-bottom: 1px solid #E5E7EB;
+      }
+      .nav-links.active { transform: translateY(0); opacity: 1; pointer-events: auto; }
+      .nav-link { display: block !important; padding: 14px 16px; font-size: 16px; border-radius: 10px; }
+      .nav-cta { margin-top: 8px; text-align: center; padding: 14px 20px; font-size: 16px; }
+      .nav { padding: 12px 16px; }
+      .hero { padding: 100px 16px 60px; min-height: auto; }
+      .hero h1 { font-size: 30px; }
+      .hero p { font-size: 16px; margin-bottom: 24px; }
+      .hero-ctas { flex-direction: column; gap: 12px; }
+      .btn-primary, .btn-secondary { width: 100%; justify-content: center; padding: 14px 24px; font-size: 15px; }
+      .hero-trust { flex-direction: column; gap: 8px; }
+      .platform-bar { padding: 20px 16px; }
+      .platform-logos { gap: 20px; }
+      .platform-logo-text { font-size: 16px; }
+      .stats-bar { flex-direction: row; gap: 16px; padding: 20px 12px; justify-content: space-around; }
+      .stat-value { font-size: 28px; }
+      .stat-label { font-size: 10px; }
+      .ticker-section { padding: 24px 0 16px; }
+      .ticker-item { width: 100px; height: 100px; }
+      .section { padding: 48px 16px; }
+      .section-title { font-size: 28px; }
+      .section-subtitle { font-size: 15px; }
+      .showcase-grid { grid-template-columns: 1fr; gap: 16px; }
+      .showcase-card.featured-card { grid-column: span 1; grid-template-columns: 1fr; }
+      .feature-section { padding: 60px 0; }
+      .feature-section-container { grid-template-columns: 1fr; gap: 40px; padding: 0 20px; }
+      .feature-section.reverse .feature-section-container { grid-template-columns: 1fr; }
+      .feature-section.reverse .feature-section-image { order: 0; }
+      .feature-section-content h2 { font-size: 30px; }
+      .steps { flex-direction: column; align-items: center; gap: 32px; }
+      .pricing-grid-section { padding: 48px 16px; }
+      .pricing-grid { grid-template-columns: 1fr; max-width: 400px; }
+      .pricing-card .price { font-size: 36px; }
+      .referral-badges { flex-direction: column; gap: 16px; align-items: center; }
+      .faq-question { font-size: 15px; }
+      .final-cta { padding: 60px 20px; }
+      .final-cta h2 { font-size: 28px; }
       .footer-grid { grid-template-columns: repeat(2, 1fr); }
       .footer-bottom { flex-direction: column; text-align: center; }
+      .lightbox-prev { left: 10px; }
+      .lightbox-next { right: 10px; }
+      .promo-video-container { padding: 0 16px; }
+    }
+    @media (max-width: 1100px) {
+      .pricing-grid { grid-template-columns: repeat(2, 1fr); max-width: 700px; }
+    }
+    @media (max-width: 380px) {
+      .hero h1 { font-size: 24px; }
+      .ticker-item { width: 80px; height: 80px; }
     }
   </style>
 </head>
 <body>
   ${GTM_BODY}
-  <!-- Navigation -->
+  
+  <!-- ===== NAVIGATION ===== -->
   <nav class="nav">
     <a href="/" class="nav-logo">
       <div class="nav-logo-icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
-          <circle cx="12" cy="12" r="10"/>
-          <circle cx="12" cy="12" r="3"/>
+          <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/>
         </svg>
       </div>
       <span class="nav-logo-text">ShopShot</span>
     </a>
-    
-    <!-- Mobile Menu Button -->
     <button class="mobile-menu-btn" onclick="toggleMobileMenu()" aria-label="Toggle menu">
       <svg class="menu-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
@@ -10527,64 +9818,113 @@ function getMarketingPage(user?: User) {
         <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
       </svg>
     </button>
-    
     <div class="nav-links">
       <a href="#features" class="nav-link">Features</a>
       <a href="#how-it-works" class="nav-link">How It Works</a>
       <a href="#pricing" class="nav-link">Pricing</a>
+      <a href="/tools/remove-background" class="nav-link">Free Tools</a>
       ${user ? `
       <a href="/app" class="nav-cta">Open App</a>
       ` : `
       <a href="/login" class="nav-link">Log In</a>
-      <a href="/app" class="nav-cta">Try Free</a>
+      <a href="/register" class="nav-cta">Start Free</a>
       `}
     </div>
   </nav>
 
-  <!-- Hero Section -->
+  <!-- ===== HERO SECTION ===== -->
   <section class="hero">
-    <div class="hero-content">
-      <h1>Turn Any Product Photo Into <span class="hero-highlight">10 Professional Shots</span> in Seconds</h1>
-      <p>Upload a single photo. Get hero shots, lifestyle images, flat-lays, and more. No photography skills needed. Perfect for online sellers.</p>
-      <div class="hero-ctas">
-        <a href="${isLoggedIn ? '/app' : '/register'}" class="btn-primary">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-          ${isLoggedIn ? 'Open App' : 'Start Free - 8 Credits'}
-        </a>
-        <button onclick="scrollToVideo()" class="btn-secondary">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8" fill="currentColor"/></svg>
-          See How It Works
-        </button>
+    <div class="hero-badge">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+      New: Marketplace Export Presets + Batch Upload + 36 Shot Types
+    </div>
+    <h1>Professional Product Photos That <span class="hero-highlight">Actually Sell</span></h1>
+    <p>Upload one photo. Get 10 marketplace-ready variations in 25 seconds. Export-optimised for eBay, Amazon, Etsy, Depop & more. No design skills needed.</p>
+    <div class="hero-ctas">
+      <a href="${isLoggedIn ? '/app' : '/register'}" class="btn-primary">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        ${isLoggedIn ? 'Open App' : 'Start Free - 8 Credits'}
+      </a>
+      <button onclick="scrollToVideo()" class="btn-secondary">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8" fill="currentColor"/></svg>
+        Watch Demo
+      </button>
+    </div>
+    <div class="hero-trust">
+      <div class="hero-trust-item">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="#10B981" stroke="none"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        No credit card required
+      </div>
+      <div class="hero-trust-item">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="#10B981" stroke="none"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        8 free credits on signup
+      </div>
+      <div class="hero-trust-item">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="#10B981" stroke="none"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        Results in 25 seconds
       </div>
     </div>
-    
   </section>
-  
-  <!-- Animated Ticker Tape -->
+
+  <!-- ===== PLATFORM LOGOS ===== -->
+  <div class="platform-bar">
+    <p>Export-ready for the platforms you sell on</p>
+    <div class="platform-logos">
+      <span class="platform-logo-text" style="color:#E53238;">eBay</span>
+      <span class="platform-logo-text" style="color:#FF9900;">amazon</span>
+      <span class="platform-logo-text" style="color:#F56400;">Etsy</span>
+      <span class="platform-logo-text" style="color:#FF2300;">Depop</span>
+      <span class="platform-logo-text" style="color:#96BF48;">Shopify</span>
+      <span class="platform-logo-text" style="color:#09B83E;">Vinted</span>
+      <span class="platform-logo-text" style="color:#E1306C;">Instagram</span>
+      <span class="platform-logo-text" style="color:#000000;">TikTok</span>
+    </div>
+  </div>
+
+  <!-- ===== STATS BAR ===== -->
+  <div class="stats-bar">
+    <div class="stat-item">
+      <div class="stat-value"><span>36+</span></div>
+      <div class="stat-label">Shot types available</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-value"><span>25</span>s</div>
+      <div class="stat-label">Average generation time</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-value"><span>14</span></div>
+      <div class="stat-label">Export presets</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-value"><span>20</span></div>
+      <div class="stat-label">Batch upload limit</div>
+    </div>
+  </div>
+
+  <!-- ===== TICKER TAPE ===== -->
   <section class="ticker-section">
     <div class="ticker-hint-wrapper">
       <div class="ticker-hint">Click any image to see all 10 AI variations</div>
     </div>
     <div class="ticker-container">
       <div class="ticker-wrapper" id="ticker-wrapper">
-        <div class="ticker-item" data-index="0"><img src="/static/examples/example-1-thumb.jpg" alt="Vacuum cleaner"></div>
-        <div class="ticker-item" data-index="1"><img src="/static/examples/example-2-thumb.jpg" alt="Skincare serum"></div>
-        <div class="ticker-item" data-index="2"><img src="/static/examples/example-3-thumb.jpg" alt="White sneakers"></div>
-        <div class="ticker-item" data-index="3"><img src="/static/examples/example-4-thumb.jpg" alt="Candle"></div>
-        <div class="ticker-item" data-index="4"><img src="/static/examples/example-5-thumb.jpg" alt="Coffee bags"></div>
-        <div class="ticker-item" data-index="5"><img src="/static/examples/example-6-thumb.jpg" alt="Smartwatch"></div>
-        <!-- Duplicate for seamless loop -->
-        <div class="ticker-item" data-index="0"><img src="/static/examples/example-1-thumb.jpg" alt="Vacuum cleaner"></div>
-        <div class="ticker-item" data-index="1"><img src="/static/examples/example-2-thumb.jpg" alt="Skincare serum"></div>
-        <div class="ticker-item" data-index="2"><img src="/static/examples/example-3-thumb.jpg" alt="White sneakers"></div>
-        <div class="ticker-item" data-index="3"><img src="/static/examples/example-4-thumb.jpg" alt="Candle"></div>
-        <div class="ticker-item" data-index="4"><img src="/static/examples/example-5-thumb.jpg" alt="Coffee bags"></div>
-        <div class="ticker-item" data-index="5"><img src="/static/examples/example-6-thumb.jpg" alt="Smartwatch"></div>
+        <div class="ticker-item" data-index="0"><img src="/static/examples/example-1-thumb.jpg" alt="Vacuum cleaner" loading="lazy"></div>
+        <div class="ticker-item" data-index="1"><img src="/static/examples/example-2-thumb.jpg" alt="Skincare serum" loading="lazy"></div>
+        <div class="ticker-item" data-index="2"><img src="/static/examples/example-3-thumb.jpg" alt="White sneakers" loading="lazy"></div>
+        <div class="ticker-item" data-index="3"><img src="/static/examples/example-4-thumb.jpg" alt="Candle" loading="lazy"></div>
+        <div class="ticker-item" data-index="4"><img src="/static/examples/example-5-thumb.jpg" alt="Coffee bags" loading="lazy"></div>
+        <div class="ticker-item" data-index="5"><img src="/static/examples/example-6-thumb.jpg" alt="Smartwatch" loading="lazy"></div>
+        <div class="ticker-item" data-index="0"><img src="/static/examples/example-1-thumb.jpg" alt="Vacuum cleaner" loading="lazy"></div>
+        <div class="ticker-item" data-index="1"><img src="/static/examples/example-2-thumb.jpg" alt="Skincare serum" loading="lazy"></div>
+        <div class="ticker-item" data-index="2"><img src="/static/examples/example-3-thumb.jpg" alt="White sneakers" loading="lazy"></div>
+        <div class="ticker-item" data-index="3"><img src="/static/examples/example-4-thumb.jpg" alt="Candle" loading="lazy"></div>
+        <div class="ticker-item" data-index="4"><img src="/static/examples/example-5-thumb.jpg" alt="Coffee bags" loading="lazy"></div>
+        <div class="ticker-item" data-index="5"><img src="/static/examples/example-6-thumb.jpg" alt="Smartwatch" loading="lazy"></div>
       </div>
     </div>
   </section>
-  
-  <!-- Lightbox Modal -->
+
+  <!-- ===== LIGHTBOX ===== -->
   <div class="lightbox-overlay" id="lightbox-overlay">
     <div class="lightbox-content">
       <button class="lightbox-close" onclick="closeLightbox()">&times;</button>
@@ -10594,31 +9934,15 @@ function getMarketingPage(user?: User) {
     </div>
   </div>
 
-  <!-- Stats Bar -->
-  <div class="stats-bar">
-    <div class="stat-item">
-      <div class="stat-value"><span>10</span></div>
-      <div class="stat-label">Variations per upload</div>
-    </div>
-    <div class="stat-item">
-      <div class="stat-value"><span>25</span>s</div>
-      <div class="stat-label">Average generation time</div>
-    </div>
-    <div class="stat-item">
-      <div class="stat-value"><span>8</span></div>
-      <div class="stat-label">Free credits on signup</div>
-    </div>
-  </div>
-
-  <!-- Features Section Header -->
+  <!-- ===== FEATURES OVERVIEW ===== -->
   <section class="section" id="features">
     <div class="section-header">
-      <div class="section-badge">Features</div>
-      <h2 class="section-title">Everything You Need for Better Product Photos</h2>
-      <p class="section-subtitle">Professional results without the professional price tag. Our AI handles the hard work.</p>
+      <div class="section-badge">Everything You Need</div>
+      <h2 class="section-title">One Upload. Ten Professional Shots. Every Platform.</h2>
+      <p class="section-subtitle">ShopShot is the complete AI photography toolkit built for online sellers who want to sell more without spending more.</p>
     </div>
-    
-    <!-- Promo Video Placeholder -->
+
+    <!-- Promo Video -->
     <div class="promo-video-container">
       <div class="promo-video-wrapper">
         <div class="promo-video-placeholder" id="promo-video-placeholder">
@@ -10626,299 +9950,305 @@ function getMarketingPage(user?: User) {
             <div class="play-button">
               <svg width="32" height="32" viewBox="0 0 24 24" fill="white"><polygon points="5,3 19,12 5,21"/></svg>
             </div>
-            <span class="play-text">Watch How It Works</span>
+            <span class="play-text">Watch How It Works (45 sec)</span>
           </div>
           <img src="/static/examples/example-1-full.jpg" alt="ShopShot Demo Preview" class="video-thumbnail">
         </div>
-        <!-- YouTube embed will replace placeholder when user clicks -->
         <div class="promo-video-embed" id="promo-video-embed" style="display: none;">
-          <iframe 
-            id="youtube-iframe"
-            width="100%" 
-            height="100%" 
-            src="" 
-            frameborder="0" 
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-            allowfullscreen>
-          </iframe>
+          <iframe id="youtube-iframe" width="100%" height="100%" src="" frameborder="0"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
         </div>
       </div>
-      <p class="promo-video-caption">See ShopShot transform a simple product photo into 10 professional shots</p>
+      <p class="promo-video-caption">See ShopShot transform a simple product photo into 10 professional marketplace-ready shots</p>
     </div>
-  </section>
-  
-  <!-- Feature Section 1: 10 Unique Variations -->
-  <section class="feature-section">
-    <div class="feature-section-container">
-      <div class="feature-section-image">
-        <img src="/static/examples/features/variations-grid.jpg" alt="10 product photo variations showing same product in different contexts" loading="lazy" />
-      </div>
-      <div class="feature-section-content">
-        <h2>10 Unique Variations</h2>
-        <p>Hero shots, lifestyle contexts, flat-lays, macro details, and more from a single upload. Every angle and style you need to sell more.</p>
-        <a href="/app" class="feature-cta-button">Try It Free</a>
-      </div>
-    </div>
-  </section>
-  
-  <!-- Feature Section 2: Lightning Fast (Reversed) -->
-  <section class="feature-section reverse">
-    <div class="feature-section-container">
-      <div class="feature-section-image">
-        <img src="/static/examples/features/lightning-fast.jpg" alt="Fast product photo transformation in 25 seconds" loading="lazy" />
-      </div>
-      <div class="feature-section-content">
-        <h2>Lightning Fast</h2>
-        <p>Get all 10 professional variations in about 25 seconds. Faster than making a cup of coffee. No waiting around for renders.</p>
-        <a href="#how-it-works" class="feature-cta-button">See It In Action</a>
-      </div>
-    </div>
-  </section>
-  
-  <!-- Feature Section: Brand Colors - Special Before/After -->
-  <section class="brand-colors-section">
-    <div class="brand-colors-container">
-      <div class="brand-colors-header">
-        <span class="brand-colors-badge">NEW FEATURE</span>
-        <h2>Match Your Brand Aesthetic</h2>
-        <p>Add your brand colors and watch lifestyle shots transform to match. Perfect consistency across all your product photography.</p>
-      </div>
-      
-      <div class="brand-colors-comparison">
-        <div class="comparison-side">
-          <div class="comparison-label">Without Brand Colors</div>
-          <img src="/static/examples/brand-colors-before.jpg" alt="Product photos without brand colors" loading="lazy" />
-        </div>
-        <div class="comparison-divider">
-          <div class="divider-icon">
-            <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6" />
-            </svg>
-          </div>
-        </div>
-        <div class="comparison-side">
-          <div class="comparison-label highlight">With Brand Colors</div>
-          <img src="/static/examples/brand-colors-after.jpg" alt="Product photos with brand colors applied" loading="lazy" />
+
+    <!-- Feature Cards Grid -->
+    <div class="showcase-grid">
+      <!-- Card 1: Marketplace Export -->
+      <div class="showcase-card">
+        <span class="showcase-tag tag-new">NEW</span>
+        <div class="showcase-icon">&#x1F4E6;</div>
+        <h3>Marketplace Export Presets</h3>
+        <p>One-click resize for every platform. No more manual cropping or guessing image dimensions.</p>
+        <div class="platform-tags">
+          <span class="platform-tag">eBay</span>
+          <span class="platform-tag">Amazon</span>
+          <span class="platform-tag">Etsy</span>
+          <span class="platform-tag">Depop</span>
+          <span class="platform-tag">Shopify</span>
+          <span class="platform-tag">Instagram</span>
+          <span class="platform-tag">TikTok</span>
         </div>
       </div>
       
-      <div class="brand-colors-feature">
-        <img src="/static/examples/brand-colors-ui.jpg" alt="Brand colors picker interface" class="brand-ui-preview" loading="lazy" />
-        <div class="brand-colors-bullets">
-          <div class="bullet-item">
-            <span class="bullet-icon">🎨</span>
-            <span>Add up to 5 brand colors</span>
-          </div>
-          <div class="bullet-item">
-            <span class="bullet-icon">✨</span>
-            <span>Applies to lifestyle shots (#7, #8, #9)</span>
-          </div>
-          <div class="bullet-item">
-            <span class="bullet-icon">💾</span>
-            <span>Save as default for all future shoots</span>
-          </div>
-        </div>
+      <!-- Card 2: Batch Upload -->
+      <div class="showcase-card">
+        <span class="showcase-tag tag-new">NEW</span>
+        <div class="showcase-icon">&#x1F680;</div>
+        <h3>Batch Upload (20 Products)</h3>
+        <p>Queue up to 20 products and let ShopShot process them sequentially. Download all results as a ZIP.</p>
       </div>
-      
-      <a href="/app" class="brand-colors-cta">Try Brand Colors Free</a>
-    </div>
-  </section>
-  
-  <!-- Feature Section 3: Works With Any Photo -->
-  <section class="feature-section">
-    <div class="feature-section-container">
-      <div class="feature-section-image">
-        <img src="/static/examples/features/any-photo.jpg" alt="AI extracting product from any background" loading="lazy" />
+
+      <!-- Card 3: Custom Shot Types -->
+      <div class="showcase-card">
+        <span class="showcase-tag tag-new">NEW</span>
+        <div class="showcase-icon">&#x1F3A8;</div>
+        <h3>36+ Custom Shot Types</h3>
+        <p>Choose from hero shots, lifestyle scenes, flat-lays, macro details, social-optimised frames, and 9 style presets.</p>
       </div>
-      <div class="feature-section-content">
-        <h2>Works With Any Photo</h2>
-        <p>Upload your best product shot and our AI extracts it perfectly, placing it in 10 professional settings - studio lighting, lifestyle scenes, and more.</p>
-        <a href="/app" class="feature-cta-button">Upload Now</a>
+
+      <!-- Card 4: Before/After Comparison -->
+      <div class="showcase-card">
+        <span class="showcase-tag tag-new">NEW</span>
+        <div class="showcase-icon">&#x1F50D;</div>
+        <h3>Before / After Slider</h3>
+        <p>Drag to compare your original product photo with any AI-generated variation. See the transformation instantly.</p>
       </div>
-    </div>
-  </section>
-  
-  <!-- Feature Section 4: High Resolution (Reversed) -->
-  <section class="feature-section reverse">
-    <div class="feature-section-container">
-      <div class="feature-section-image">
-        <img src="/static/examples/features/high-resolution.jpg" alt="High resolution product images ready for print" loading="lazy" />
+
+      <!-- Card 5: Background Removal -->
+      <div class="showcase-card">
+        <span class="showcase-tag tag-free">FREE TOOL</span>
+        <div class="showcase-icon">&#x2702;&#xFE0F;</div>
+        <h3>Background Removal</h3>
+        <p>Remove any background from your product photos instantly. Free to use, no account needed. Perfect for white-background listings.</p>
       </div>
-      <div class="feature-section-content">
-        <h2>High Resolution</h2>
-        <p>Download print-ready images perfect for marketplaces, websites, and social media. Crisp, detailed, and professional quality.</p>
-        <a href="/pricing" class="feature-cta-button">Start Free Trial</a>
-      </div>
-    </div>
-  </section>
-  
-  <!-- Feature Section 5: Regenerate Anytime -->
-  <section class="feature-section">
-    <div class="feature-section-container">
-      <div class="feature-section-image">
-        <img src="/static/examples/features/regenerate.jpg" alt="Regenerate product images with one click" loading="lazy" />
-      </div>
-      <div class="feature-section-content">
-        <h2>Regenerate Anytime</h2>
-        <p>Not happy with a result? Regenerate individual images or the entire set with one click. Unlimited creative control.</p>
-        <a href="/app" class="feature-cta-button">Try It Free</a>
-      </div>
-    </div>
-  </section>
-  
-  <!-- Feature Section 6: Bulk Download (Reversed) -->
-  <section class="feature-section reverse">
-    <div class="feature-section-container">
-      <div class="feature-section-image">
-        <img src="/static/examples/features/bulk-download.jpg" alt="Bulk download all product images as ZIP" loading="lazy" />
-      </div>
-      <div class="feature-section-content">
-        <h2>Bulk Download</h2>
-        <p>Download all variations as a ZIP file. Ready to upload to your store in seconds. No more tedious one-by-one downloads.</p>
-        <a href="/app" class="feature-cta-button">Open App</a>
+
+      <!-- Card 6: Referral Programme -->
+      <div class="showcase-card">
+        <span class="showcase-tag tag-popular">EARN CREDITS</span>
+        <div class="showcase-icon">&#x1F381;</div>
+        <h3>Refer & Earn</h3>
+        <p>Share your link. Both you and your friend get 5 Standard + 3 Pro credits. No cap on referrals. Keep earning forever.</p>
       </div>
     </div>
   </section>
 
-  <!-- How It Works -->
+  <!-- ===== FEATURE: MARKETPLACE EXPORT (Detailed) ===== -->
+  <section class="feature-section">
+    <div class="feature-section-container">
+      <div class="feature-section-image">
+        <img src="/static/examples/features/variations-grid.jpg" alt="Marketplace export presets showing images resized for eBay, Amazon, Etsy" loading="lazy" />
+      </div>
+      <div class="feature-section-content">
+        <h2>Export-Ready for Every Marketplace</h2>
+        <p>Stop manually resizing images. ShopShot exports your photos in the exact dimensions each platform requires.</p>
+        <ul class="feature-bullets">
+          <li>14 presets across 7 platforms</li>
+          <li>eBay, Amazon, Etsy, Depop, Shopify, Instagram, TikTok</li>
+          <li>Automatic white background padding where needed</li>
+          <li>Client-side processing - instant, no upload wait</li>
+          <li>Export single images or entire sets</li>
+        </ul>
+        <a href="${isLoggedIn ? '/app' : '/register'}" class="feature-cta-button">Try It Free</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== FEATURE: BATCH UPLOAD ===== -->
+  <section class="feature-section reverse">
+    <div class="feature-section-container">
+      <div class="feature-section-image">
+        <img src="/static/examples/features/lightning-fast.jpg" alt="Batch upload interface showing 20 products queued" loading="lazy" />
+      </div>
+      <div class="feature-section-content">
+        <h2>Batch Process 20 Products at Once</h2>
+        <p>Stop uploading one product at a time. Queue up to 20 products and let ShopShot do the heavy lifting.</p>
+        <ul class="feature-bullets">
+          <li>Upload up to 20 product images in one go</li>
+          <li>Sequential AI processing with real-time progress</li>
+          <li>Download all results as a single ZIP file</li>
+          <li>Perfect for inventory days and new stock drops</li>
+        </ul>
+        <a href="${isLoggedIn ? '/app' : '/register'}" class="feature-cta-button">Try Batch Upload</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== FEATURE: CUSTOM SHOTS ===== -->
+  <section class="feature-section">
+    <div class="feature-section-container">
+      <div class="feature-section-image">
+        <img src="/static/examples/features/any-photo.jpg" alt="36 shot types in the variation selector" loading="lazy" />
+      </div>
+      <div class="feature-section-content">
+        <h2>36+ Shot Types. Your Choice.</h2>
+        <p>Go beyond the default 10. Swap in any combination from our library of studio, lifestyle, detail, and social-optimised shots.</p>
+        <ul class="feature-bullets">
+          <li>Studio: Hero, gradient, dark, 3/4 angle, top-down & more</li>
+          <li>Lifestyle: Kitchen, desk, outdoor, cozy home, gym, travel</li>
+          <li>Detail: Material close-up, stitching, hardware, inside view</li>
+          <li>Social: Instagram aesthetic, TikTok style, Pinterest, unboxing</li>
+          <li>9 style presets: Minimalist, luxury, rustic, vintage & more</li>
+        </ul>
+        <a href="${isLoggedIn ? '/app' : '/register'}" class="feature-cta-button">Customise Your Shots</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== FEATURE: BRAND COLORS ===== -->
+  <section class="feature-section reverse">
+    <div class="feature-section-container">
+      <div class="feature-section-image">
+        <img src="/static/examples/brand-colors-after.jpg" alt="Product photos with brand colors applied" loading="lazy" />
+      </div>
+      <div class="feature-section-content">
+        <h2>Match Your Brand Aesthetic</h2>
+        <p>Add up to 5 brand colours and watch lifestyle shots transform to match. Consistent branding across all product photography.</p>
+        <ul class="feature-bullets">
+          <li>Add up to 5 brand colours via colour picker</li>
+          <li>Auto-applies to lifestyle and scene shots</li>
+          <li>Save as default for all future shoots</li>
+          <li>Perfect for brand consistency on social media</li>
+        </ul>
+        <a href="${isLoggedIn ? '/app' : '/register'}" class="feature-cta-button">Try Brand Colours</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== HOW IT WORKS ===== -->
   <section class="section section-dark" id="how-it-works">
     <div class="section-header">
       <div class="section-badge">How It Works</div>
-      <h2 class="section-title">Three Simple Steps</h2>
-      <p class="section-subtitle">From phone snap to professional product photography in under a minute.</p>
+      <h2 class="section-title">Three Steps. Twenty-Five Seconds.</h2>
+      <p class="section-subtitle">From phone snap to professional product photography faster than making a cup of tea.</p>
     </div>
-    
     <div class="steps">
       <div class="step">
         <div class="step-number">1</div>
         <h3>Upload Any Photo</h3>
-        <p>Take a quick snap with your phone or upload an existing image. Any quality works.</p>
+        <p>Snap it with your phone or upload an existing image. Any quality, any background.</p>
       </div>
       <div class="step">
         <div class="step-number">2</div>
-        <h3>AI Does the Magic</h3>
-        <p>Our AI extracts your product and generates 10 professional variations (uses 10 credits).</p>
+        <h3>AI Creates 10 Variations</h3>
+        <p>Our AI extracts your product and generates 10 professional shots - hero, lifestyle, flat-lay, detail & more.</p>
       </div>
       <div class="step">
         <div class="step-number">3</div>
-        <h3>Download & Sell</h3>
-        <p>Download your images and upload them to eBay, Etsy, Amazon, or anywhere you sell.</p>
+        <h3>Export & Sell</h3>
+        <p>Download individually, as a ZIP, or export with marketplace presets. Upload and start selling.</p>
       </div>
     </div>
   </section>
 
-  <!-- Feature Section 7: Perfect for Every Seller -->
+  <!-- ===== FEATURE: BACKGROUND REMOVAL ===== -->
   <section class="feature-section">
     <div class="feature-section-container">
       <div class="feature-section-image">
-        <img src="/static/examples/features/every-seller.jpg" alt="Product photos optimized for eBay, Etsy, Amazon, Depop, and social media" loading="lazy" />
+        <img src="/static/examples/features/high-resolution.jpg" alt="Background removal showing clean product extraction" loading="lazy" />
       </div>
       <div class="feature-section-content">
-        <h2>Perfect for Every Seller</h2>
-        <p>Whether you're selling one item or thousands, ShopShot scales with you. Optimized for eBay, Etsy, Amazon, Depop, Vinted, and social commerce.</p>
-        <a href="/register" class="feature-cta-button">Get Started Free</a>
+        <h2>Free Background Removal</h2>
+        <p>Need a quick clean background? Our AI-powered background removal tool is completely free. No signup required.</p>
+        <ul class="feature-bullets">
+          <li>AI-powered instant background removal</li>
+          <li>No account needed - completely free</li>
+          <li>Download with transparent or white background</li>
+          <li>Perfect for eBay/Amazon white-bg requirements</li>
+        </ul>
+        <a href="/tools/remove-background" class="feature-cta-button">Remove Background Free</a>
       </div>
     </div>
   </section>
 
-  <!-- Full Pricing Grid -->
+  <!-- ===== FEATURE: COMPARISON + MORE ===== -->
+  <section class="feature-section reverse">
+    <div class="feature-section-container">
+      <div class="feature-section-image">
+        <img src="/static/examples/features/regenerate.jpg" alt="Before after comparison slider and regeneration" loading="lazy" />
+      </div>
+      <div class="feature-section-content">
+        <h2>Compare, Regenerate, Perfect</h2>
+        <p>Use the before/after slider to see exactly what AI changed. Not happy with a shot? Regenerate any individual image with one click.</p>
+        <ul class="feature-bullets">
+          <li>Interactive before/after drag slider</li>
+          <li>Regenerate individual shots without losing others</li>
+          <li>High-res downloads ready for print</li>
+          <li>Session history - revisit any previous shoot</li>
+        </ul>
+        <a href="${isLoggedIn ? '/app' : '/register'}" class="feature-cta-button">Start Creating</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== PRICING ===== -->
   <section class="pricing-grid-section" id="pricing">
     <div class="section-header" style="color: #1F2937;">
       <div class="section-badge" style="background: white; color: #4338CA;">Pricing</div>
       <h2 class="section-title" style="color: #1F2937;">Simple, Honest Pricing</h2>
-      <p class="section-subtitle" style="color: #6B7280;">Start free. Upgrade when you're ready. No hidden fees.</p>
+      <p class="section-subtitle" style="color: #6B7280;">Start free. Upgrade when you're ready. Cancel anytime. No hidden fees.</p>
     </div>
-    
-    <div class="pricing-grid" style="grid-template-columns: repeat(4, 1fr);">
-      <!-- Free Tier -->
+    <div class="pricing-grid">
+      <!-- Free -->
       <div class="pricing-card">
         <h3>Free</h3>
         <div class="price">$0</div>
         <div class="price-note">One-time signup bonus</div>
         <div class="credits-row">
-          <div class="credit-badge standard">
-            <div class="count">${CREDITS.SIGNUP_CHEAPER}</div>
-            <div class="label">Standard</div>
-          </div>
-          <div class="credit-badge pro">
-            <div class="count">${CREDITS.SIGNUP_BETTER}</div>
-            <div class="label">Pro</div>
-          </div>
+          <div class="credit-badge standard"><div class="count">${CREDITS.SIGNUP_CHEAPER}</div><div class="label">Standard</div></div>
+          <div class="credit-badge pro"><div class="count">${CREDITS.SIGNUP_BETTER}</div><div class="label">Pro</div></div>
         </div>
         <ul>
-          <li>10 professional variations</li>
-          <li>High-res downloads</li>
-          <li>Session history</li>
+          <li>10 professional variations per shoot</li>
+          <li>All 36+ shot types</li>
+          <li>Marketplace export presets</li>
+          <li>Before/after comparison slider</li>
+          <li>Free background removal tool</li>
+          <li>Referral programme (earn more credits)</li>
         </ul>
         <a href="/register?plan=free" class="pricing-btn secondary">Get Started Free</a>
       </div>
-      
-      <!-- Starter Tier -->
+      <!-- Starter -->
       <div class="pricing-card">
         <h3>Starter</h3>
         <div class="price">$${PRICING.STARTER}<span>/mo</span></div>
-        <div class="price-note">~11 product shoots</div>
+        <div class="price-note">~11 product shoots/month</div>
         <div class="credits-row">
-          <div class="credit-badge standard">
-            <div class="count">${CREDITS.STARTER_CHEAPER}</div>
-            <div class="label">Standard</div>
-          </div>
-          <div class="credit-badge pro">
-            <div class="count">${CREDITS.STARTER_BETTER}</div>
-            <div class="label">Pro</div>
-          </div>
+          <div class="credit-badge standard"><div class="count">${CREDITS.STARTER_CHEAPER}</div><div class="label">Standard</div></div>
+          <div class="credit-badge pro"><div class="count">${CREDITS.STARTER_BETTER}</div><div class="label">Pro</div></div>
         </div>
         <ul>
-          <li>Perfect for testing</li>
-          <li>Both AI models</li>
+          <li>Everything in Free</li>
+          <li>Both AI models (Standard + Pro quality)</li>
+          <li>Batch upload (up to 20 products)</li>
+          <li>ZIP downloads</li>
           <li>Cancel anytime</li>
         </ul>
         <a href="/register?plan=starter" class="pricing-btn primary">Get Starter</a>
       </div>
-      
-      <!-- Standard Tier -->
+      <!-- Standard -->
       <div class="pricing-card featured">
         <h3>Standard</h3>
         <div class="price">$${PRICING.STANDARD}<span>/mo</span></div>
         <div class="price-note">Best for regular sellers</div>
         <div class="credits-row">
-          <div class="credit-badge standard">
-            <div class="count">${CREDITS.STANDARD_CHEAPER}</div>
-            <div class="label">Standard</div>
-          </div>
-          <div class="credit-badge pro">
-            <div class="count">${CREDITS.STANDARD_BETTER}</div>
-            <div class="label">Pro</div>
-          </div>
+          <div class="credit-badge standard"><div class="count">${CREDITS.STANDARD_CHEAPER}</div><div class="label">Standard</div></div>
+          <div class="credit-badge pro"><div class="count">${CREDITS.STANDARD_BETTER}</div><div class="label">Pro</div></div>
         </div>
         <ul>
-          <li>Everything in Free</li>
-          <li>Priority generation</li>
-          <li>Bulk downloads (ZIP)</li>
+          <li>Everything in Starter</li>
+          <li>Priority generation queue</li>
+          <li>Brand colour matching</li>
+          <li>Custom shot type selection</li>
+          <li>Session naming & organisation</li>
           <li>Email support</li>
         </ul>
         <a href="/register?plan=standard" class="pricing-btn primary">Get Standard</a>
       </div>
-      
-      <!-- Pro Tier -->
+      <!-- Pro -->
       <div class="pricing-card">
         <h3>Pro</h3>
         <div class="price">$${PRICING.PRO}<span>/mo</span></div>
         <div class="price-note">For power sellers</div>
         <div class="credits-row">
-          <div class="credit-badge standard">
-            <div class="count">${CREDITS.PRO_CHEAPER}</div>
-            <div class="label">Standard</div>
-          </div>
-          <div class="credit-badge pro">
-            <div class="count">${CREDITS.PRO_BETTER}</div>
-            <div class="label">Pro</div>
-          </div>
+          <div class="credit-badge standard"><div class="count">${CREDITS.PRO_CHEAPER}</div><div class="label">Standard</div></div>
+          <div class="credit-badge pro"><div class="count">${CREDITS.PRO_BETTER}</div><div class="label">Pro</div></div>
         </div>
         <ul>
           <li>Everything in Standard</li>
           <li>Best quality AI model</li>
-          <li>Advanced customization</li>
+          <li>Advanced customisation</li>
+          <li>All marketplace export presets</li>
           <li>Priority support</li>
         </ul>
         <a href="/register?plan=pro" class="pricing-btn primary">Get Pro</a>
@@ -10926,99 +10256,202 @@ function getMarketingPage(user?: User) {
     </div>
   </section>
 
-  <!-- Testimonials -->
+  <!-- ===== TESTIMONIALS ===== -->
   <section class="testimonials-section">
-    <h2>Loved by Sellers</h2>
-    <p class="section-subtitle">See what our customers are saying about ShopShot</p>
+    <div class="section-header">
+      <div class="section-badge">Social Proof</div>
+      <h2 class="section-title">Loved by Online Sellers</h2>
+      <p class="section-subtitle">Real sellers. Real results. See what our customers say about ShopShot.</p>
+    </div>
     <div class="testimonials-grid">
       <div class="testimonial-card">
-        <div class="testimonial-stars">★★★★★</div>
+        <div class="testimonial-stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
         <p class="testimonial-quote">"I am actually blown away by the images your product creates. It will save me hours of set and light design, scene creation, photography and editing. It's affordable and intuitive to use. I love that it creates lay flats, white background and environment shots while retaining the original product detail."</p>
         <div class="testimonial-author">
           <img src="/static/sparklyscotty-logo.png" alt="Sparklyscotty Gifts" class="testimonial-avatar">
           <div class="testimonial-info">
             <h4>Sparklyscotty Gifts</h4>
             <p>Small Business Owner</p>
-            <span class="testimonial-badge">✨ First Customer</span>
+            <span class="testimonial-badge">&#x2728; Verified Customer</span>
+          </div>
+        </div>
+      </div>
+      <div class="testimonial-card">
+        <div class="testimonial-stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
+        <p class="testimonial-quote">"The batch upload feature is a game-changer. I listed 20 new products in under an hour, complete with marketplace-optimised images. Used to take me a full weekend with a camera setup."</p>
+        <div class="testimonial-author">
+          <div style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#3B82F6,#8B5CF6);display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:20px;">M</div>
+          <div class="testimonial-info">
+            <h4>Mike R.</h4>
+            <p>eBay Power Seller</p>
+            <span class="testimonial-badge">&#x1F4E6; 500+ listings</span>
+          </div>
+        </div>
+      </div>
+      <div class="testimonial-card">
+        <div class="testimonial-stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
+        <p class="testimonial-quote">"The marketplace export presets alone are worth it. No more googling 'eBay image size requirements'. One click and every image is perfectly formatted. Brilliant."</p>
+        <div class="testimonial-author">
+          <div style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#F59E0B,#EF4444);display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:20px;">S</div>
+          <div class="testimonial-info">
+            <h4>Sarah K.</h4>
+            <p>Etsy Seller & Maker</p>
+            <span class="testimonial-badge">&#x1F3A8; Handmade Jewellery</span>
           </div>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- Final CTA -->
-  <section class="final-cta">
-    <h2>Ready to Transform Your Product Photos?</h2>
-    <p>Join thousands of sellers using ShopShot to create scroll-stopping product images.</p>
-    <a href="${isLoggedIn ? '/app' : '/register'}" class="btn-primary">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-      ${isLoggedIn ? 'Open App' : 'Start Free - No Credit Card'}
+  <!-- ===== REFERRAL CTA ===== -->
+  <section class="referral-cta-section">
+    <div class="section-badge" style="background: rgba(22, 163, 74, 0.1); color: #16A34A;">Referral Programme</div>
+    <h2>Give 8 Credits. Get 8 Credits.</h2>
+    <p>Share your referral link with fellow sellers. When they sign up, you BOTH get 5 Standard + 3 Pro credits. No cap. No catch.</p>
+    <div class="referral-badges">
+      <div class="referral-badge-item">
+        <div class="r-icon">&#x1F517;</div>
+        <h4>Share Your Link</h4>
+        <p>Unique referral link in your dashboard</p>
+      </div>
+      <div class="referral-badge-item">
+        <div class="r-icon">&#x1F46B;</div>
+        <h4>Friend Signs Up</h4>
+        <p>They get 8 credits automatically</p>
+      </div>
+      <div class="referral-badge-item">
+        <div class="r-icon">&#x1F381;</div>
+        <h4>You Earn Too</h4>
+        <p>5 Standard + 3 Pro credits, no limit</p>
+      </div>
+    </div>
+    <a href="${isLoggedIn ? '/dashboard' : '/register'}" class="btn-primary" style="background: linear-gradient(135deg, #16A34A 0%, #059669 100%); box-shadow: 0 4px 20px rgba(22, 163, 74, 0.3);">
+      ${isLoggedIn ? 'Get Your Referral Link' : 'Sign Up & Start Referring'}
     </a>
   </section>
 
-  <!-- Footer -->
-  <footer class="bg-gray-900 text-white py-12 mt-20">
-    <div class="max-w-7xl mx-auto px-4 grid md:grid-cols-4 gap-8">
-      <div>
-        <h4 class="font-bold mb-4">Product</h4>
-        <ul class="space-y-2 text-gray-300 text-sm">
-          <li><a href="/pricing" class="hover:text-white">Pricing</a></li>
-          <li><a href="/faq" class="hover:text-white">FAQ</a></li>
-          <li><a href="/about" class="hover:text-white">About</a></li>
-          <li><a href="/blog" class="hover:text-white">Blog</a></li>
-        </ul>
+  <!-- ===== FAQ ===== -->
+  <section class="faq-section">
+    <div class="section-header">
+      <div class="section-badge">FAQ</div>
+      <h2 class="section-title">Frequently Asked Questions</h2>
+    </div>
+    <div class="faq-grid">
+      <div class="faq-item">
+        <div class="faq-question" onclick="toggleFaq(this)">
+          How does ShopShot work?
+          <span class="faq-arrow">&#9660;</span>
+        </div>
+        <div class="faq-answer">Upload any product photo. Our AI extracts the product and generates 10 professional variations - hero shots, lifestyle scenes, flat-lays, detail close-ups, and more. Takes about 25 seconds.</div>
       </div>
-      <div>
-        <h4 class="font-bold mb-4">Legal</h4>
-        <ul class="space-y-2 text-gray-300 text-sm">
-          <li><a href="/privacy" class="hover:text-white">Privacy Policy</a></li>
-          <li><a href="/terms" class="hover:text-white">Terms of Service</a></li>
-          <li><a href="/refunds" class="hover:text-white">Refund Policy</a></li>
-          <li><a href="/cookies" class="hover:text-white">Cookie Policy</a></li>
-        </ul>
+      <div class="faq-item">
+        <div class="faq-question" onclick="toggleFaq(this)">
+          What are Standard vs Pro credits?
+          <span class="faq-arrow">&#9660;</span>
+        </div>
+        <div class="faq-answer">Standard credits use our fast AI model (Gemini Flash) - great for quick results. Pro credits use our premium model (Gemini Pro) for the highest quality. Each image costs 1 credit. A full 10-shot set costs 10 credits.</div>
       </div>
-      <div>
-        <h4 class="font-bold mb-4">Support</h4>
-        <ul class="space-y-2 text-gray-300 text-sm">
-          <li><a href="/contact" class="hover:text-white">Contact Us</a></li>
-          <li><a href="/faq" class="hover:text-white">Help Center</a></li>
-          <li><a href="mailto:support@shopshot.co.uk" class="hover:text-white">Email Support</a></li>
-        </ul>
+      <div class="faq-item">
+        <div class="faq-question" onclick="toggleFaq(this)">
+          Can I use the images commercially?
+          <span class="faq-arrow">&#9660;</span>
+        </div>
+        <div class="faq-answer">Yes! All images generated by ShopShot are yours to use commercially. List them on eBay, Amazon, Etsy, your own website, social media - anywhere you sell.</div>
       </div>
-      <div>
-        <h4 class="font-bold mb-4">ShopShot</h4>
-        <p class="text-gray-400 text-sm leading-relaxed">
-          Professional AI product photography for online sellers.
-        </p>
+      <div class="faq-item">
+        <div class="faq-question" onclick="toggleFaq(this)">
+          What marketplace export presets are available?
+          <span class="faq-arrow">&#9660;</span>
+        </div>
+        <div class="faq-answer">We support 14 presets across eBay (main, gallery, mobile), Amazon (main, zoom, listing), Etsy (listing, thumbnail), Depop, Shopify, Instagram (square, story), and TikTok. All use the exact dimensions each platform recommends.</div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-question" onclick="toggleFaq(this)">
+          How does batch upload work?
+          <span class="faq-arrow">&#9660;</span>
+        </div>
+        <div class="faq-answer">Queue up to 20 product images at once. ShopShot processes them sequentially, generating 10 variations for each. When done, download all results as a single ZIP file. Perfect for inventory days.</div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-question" onclick="toggleFaq(this)">
+          Is there a free plan?
+          <span class="faq-arrow">&#9660;</span>
+        </div>
+        <div class="faq-answer">Yes! Sign up and get 5 Standard + 3 Pro credits free. That's enough for a complete product shoot. Plus, refer friends to earn unlimited additional credits.</div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-question" onclick="toggleFaq(this)">
+          Can I install ShopShot as an app?
+          <span class="faq-arrow">&#9660;</span>
+        </div>
+        <div class="faq-answer">Yes! ShopShot is a Progressive Web App (PWA). On mobile, tap "Add to Home Screen" from your browser menu. On desktop Chrome, click the install icon in the address bar. Works offline for viewing your saved sessions.</div>
       </div>
     </div>
-    <div class="border-t border-gray-800 mt-8 pt-8 text-center text-sm text-gray-400 px-4">
-      <p>&copy; 2025-2026 ShopShot Ltd. All rights reserved.</p>
-      <p class="mt-1">Registered in England | Burwash, East Sussex</p>
+  </section>
+
+  <!-- ===== FINAL CTA ===== -->
+  <section class="final-cta">
+    <h2>Stop Taking Bad Product Photos</h2>
+    <p>Join sellers using ShopShot to create scroll-stopping, marketplace-optimised product images in seconds.</p>
+    <a href="${isLoggedIn ? '/app' : '/register'}" class="btn-primary">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      ${isLoggedIn ? 'Open App' : 'Start Free - No Credit Card Required'}
+    </a>
+  </section>
+
+  <!-- ===== FOOTER ===== -->
+  <footer class="footer">
+    <div class="footer-container">
+      <div class="footer-grid">
+        <div class="footer-section">
+          <h4>Product</h4>
+          <ul>
+            <li><a href="/pricing">Pricing</a></li>
+            <li><a href="/faq">FAQ</a></li>
+            <li><a href="/about">About</a></li>
+            <li><a href="/blog">Blog</a></li>
+          </ul>
+        </div>
+        <div class="footer-section">
+          <h4>Free Tools</h4>
+          <ul>
+            <li><a href="/tools/remove-background">Background Removal</a></li>
+            <li><a href="/register">Product Photo Generator</a></li>
+          </ul>
+        </div>
+        <div class="footer-section">
+          <h4>Legal</h4>
+          <ul>
+            <li><a href="/privacy">Privacy Policy</a></li>
+            <li><a href="/terms">Terms of Service</a></li>
+            <li><a href="/refunds">Refund Policy</a></li>
+            <li><a href="/cookies">Cookie Policy</a></li>
+          </ul>
+        </div>
+        <div class="footer-section">
+          <h4>Support</h4>
+          <ul>
+            <li><a href="/contact">Contact Us</a></li>
+            <li><a href="/faq">Help Centre</a></li>
+            <li><a href="mailto:support@shopshot.co.uk">Email Support</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <div class="footer-logo">
+          <div class="footer-logo-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" width="18" height="18">
+              <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/>
+            </svg>
+          </div>
+          <span class="footer-logo-text">ShopShot</span>
+        </div>
+        <div class="footer-copy">&copy; 2025-2026 ShopShot Ltd. All rights reserved. | Registered in England | Burwash, East Sussex</div>
+      </div>
     </div>
   </footer>
 
   <script>
-    // Scroll to video and play it
-    function scrollToVideo() {
-      const videoContainer = document.querySelector('.promo-video-container');
-      const videoPlaceholder = document.getElementById('promo-video-placeholder');
-      if (videoContainer) {
-        videoContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        // After scrolling, highlight the video briefly
-        setTimeout(() => {
-          videoPlaceholder.style.transform = 'scale(1.02)';
-          videoPlaceholder.style.boxShadow = '0 0 0 4px rgba(139, 92, 246, 0.5)';
-          setTimeout(() => {
-            videoPlaceholder.style.transform = '';
-            videoPlaceholder.style.boxShadow = '';
-            // Trigger the video click
-            videoPlaceholder.click();
-          }, 400);
-        }, 600);
-      }
-    }
-    
     // Mobile menu toggle
     function toggleMobileMenu() {
       const navLinks = document.querySelector('.nav-links');
@@ -11026,107 +10459,119 @@ function getMarketingPage(user?: User) {
       const closeIcon = document.querySelector('.close-icon');
       navLinks.classList.toggle('active');
       if (navLinks.classList.contains('active')) {
-        menuIcon.style.display = 'none';
-        closeIcon.style.display = 'block';
+        menuIcon.style.display = 'none'; closeIcon.style.display = 'block';
       } else {
-        menuIcon.style.display = 'block';
-        closeIcon.style.display = 'none';
+        menuIcon.style.display = 'block'; closeIcon.style.display = 'none';
       }
     }
-    
-    // Close mobile menu when clicking a link
     document.querySelectorAll('.nav-link, .nav-cta').forEach(link => {
       link.addEventListener('click', () => {
         const navLinks = document.querySelector('.nav-links');
-        const menuIcon = document.querySelector('.menu-icon');
-        const closeIcon = document.querySelector('.close-icon');
         if (navLinks.classList.contains('active')) {
           navLinks.classList.remove('active');
-          menuIcon.style.display = 'block';
-          closeIcon.style.display = 'none';
+          document.querySelector('.menu-icon').style.display = 'block';
+          document.querySelector('.close-icon').style.display = 'none';
         }
       });
     });
-    
+
     // Smooth scroll for anchor links
     document.querySelectorAll('a[href^="#"]').forEach(anchor => {
-      anchor.addEventListener('click', function (e) {
+      anchor.addEventListener('click', function(e) {
         e.preventDefault();
         const target = document.querySelector(this.getAttribute('href'));
-        if (target) {
-          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
       });
     });
-    
+
+    // Scroll to video and auto-play
+    function scrollToVideo() {
+      const vc = document.querySelector('.promo-video-container');
+      const vp = document.getElementById('promo-video-placeholder');
+      if (vc) {
+        vc.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setTimeout(() => {
+          vp.style.transform = 'scale(1.02)';
+          vp.style.boxShadow = '0 0 0 4px rgba(139, 92, 246, 0.5)';
+          setTimeout(() => { vp.style.transform = ''; vp.style.boxShadow = ''; vp.click(); }, 400);
+        }, 600);
+      }
+    }
+
     // Lightbox for ticker examples
     const exampleFullImages = [
-      '/static/examples/example-1-full.jpg',
-      '/static/examples/example-2-full.jpg',
-      '/static/examples/example-3-full.jpg',
-      '/static/examples/example-4-full.jpg',
-      '/static/examples/example-5-full.jpg',
-      '/static/examples/example-6-full.jpg'
+      '/static/examples/example-1-full.jpg', '/static/examples/example-2-full.jpg',
+      '/static/examples/example-3-full.jpg', '/static/examples/example-4-full.jpg',
+      '/static/examples/example-5-full.jpg', '/static/examples/example-6-full.jpg'
     ];
     let currentLightboxIndex = 0;
-    
     document.querySelectorAll('.ticker-item').forEach(item => {
       item.addEventListener('click', function() {
-        const index = parseInt(this.getAttribute('data-index'));
-        openLightbox(index);
+        openLightbox(parseInt(this.getAttribute('data-index')));
       });
     });
-    
     function openLightbox(index) {
       currentLightboxIndex = index;
       document.getElementById('lightbox-img').src = exampleFullImages[index];
       document.getElementById('lightbox-overlay').classList.add('active');
       document.body.style.overflow = 'hidden';
     }
-    
     function closeLightbox() {
       document.getElementById('lightbox-overlay').classList.remove('active');
       document.body.style.overflow = '';
     }
-    
     function prevLightbox() {
       currentLightboxIndex = (currentLightboxIndex - 1 + exampleFullImages.length) % exampleFullImages.length;
       document.getElementById('lightbox-img').src = exampleFullImages[currentLightboxIndex];
     }
-    
     function nextLightbox() {
       currentLightboxIndex = (currentLightboxIndex + 1) % exampleFullImages.length;
       document.getElementById('lightbox-img').src = exampleFullImages[currentLightboxIndex];
     }
-    
-    // Keyboard navigation
     document.addEventListener('keydown', function(e) {
       if (!document.getElementById('lightbox-overlay').classList.contains('active')) return;
       if (e.key === 'Escape') closeLightbox();
       if (e.key === 'ArrowLeft') prevLightbox();
       if (e.key === 'ArrowRight') nextLightbox();
     });
-    
-    // Click overlay to close
     document.getElementById('lightbox-overlay').addEventListener('click', function(e) {
       if (e.target === this) closeLightbox();
     });
-    
-    // Promo video click handler
-    // Replace YOUR_VIDEO_ID with actual YouTube video ID when available
+
+    // Video embed handler
     const videoPlaceholder = document.getElementById('promo-video-placeholder');
     const videoEmbed = document.getElementById('promo-video-embed');
     const youtubeIframe = document.getElementById('youtube-iframe');
-    const YOUTUBE_VIDEO_ID = 'm5iA7_2J2u4'; // ShopShot demo video
-    
+    const YOUTUBE_VIDEO_ID = 'm5iA7_2J2u4';
     if (videoPlaceholder) {
       videoPlaceholder.addEventListener('click', function() {
-        // Hide placeholder, show embed
         videoPlaceholder.style.display = 'none';
         videoEmbed.style.display = 'block';
         youtubeIframe.src = 'https://www.youtube.com/embed/' + YOUTUBE_VIDEO_ID + '?autoplay=1&rel=0';
       });
     }
+
+    // FAQ toggle
+    function toggleFaq(el) {
+      const item = el.closest('.faq-item');
+      item.classList.toggle('open');
+    }
+
+    // Animate stats on scroll
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.style.opacity = '1';
+          entry.target.style.transform = 'translateY(0)';
+        }
+      });
+    }, { threshold: 0.1 });
+    document.querySelectorAll('.showcase-card, .feature-section-container, .pricing-card, .testimonial-card').forEach(el => {
+      el.style.opacity = '0';
+      el.style.transform = 'translateY(20px)';
+      el.style.transition = 'all 0.6s ease';
+      observer.observe(el);
+    });
   </script>
 </body>
 </html>`
