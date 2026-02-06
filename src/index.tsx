@@ -2040,6 +2040,41 @@ async function ensureDatabase(db: D1Database) {
     await db.prepare('CREATE INDEX IF NOT EXISTS idx_feedback_session_id ON image_feedback(session_id)').run()
     await db.prepare('CREATE INDEX IF NOT EXISTS idx_feedback_rating ON image_feedback(rating)').run()
     
+    // Referral system tables
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS referral_codes (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+        code TEXT NOT NULL UNIQUE,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `).run()
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_referral_codes_code ON referral_codes(code)').run()
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_referral_codes_user_id ON referral_codes(user_id)').run()
+    
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS referrals (
+        id TEXT PRIMARY KEY,
+        referrer_user_id TEXT NOT NULL REFERENCES users(id),
+        referred_user_id TEXT NOT NULL REFERENCES users(id),
+        referral_code TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'expired')),
+        referrer_credits_awarded INTEGER DEFAULT 0,
+        referred_credits_awarded INTEGER DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        completed_at DATETIME
+      )
+    `).run()
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON referrals(referrer_user_id)').run()
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_referrals_referred ON referrals(referred_user_id)').run()
+    
+    // Add referral_code column to users for quick lookups
+    try { await db.prepare('ALTER TABLE users ADD COLUMN referred_by TEXT').run() } catch (e) {}
+    
+    // Session naming and tags
+    try { await db.prepare('ALTER TABLE sessions ADD COLUMN tags TEXT').run() } catch (e) {}
+    try { await db.prepare('ALTER TABLE sessions ADD COLUMN custom_name TEXT').run() } catch (e) {}
+    
   } catch (err) {
     console.log('Database already initialized or error:', err)
   }
@@ -3833,6 +3868,14 @@ app.post('/api/auth/register', async (c) => {
       }
     }
     
+    // Process referral if ref code provided
+    const referralCode = body.referral_code;
+    if (referralCode) {
+      c.executionCtx.waitUntil(
+        processReferral(db, referralCode, userId, c.env.RESEND_API_KEY)
+      );
+    }
+    
     // Track signup event
     c.executionCtx.waitUntil(
       trackEvent(db, {
@@ -3842,7 +3885,8 @@ app.post('/api/auth/register', async (c) => {
         ipCountry: c.req.header('cf-ipcountry') || null,
         metadata: {
           marketing_consent: marketing_consent,
-          has_phone: !!phone
+          has_phone: !!phone,
+          referral_code: referralCode || null
         }
       })
     );
@@ -4233,9 +4277,10 @@ app.get('/api/auth/google', async (c) => {
   // Get redirect URL from query params - default to /app not /
   const redirectTo = c.req.query('redirect') || '/app';
   const plan = c.req.query('plan') || '';
+  const ref = c.req.query('ref') || '';
   
-  // Create state with redirect info
-  const state = btoa(JSON.stringify({ redirect: redirectTo, plan }));
+  // Create state with redirect info and referral code
+  const state = btoa(JSON.stringify({ redirect: redirectTo, plan, ref }));
   
   const baseUrl = new URL(c.req.url).origin;
   const redirectUri = `${baseUrl}/api/auth/google/callback`;
@@ -4349,6 +4394,18 @@ app.get('/api/auth/google/callback', async (c) => {
     }
     
     user = { id: userId };
+    
+    // Process referral from state if available
+    if (state) {
+      try {
+        const stateData = JSON.parse(decodeURIComponent(state));
+        if (stateData.ref) {
+          c.executionCtx.waitUntil(
+            processReferral(db, stateData.ref, userId, c.env.RESEND_API_KEY)
+          );
+        }
+      } catch (e) { /* state parse error is non-critical */ }
+    }
   }
   
   // Create session
@@ -8669,6 +8726,215 @@ app.patch('/api/sessions/:id', async (c) => {
   } catch (error) {
     console.error('Update error:', error)
     return c.json({ success: false, error: 'Failed to update session' }, 500)
+  }
+})
+
+// ============================================================================
+// REFERRAL SYSTEM API ROUTES
+// ============================================================================
+
+// Generate or retrieve referral code for current user
+app.get('/api/referral/stats', async (c) => {
+  const user = c.get('user')
+  if (!user) return c.json({ success: false, error: 'Auth required' }, 401)
+  
+  const db = c.env.TESCO_DB
+  
+  try {
+    // Get or create referral code
+    let codeRow = await db.prepare('SELECT code FROM referral_codes WHERE user_id = ?').bind(user.id).first() as any
+    
+    if (!codeRow) {
+      // Generate unique 8-char code
+      const code = user.id.substring(0, 4).toUpperCase() + Math.random().toString(36).substring(2, 6).toUpperCase()
+      const id = crypto.randomUUID()
+      await db.prepare('INSERT INTO referral_codes (id, user_id, code) VALUES (?, ?, ?)')
+        .bind(id, user.id, code).run()
+      codeRow = { code }
+    }
+    
+    // Get referral stats
+    const totalReferrals = await db.prepare(
+      'SELECT COUNT(*) as count FROM referrals WHERE referrer_user_id = ?'
+    ).bind(user.id).first() as any
+    
+    const successfulReferrals = await db.prepare(
+      "SELECT COUNT(*) as count FROM referrals WHERE referrer_user_id = ? AND status = 'completed'"
+    ).bind(user.id).first() as any
+    
+    return c.json({
+      success: true,
+      code: codeRow.code,
+      total_referrals: totalReferrals?.count || 0,
+      successful_referrals: successfulReferrals?.count || 0
+    })
+  } catch (error) {
+    console.error('Referral stats error:', error)
+    return c.json({ success: false, error: 'Failed to load referral data' }, 500)
+  }
+})
+
+// Process referral on signup (called internally during registration)
+async function processReferral(db: D1Database, referralCode: string, newUserId: string, resendApiKey?: string): Promise<boolean> {
+  try {
+    // Look up the referral code
+    const codeRow = await db.prepare('SELECT user_id FROM referral_codes WHERE code = ?')
+      .bind(referralCode.toUpperCase()).first() as any
+    
+    if (!codeRow) return false
+    
+    const referrerUserId = codeRow.user_id
+    
+    // Don't allow self-referral
+    if (referrerUserId === newUserId) return false
+    
+    // Check if this user was already referred
+    const existing = await db.prepare('SELECT id FROM referrals WHERE referred_user_id = ?')
+      .bind(newUserId).first() as any
+    if (existing) return false
+    
+    const referralId = crypto.randomUUID()
+    
+    // Award credits to BOTH users: 5 Standard + 3 Pro each
+    const REFERRAL_CHEAPER = 5
+    const REFERRAL_BETTER = 3
+    
+    // Credit the referrer
+    await db.prepare('UPDATE users SET cheaper_credits = cheaper_credits + ?, better_credits = better_credits + ? WHERE id = ?')
+      .bind(REFERRAL_CHEAPER, REFERRAL_BETTER, referrerUserId).run()
+    
+    // Credit the new user
+    await db.prepare('UPDATE users SET cheaper_credits = cheaper_credits + ?, better_credits = better_credits + ? WHERE id = ?')
+      .bind(REFERRAL_CHEAPER, REFERRAL_BETTER, newUserId).run()
+    
+    // Log credit transactions for referrer
+    await db.prepare(`INSERT INTO credit_transactions (id, user_id, amount, balance_after, credit_type, type, description)
+      VALUES (?, ?, ?, (SELECT cheaper_credits FROM users WHERE id = ?), 'cheaper', 'signup_bonus', 'Referral bonus - Standard credits')`)
+      .bind(crypto.randomUUID(), referrerUserId, REFERRAL_CHEAPER, referrerUserId).run()
+    await db.prepare(`INSERT INTO credit_transactions (id, user_id, amount, balance_after, credit_type, type, description)
+      VALUES (?, ?, ?, (SELECT better_credits FROM users WHERE id = ?), 'better', 'signup_bonus', 'Referral bonus - Pro credits')`)
+      .bind(crypto.randomUUID(), referrerUserId, REFERRAL_BETTER, referrerUserId).run()
+    
+    // Log credit transactions for referred user
+    await db.prepare(`INSERT INTO credit_transactions (id, user_id, amount, balance_after, credit_type, type, description)
+      VALUES (?, ?, ?, (SELECT cheaper_credits FROM users WHERE id = ?), 'cheaper', 'signup_bonus', 'Referral welcome bonus - Standard credits')`)
+      .bind(crypto.randomUUID(), newUserId, REFERRAL_CHEAPER, newUserId).run()
+    await db.prepare(`INSERT INTO credit_transactions (id, user_id, amount, balance_after, credit_type, type, description)
+      VALUES (?, ?, ?, (SELECT better_credits FROM users WHERE id = ?), 'better', 'signup_bonus', 'Referral welcome bonus - Pro credits')`)
+      .bind(crypto.randomUUID(), newUserId, REFERRAL_BETTER, newUserId).run()
+    
+    // Record the referral
+    await db.prepare(`INSERT INTO referrals (id, referrer_user_id, referred_user_id, referral_code, status, referrer_credits_awarded, referred_credits_awarded, completed_at)
+      VALUES (?, ?, ?, ?, 'completed', ?, ?, CURRENT_TIMESTAMP)`)
+      .bind(referralId, referrerUserId, newUserId, referralCode.toUpperCase(), REFERRAL_CHEAPER + REFERRAL_BETTER, REFERRAL_CHEAPER + REFERRAL_BETTER).run()
+    
+    // Update user's referred_by field
+    await db.prepare('UPDATE users SET referred_by = ? WHERE id = ?')
+      .bind(referralCode.toUpperCase(), newUserId).run()
+    
+    // Send notification email to referrer
+    if (resendApiKey) {
+      try {
+        const referrer = await db.prepare('SELECT email, name FROM users WHERE id = ?').bind(referrerUserId).first() as any
+        if (referrer) {
+          await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${resendApiKey}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              from: 'ShopShot <hello@shopshot.co.uk>',
+              to: referrer.email,
+              subject: 'You earned referral credits!',
+              html: `<p>Hey ${referrer.name || 'there'},</p>
+                <p>Someone signed up using your referral link. You have been awarded <strong>5 Standard + 3 Pro credits</strong>.</p>
+                <p>Keep sharing to earn more credits - there is no limit.</p>
+                <p><a href="https://www.shopshot.co.uk/dashboard">View your dashboard</a></p>
+                <p>Daniel David Peter Nicholls<br>ShopShot</p>`
+            })
+          })
+        }
+      } catch (e) { console.error('Referral notification email failed:', e) }
+    }
+    
+    return true
+  } catch (error) {
+    console.error('Process referral error:', error)
+    return false
+  }
+}
+
+// Analytics tracking endpoint (for client-side events)
+app.post('/api/analytics/track', async (c) => {
+  try {
+    const db = c.env.TESCO_DB
+    const user = c.get('user')
+    const { event, data } = await c.req.json()
+    
+    if (!event) return c.json({ success: false, error: 'Event required' }, 400)
+    
+    await db.prepare(`INSERT INTO analytics_events (event_type, user_id, metadata, user_agent) VALUES (?, ?, ?, ?)`)
+      .bind(event, user?.id || null, JSON.stringify(data || {}), c.req.header('user-agent') || '').run()
+    
+    return c.json({ success: true })
+  } catch (error) {
+    return c.json({ success: true }) // Don't fail client on analytics errors
+  }
+})
+
+// Background removal tool endpoint
+app.post('/api/tools/remove-background', async (c) => {
+  const user = c.get('user')
+  if (!user) return c.json({ success: false, error: 'Auth required' }, 401)
+  
+  const geminiApiKey = c.env.GEMINI_API_KEY
+  if (!geminiApiKey) return c.json({ success: false, error: 'AI not configured' }, 500)
+  
+  try {
+    const { image } = await c.req.json()
+    if (!image) return c.json({ success: false, error: 'Image required' }, 400)
+    
+    // Use Gemini to remove background
+    const base64Data = image.includes(',') ? image.split(',')[1] : image
+    const mimeType = image.startsWith('data:image/png') ? 'image/png' : 'image/jpeg'
+    
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${geminiApiKey}`
+    
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{
+          role: 'user',
+          parts: [
+            { inlineData: { mimeType, data: base64Data } },
+            { text: 'Remove the background from this product image completely. Make the background pure transparent/white. Keep only the product itself with clean, precise edges. Output as a clean product cutout on a pure white background.' }
+          ]
+        }],
+        generationConfig: { responseModalities: ['TEXT', 'IMAGE'] }
+      })
+    })
+    
+    if (!response.ok) {
+      return c.json({ success: false, error: 'Background removal failed' }, 500)
+    }
+    
+    const data = await response.json() as any
+    
+    if (data.candidates?.[0]?.content?.parts) {
+      for (const part of data.candidates[0].content.parts) {
+        if (part.inlineData?.data) {
+          const resultMimeType = part.inlineData.mimeType || 'image/png'
+          return c.json({ 
+            success: true, 
+            image: `data:${resultMimeType};base64,${part.inlineData.data}` 
+          })
+        }
+      }
+    }
+    
+    return c.json({ success: false, error: 'No result from AI' }, 500)
+  } catch (error) {
+    console.error('Background removal error:', error)
+    return c.json({ success: false, error: 'Background removal failed' }, 500)
   }
 })
 
@@ -15335,6 +15601,8 @@ function getResultsPage(sessionId: string, user?: User) {
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="/static/marketplace-export.js"></script>
+  <script src="/static/comparison-slider.js"></script>
   <script>
     tailwind.config = {
       theme: {
@@ -15421,6 +15689,9 @@ function getResultsPage(sessionId: string, user?: User) {
       </div>
       
       <div id="images-grid" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4"></div>
+      
+      <!-- Marketplace Export Panel -->
+      <div id="marketplace-export-container"></div>
     </div>
   </main>
 
@@ -15439,10 +15710,31 @@ function getResultsPage(sessionId: string, user?: User) {
       </button>
       <img id="lightbox-image" class="max-w-full max-h-[70vh] rounded-xl shadow-2xl object-contain">
     </div>
-    <button onclick="downloadCurrent()" class="mt-4 gradient-bg px-6 py-3 rounded-xl text-white font-semibold flex items-center gap-2">
-      <i class="fas fa-download"></i>
-      <span>Download</span>
-    </button>
+    <div class="flex flex-col sm:flex-row items-center gap-3 mt-4">
+      <button onclick="downloadCurrent()" class="gradient-bg px-6 py-3 rounded-xl text-white font-semibold flex items-center gap-2">
+        <i class="fas fa-download"></i>
+        <span>Download</span>
+      </button>
+      <button onclick="compareCurrentWithOriginal()" class="px-4 py-3 bg-white/10 hover:bg-white/20 text-white rounded-xl font-medium flex items-center gap-2 transition">
+        <i class="fas fa-arrows-left-right"></i>
+        <span>Compare</span>
+      </button>
+      <div class="flex items-center gap-2">
+        <select id="lightbox-export-preset" class="bg-white/10 text-white border border-white/20 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-white/40" style="max-width: 180px;">
+          <option value="">Export as...</option>
+          <option value="ebay-standard">eBay (1600x1600)</option>
+          <option value="amazon-main">Amazon (2000x2000)</option>
+          <option value="etsy-listing">Etsy (2000x2000)</option>
+          <option value="depop-portrait">Depop (1080x1350)</option>
+          <option value="shopify-square">Shopify (2048x2048)</option>
+          <option value="social-square">Instagram (1080x1080)</option>
+          <option value="social-landscape">Facebook (1200x630)</option>
+        </select>
+        <button onclick="exportCurrentFromLightbox()" class="px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white rounded-lg text-sm font-medium transition">
+          <i class="fas fa-file-export mr-1"></i>Export
+        </button>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -15531,11 +15823,19 @@ function getResultsPage(sessionId: string, user?: User) {
             <i class="fas fa-rotate text-sm"></i>
           </button>
         \`;
+        const compareButton = isOriginal ? '' : \`
+          <button onclick="event.stopPropagation(); compareWithOriginal(\${idx})" 
+                  class="absolute top-2 left-2 w-8 h-8 rounded-full bg-white/90 shadow-lg flex items-center justify-center text-brand-gray hover:text-blue-500 hover:bg-white transition opacity-0 group-hover:opacity-100"
+                  title="Compare with original">
+            <i class="fas fa-arrows-left-right text-sm"></i>
+          </button>
+        \`;
         return \`
           <div id="card-\${idx}" class="card-3d rounded-xl overflow-hidden cursor-pointer group relative" onclick="openLightbox(\${idx})">
             <div class="aspect-square bg-slate-100 relative">
               <img id="img-\${idx}" src="\${img.data}" class="w-full h-full object-cover" loading="lazy">
               \${regenButton}
+              \${compareButton}
               <div id="loading-\${idx}" class="hidden absolute inset-0 bg-white/90 flex flex-col items-center justify-center">
                 <div class="w-8 h-8 rounded-full border-3 border-brand-purple/30 border-t-brand-purple animate-spin mb-2"></div>
                 <p class="text-xs text-brand-gray">Regenerating...</p>
@@ -15569,6 +15869,12 @@ function getResultsPage(sessionId: string, user?: User) {
       }
       
       grid.innerHTML = gridContent;
+      
+      // Insert marketplace export panel after the grid
+      const exportContainer = document.getElementById('marketplace-export-container');
+      if (exportContainer) {
+        exportContainer.innerHTML = getMarketplaceExportHTML();
+      }
     }
     
     // Play session video in modal
@@ -15799,6 +16105,27 @@ function getResultsPage(sessionId: string, user?: User) {
       if (e.key === 'ArrowLeft') navigateLightbox(-1);
       if (e.key === 'ArrowRight') navigateLightbox(1);
     });
+    
+    // Compare with original image
+    function compareWithOriginal(idx) {
+      const originalImg = images.find(i => i.type === 'original');
+      if (!originalImg) {
+        alert('Original image not available for comparison');
+        return;
+      }
+      const generatedImg = images[idx];
+      openComparisonModal(originalImg.data, generatedImg.data, generatedImg.label);
+    }
+    
+    function compareCurrentWithOriginal() {
+      const img = images[currentIndex];
+      if (img.type === 'original') {
+        alert('This is the original image');
+        return;
+      }
+      closeLightbox();
+      compareWithOriginal(currentIndex);
+    }
     
     // Check for continue param (post-signup generation)
     async function checkAndContinue() {
