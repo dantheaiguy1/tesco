@@ -96,12 +96,12 @@ const CREDITS = {
   VIDEO_360: 40,              // 40 credits for 8-second 360° spin video (~£5 value)
   
   // Subscription allocations
-  STARTER_CHEAPER: 100,       // Starter plan: 100 cheaper credits/month (~10 shoots)
-  STARTER_BETTER: 10,         // Starter plan: 10 better credits/month (~1 shoot)
-  STANDARD_CHEAPER: 500,      // Standard plan: 500 cheaper credits/month (~50 shoots)
-  STANDARD_BETTER: 50,        // Standard plan: 50 better credits/month (~5 shoots)
-  PRO_CHEAPER: 300,           // Pro plan: 300 cheaper credits/month
-  PRO_BETTER: 200,            // Pro plan: 200 better credits/month (~20 shoots)
+  STARTER_CHEAPER: 100,       // Starter plan: 100 standard credits/month (~10 shoots)
+  STARTER_BETTER: 10,         // Starter plan: 10 pro credits/month (~1 shoot)
+  STANDARD_CHEAPER: 500,      // Standard plan: 500 standard credits/month (~50 shoots)
+  STANDARD_BETTER: 45,        // Standard plan: 45 pro credits/month
+  PRO_CHEAPER: 800,           // Pro plan: 800 standard credits/month (500 base + 300 additional)
+  PRO_BETTER: 175,            // Pro plan: 175 pro credits/month
   
   // Credit pack amounts (for top-ups) - 100% margin pricing
   PACKS: {
@@ -121,10 +121,10 @@ const CREDITS = {
 }
 
 const PRICING = {
-  // Subscriptions (monthly)
-  STARTER: 9.99,              // £9.99/month - 100 cheaper + 10 better (~11 shoots)
-  STANDARD: 29.99,            // £29.99/month - 500 cheaper + 50 better (~55 shoots)
-  PRO: 49.99,                 // £49.99/month - 300 cheaper + 200 better (~50 shoots, premium quality)
+  // Subscriptions (monthly) - USD
+  STARTER: 9.99,              // $9.99/month - 100 standard + 10 pro (~11 shoots)
+  STANDARD: 39.99,            // $39.99/month - 500 standard + 45 pro (~55 shoots)
+  PRO: 59.99,                 // $59.99/month - 800 standard + 175 pro (includes everything in Standard + more)
   
   // Credit packs
   PACK_25: 25.00,
@@ -1280,8 +1280,8 @@ async function sendOutOfCreditsEmail(apiKey: string, to: string, name: string | 
                 </p>
                 <ul style="color: #6B7280; margin: 0 0 24px; padding-left: 20px; font-size: 14px; line-height: 1.8;">
                   <li><strong>Starter</strong> - £9.99/mo (~11 shoots)</li>
-                  <li><strong>Standard</strong> - £29.99/mo (~55 shoots) ⭐</li>
-                  <li><strong>Pro</strong> - £49.99/mo (~50 premium shoots)</li>
+                  <li><strong>Standard</strong> - $39.99/mo (500 standard + 45 pro) ⭐</li>
+                  <li><strong>Pro</strong> - $59.99/mo (800 standard + 175 pro)</li>
                 </ul>
                 <a href="https://www.shopshot.co.uk/pricing" style="display: block; background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%); color: white; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-weight: 600; font-size: 15px; text-align: center;">
                   Upgrade Now & Save 20% →
@@ -2554,6 +2554,7 @@ app.get('/api/admin/dashboard', async (c) => {
     const mrr = await db.prepare(`
       SELECT SUM(
         CASE 
+          WHEN subscription_plan = 'starter' THEN 9.99
           WHEN subscription_plan = 'standard' THEN 39.99
           WHEN subscription_plan = 'pro' THEN 59.99
           ELSE 0
@@ -2606,6 +2607,7 @@ app.get('/api/admin/dashboard', async (c) => {
         subscription_plan as plan,
         COUNT(*) as count,
         SUM(CASE 
+          WHEN subscription_plan = 'starter' THEN 9.99
           WHEN subscription_plan = 'standard' THEN 39.99
           WHEN subscription_plan = 'pro' THEN 59.99
           ELSE 0
@@ -4616,8 +4618,8 @@ app.post('/api/billing/create-checkout', async (c) => {
   // Subscription plan price IDs (Stripe)
   const SUBSCRIPTION_PRICE_IDS: Record<string, string> = {
     starter: 'price_1SxnmqK5jVZf8VX1TwmwvuIs',    // Starter £9.99/mo - 100 Std + 10 Pro
-    standard: c.env.STRIPE_PRICE_ID_SUBSCRIPTION,  // Standard £29.99/mo - 500 Std + 45 Pro
-    pro: c.env.STRIPE_PRICE_ID_SUBSCRIPTION,       // Pro £49.99/mo - 300 Std + 175 Pro (uses same price ID, plan metadata differentiates)
+    standard: c.env.STRIPE_PRICE_ID_SUBSCRIPTION,  // Standard $39.99/mo - 500 Std + 45 Pro
+    pro: c.env.STRIPE_PRICE_ID_SUBSCRIPTION,       // Pro $59.99/mo - 800 Std + 175 Pro (uses same price ID, plan metadata differentiates)
   };
   
   // Determine price ID based on type
@@ -12838,11 +12840,11 @@ function getHomePage(user?: User) {
         
         <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-bottom:16px;">
           <div style="background:#F3F4F6; border-radius:8px; padding:12px; text-align:center;">
-            <div style="font-size:18px; font-weight:700; color:#1F2937;">£9.99/mo</div>
+            <div style="font-size:18px; font-weight:700; color:#1F2937;">$9.99/mo</div>
             <div style="font-size:12px; color:#6B7280;">Starter • ~11 shoots</div>
           </div>
           <div style="background:#F0F9FF; border-radius:8px; padding:12px; text-align:center; border:2px solid #3B82F6;">
-            <div style="font-size:18px; font-weight:700; color:#1F2937;">£29.99/mo</div>
+            <div style="font-size:18px; font-weight:700; color:#1F2937;">$39.99/mo</div>
             <div style="font-size:12px; color:#6B7280;">Standard • ~55 shoots ⭐</div>
           </div>
         </div>
@@ -18157,20 +18159,20 @@ function getPricingPage(user?: User) {
           </tr>
           <tr style="border-bottom:1px solid #E5E7EB;">
             <td style="padding:12px 8px;font-weight:500;">Starter</td>
-            <td style="text-align:center;padding:12px 8px;">£9.99</td>
+            <td style="text-align:center;padding:12px 8px;">$9.99</td>
             <td style="text-align:center;padding:12px 8px;">~11</td>
             <td style="padding:12px 8px;color:#6B7280;">Casual sellers, testing</td>
           </tr>
           <tr style="border-bottom:1px solid #E5E7EB;background:#F0F9FF;">
             <td style="padding:12px 8px;font-weight:600;">Standard ⭐</td>
-            <td style="text-align:center;padding:12px 8px;font-weight:600;">£29.99</td>
+            <td style="text-align:center;padding:12px 8px;font-weight:600;">$39.99</td>
             <td style="text-align:center;padding:12px 8px;font-weight:600;">~55</td>
             <td style="padding:12px 8px;color:#6B7280;">Regular sellers</td>
           </tr>
           <tr>
             <td style="padding:12px 8px;font-weight:500;">Pro</td>
-            <td style="text-align:center;padding:12px 8px;">£49.99</td>
-            <td style="text-align:center;padding:12px 8px;">~50 (premium)</td>
+            <td style="text-align:center;padding:12px 8px;">$59.99</td>
+            <td style="text-align:center;padding:12px 8px;">~97 (premium)</td>
             <td style="padding:12px 8px;color:#6B7280;">Quality-focused, marketing</td>
           </tr>
         </tbody>
