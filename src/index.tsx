@@ -940,8 +940,8 @@ async function sendSubscriptionNotification(
       timeZone: 'Europe/London'
     });
     
-    const planPrice = planType === 'pro' ? '£59.99' : '£39.99';
-    const planEmoji = planType === 'pro' ? '👑' : '⭐';
+    const planPrice = planType === 'pro' ? '$59.99' : planType === 'starter' ? '$9.99' : '$39.99';
+    const planEmoji = planType === 'pro' ? '👑' : planType === 'starter' ? '🚀' : '⭐';
     
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -1208,7 +1208,7 @@ async function sendLowCreditsEmail(apiKey: string, to: string, name: string | nu
                   </div>
                 </div>
                 <p style="color: #4B5563; margin: 0 0 24px; font-size: 15px; line-height: 1.6;">
-                  Top up now to keep creating stunning product photos. Our Starter plan is just <strong>£9.99/month</strong> for ~11 product shoots!
+                  Top up now to keep creating stunning product photos. Our Starter plan is just <strong>$9.99/month</strong> for ~11 product shoots!
                 </p>
                 <a href="https://www.shopshot.co.uk/pricing" style="display: block; background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%); color: white; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-weight: 600; font-size: 15px; text-align: center;">
                   Get More Credits →
@@ -1276,10 +1276,10 @@ async function sendOutOfCreditsEmail(apiKey: string, to: string, name: string | 
                   <div style="font-size: 13px; color: rgba(255,255,255,0.8); margin-top: 4px;">Use code: <strong>WELCOME20</strong></div>
                 </div>
                 <p style="color: #4B5563; margin: 0 0 8px; font-size: 14px;">
-                  <strong>Plans from just £9.99/month:</strong>
+                  <strong>Plans from just $9.99/month:</strong>
                 </p>
                 <ul style="color: #6B7280; margin: 0 0 24px; padding-left: 20px; font-size: 14px; line-height: 1.8;">
-                  <li><strong>Starter</strong> - £9.99/mo (~11 shoots)</li>
+                  <li><strong>Starter</strong> - $9.99/mo (~11 shoots)</li>
                   <li><strong>Standard</strong> - $39.99/mo (500 standard + 45 pro) ⭐</li>
                   <li><strong>Pro</strong> - $59.99/mo (800 standard + 175 pro)</li>
                 </ul>
@@ -4617,9 +4617,9 @@ app.post('/api/billing/create-checkout', async (c) => {
   
   // Subscription plan price IDs (Stripe)
   const SUBSCRIPTION_PRICE_IDS: Record<string, string> = {
-    starter: 'price_1SxnmqK5jVZf8VX1TwmwvuIs',    // Starter £9.99/mo - 100 Std + 10 Pro
+    starter: 'price_1SxnmqK5jVZf8VX1TwmwvuIs',    // Starter $9.99/mo - 100 Std + 10 Pro
     standard: c.env.STRIPE_PRICE_ID_SUBSCRIPTION,  // Standard $39.99/mo - 500 Std + 45 Pro
-    pro: c.env.STRIPE_PRICE_ID_SUBSCRIPTION,       // Pro $59.99/mo - 800 Std + 175 Pro (uses same price ID, plan metadata differentiates)
+    pro: 'price_1SXodWK5jVZf8VX1wO25BZHt',         // Pro $59.99/mo - 800 Std + 175 Pro
   };
   
   // Determine price ID based on type
@@ -4856,7 +4856,7 @@ app.post('/api/billing/webhook', async (c) => {
               : CREDITS.PACKS.CHEAPER[packKey];
             
             await addCredits(db, userId, credits, creditPackType as 'cheaper' | 'better', 'topup',
-              `£${packAmount} Credit Pack purchase - ${creditPackType === 'better' ? 'Pro' : 'Standard'} credits`,
+              `$${packAmount} Credit Pack purchase - ${creditPackType === 'better' ? 'Pro' : 'Standard'} credits`,
               session.id);
             
             // Track credit pack purchase
@@ -7692,7 +7692,7 @@ app.post('/api/social/generate-caption', async (c) => {
     }
     
     // Get brand knowledge - wrap in try-catch as table may be empty
-    let knowledgeText = 'ShopShot transforms one product photo into 10 professional variations in 25 seconds. Pricing: Free trial, Standard 39.99/mo, Pro 59.99/mo.';
+    let knowledgeText = 'ShopShot transforms one product photo into 10 professional variations in 25 seconds. Pricing: Free trial, Starter $9.99/mo, Standard $39.99/mo, Pro $59.99/mo.';
     try {
       const knowledge = await socialDb.prepare('SELECT section, content FROM brand_knowledge WHERE priority = 1').all() as any;
       if (knowledge.results?.length > 0) {
@@ -8960,8 +8960,8 @@ function getMarketingPage(user?: User) {
     "offers": {
       "@type": "Offer",
       "price": "0",
-      "priceCurrency": "GBP",
-      "description": "Free tier with 15 credits"
+      "priceCurrency": "USD",
+      "description": "Free tier with 8 credits (5 Standard + 3 Pro)"
     },
     "aggregateRating": {
       "@type": "AggregateRating",
@@ -9966,12 +9966,13 @@ function getMarketingPage(user?: User) {
     }
     .pricing-grid {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(4, 1fr);
       gap: 24px;
-      max-width: 1000px;
+      max-width: 1200px;
       margin: 0 auto;
     }
-    @media (max-width: 900px) { .pricing-grid { grid-template-columns: 1fr; max-width: 400px; } }
+    @media (max-width: 1100px) { .pricing-grid { grid-template-columns: repeat(2, 1fr); max-width: 700px; } }
+    @media (max-width: 600px) { .pricing-grid { grid-template-columns: 1fr; max-width: 400px; } }
     .pricing-card {
       background: white;
       border: 1px solid #E5E7EB;
@@ -10240,7 +10241,7 @@ function getMarketingPage(user?: User) {
       <div class="hero-ctas">
         <a href="${isLoggedIn ? '/app' : '/register'}" class="btn-primary">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-          ${isLoggedIn ? 'Open App' : 'Start Free - 15 Credits'}
+          ${isLoggedIn ? 'Open App' : 'Start Free - 8 Credits'}
         </a>
         <button onclick="scrollToVideo()" class="btn-secondary">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8" fill="currentColor"/></svg>
@@ -10292,11 +10293,11 @@ function getMarketingPage(user?: User) {
       <div class="stat-label">Variations per upload</div>
     </div>
     <div class="stat-item">
-      <div class="stat-value"><span>36</span>s</div>
+      <div class="stat-value"><span>25</span>s</div>
       <div class="stat-label">Average generation time</div>
     </div>
     <div class="stat-item">
-      <div class="stat-value"><span>15</span></div>
+      <div class="stat-value"><span>8</span></div>
       <div class="stat-label">Free credits on signup</div>
     </div>
   </div>
@@ -10520,11 +10521,11 @@ function getMarketingPage(user?: User) {
       <p class="section-subtitle" style="color: #6B7280;">Start free. Upgrade when you're ready. No hidden fees.</p>
     </div>
     
-    <div class="pricing-grid">
+    <div class="pricing-grid" style="grid-template-columns: repeat(4, 1fr);">
       <!-- Free Tier -->
       <div class="pricing-card">
         <h3>Free</h3>
-        <div class="price">£0</div>
+        <div class="price">$0</div>
         <div class="price-note">One-time signup bonus</div>
         <div class="credits-row">
           <div class="credit-badge standard">
@@ -10544,10 +10545,33 @@ function getMarketingPage(user?: User) {
         <a href="/register?plan=free" class="pricing-btn secondary">Get Started Free</a>
       </div>
       
+      <!-- Starter Tier -->
+      <div class="pricing-card">
+        <h3>Starter</h3>
+        <div class="price">$${PRICING.STARTER}<span>/mo</span></div>
+        <div class="price-note">~11 product shoots</div>
+        <div class="credits-row">
+          <div class="credit-badge standard">
+            <div class="count">${CREDITS.STARTER_CHEAPER}</div>
+            <div class="label">Standard</div>
+          </div>
+          <div class="credit-badge pro">
+            <div class="count">${CREDITS.STARTER_BETTER}</div>
+            <div class="label">Pro</div>
+          </div>
+        </div>
+        <ul>
+          <li>Perfect for testing</li>
+          <li>Both AI models</li>
+          <li>Cancel anytime</li>
+        </ul>
+        <a href="/register?plan=starter" class="pricing-btn primary">Get Starter</a>
+      </div>
+      
       <!-- Standard Tier -->
       <div class="pricing-card featured">
         <h3>Standard</h3>
-        <div class="price">£${PRICING.STANDARD}<span>/mo</span></div>
+        <div class="price">$${PRICING.STANDARD}<span>/mo</span></div>
         <div class="price-note">Best for regular sellers</div>
         <div class="credits-row">
           <div class="credit-badge standard">
@@ -10571,7 +10595,7 @@ function getMarketingPage(user?: User) {
       <!-- Pro Tier -->
       <div class="pricing-card">
         <h3>Pro</h3>
-        <div class="price">£${PRICING.PRO}<span>/mo</span></div>
+        <div class="price">$${PRICING.PRO}<span>/mo</span></div>
         <div class="price-note">For power sellers</div>
         <div class="credits-row">
           <div class="credit-badge standard">
@@ -10661,7 +10685,7 @@ function getMarketingPage(user?: User) {
       </div>
     </div>
     <div class="border-t border-gray-800 mt-8 pt-8 text-center text-sm text-gray-400 px-4">
-      <p>&copy; 2025 ShopShot Ltd. All rights reserved.</p>
+      <p>&copy; 2025-2026 ShopShot Ltd. All rights reserved.</p>
       <p class="mt-1">Registered in England | Burwash, East Sussex</p>
     </div>
   </footer>
@@ -12911,7 +12935,7 @@ function getHomePage(user?: User) {
         <!-- Free credits banner for guests -->
         <div class="free-credits-banner-inline">
           <span>🎁</span>
-          <span>Sign up now and get <strong>15 free credits</strong> to start!</span>
+          <span>Sign up now and get <strong>8 free credits</strong> to start!</span>
         </div>
         
         <div class="upload-header">
@@ -16595,6 +16619,11 @@ function getRegisterPage() {
       border-color: #93C5FD;
       color: #1D4ED8;
     }
+    .plan-badge.starter {
+      background: linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%);
+      border-color: #6EE7B7;
+      color: #059669;
+    }
     .plan-badge.pro {
       background: linear-gradient(135deg, #F3E8FF 0%, #E9D5FF 100%);
       border-color: #C4B5FD;
@@ -16820,15 +16849,20 @@ function getRegisterPage() {
     const badge = document.getElementById('badge-container');
     const btn = document.getElementById('submit-btn');
     
-    if (selectedPlan === 'standard') {
+    if (selectedPlan === 'starter') {
+      title.textContent = 'Get Starter Plan';
+      subtitle.textContent = 'Create account to start your subscription';
+      badge.innerHTML = '<span class="plan-badge starter">🚀 Starter Plan - $${PRICING.STARTER}/month</span>';
+      btn.textContent = 'Create Account & Subscribe';
+    } else if (selectedPlan === 'standard') {
       title.textContent = 'Get Standard Plan';
       subtitle.textContent = 'Create account to start your subscription';
-      badge.innerHTML = '<span class="plan-badge standard">⚡ Standard Plan - £${PRICING.STANDARD}/month</span>';
+      badge.innerHTML = '<span class="plan-badge standard">⚡ Standard Plan - $${PRICING.STANDARD}/month</span>';
       btn.textContent = 'Create Account & Subscribe';
     } else if (selectedPlan === 'pro') {
       title.textContent = 'Get Pro Plan';
       subtitle.textContent = 'Create account to start your subscription';
-      badge.innerHTML = '<span class="plan-badge pro">🚀 Pro Plan - £${PRICING.PRO}/month</span>';
+      badge.innerHTML = '<span class="plan-badge pro">👑 Pro Plan - $${PRICING.PRO}/month</span>';
       btn.textContent = 'Create Account & Subscribe';
     }
     
@@ -17207,11 +17241,14 @@ function getGetStartedPage() {
     /* Pricing Grid */
     .pricing-grid {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 20px;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
       margin-bottom: 36px;
     }
-    @media (max-width: 900px) {
+    @media (max-width: 1100px) {
+      .pricing-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 600px) {
       .pricing-grid { grid-template-columns: 1fr; }
     }
     
@@ -17587,14 +17624,14 @@ function getGetStartedPage() {
     <section class="pricing-section">
       <div class="pricing-header">
         <h1>Simple, Transparent Pricing</h1>
-        <p>Start free with 15 credits. Upgrade anytime for more.</p>
+        <p>Start free with 8 credits. Upgrade anytime for more.</p>
       </div>
       
       <div class="pricing-grid">
         <!-- Free Plan -->
         <div class="pricing-card">
           <h3>Free</h3>
-          <div class="price">£0</div>
+          <div class="price">$0</div>
           <div class="price-note">One-time signup bonus</div>
           <div class="credits">
             <div class="credit-badge standard">
@@ -17616,10 +17653,35 @@ function getGetStartedPage() {
           </a>
         </div>
         
+        <!-- Starter Plan -->
+        <div class="pricing-card">
+          <h3>Starter</h3>
+          <div class="price">$${PRICING.STARTER}<span>/mo</span></div>
+          <div class="price-note">~11 product shoots</div>
+          <div class="credits">
+            <div class="credit-badge standard">
+              <div class="count">${CREDITS.STARTER_CHEAPER}</div>
+              <div class="label">Standard</div>
+            </div>
+            <div class="credit-badge pro">
+              <div class="count">${CREDITS.STARTER_BETTER}</div>
+              <div class="label">Pro</div>
+            </div>
+          </div>
+          <ul>
+            <li>Perfect for testing</li>
+            <li>Both AI models</li>
+            <li>Cancel anytime</li>
+          </ul>
+          <a href="/register?plan=starter" class="pricing-btn primary">
+            Get Starter
+          </a>
+        </div>
+        
         <!-- Standard Plan -->
         <div class="pricing-card featured">
           <h3>Standard</h3>
-          <div class="price">£${PRICING.STANDARD}<span>/mo</span></div>
+          <div class="price">$${PRICING.STANDARD}<span>/mo</span></div>
           <div class="price-note">Best for regular sellers</div>
           <div class="credits">
             <div class="credit-badge standard">
@@ -17645,7 +17707,7 @@ function getGetStartedPage() {
         <!-- Pro Plan -->
         <div class="pricing-card">
           <h3>Pro</h3>
-          <div class="price">£${PRICING.PRO}<span>/mo</span></div>
+          <div class="price">$${PRICING.PRO}<span>/mo</span></div>
           <div class="price-note">For power users</div>
           <div class="credits">
             <div class="credit-badge standard">
@@ -17986,7 +18048,7 @@ function getPricingPage(user?: User) {
         </div>
         <div class="balance-item">
           <div class="balance-label">Current Plan</div>
-          <div class="balance-value" style="font-size:16px;color:#374151;">${userPlan === 'pro' ? 'Pro' : userPlan === 'standard' ? 'Standard' : 'Free'}</div>
+          <div class="balance-value" style="font-size:16px;color:#374151;">${userPlan === 'pro' ? 'Pro' : userPlan === 'standard' ? 'Standard' : userPlan === 'starter' ? 'Starter' : 'Free'}</div>
         </div>
       </div>
       ` : ''}
@@ -18001,7 +18063,7 @@ function getPricingPage(user?: User) {
       <div class="plan-card ${!isStarter && !isStandard && !isPro && user ? 'current' : ''}">
         ${!isStarter && !isStandard && !isPro && user ? '<div class="badge current">Current Plan</div>' : ''}
         <div class="plan-name">Free</div>
-        <div class="plan-price">£0</div>
+        <div class="plan-price">$0</div>
         <div class="plan-period">to get started</div>
         
         <div class="plan-credits">
@@ -18036,7 +18098,7 @@ function getPricingPage(user?: User) {
       <div class="plan-card ${isStarter ? 'current' : ''}">
         ${isStarter ? '<div class="badge current">Current Plan</div>' : '<div class="badge" style="background:#10B981;color:white;">New!</div>'}
         <div class="plan-name">Starter</div>
-        <div class="plan-price">£${PRICING.STARTER}<span>/mo</span></div>
+        <div class="plan-price">$${PRICING.STARTER}<span>/mo</span></div>
         <div class="plan-period">~11 product shoots</div>
         
         <div class="plan-credits">
@@ -18071,7 +18133,7 @@ function getPricingPage(user?: User) {
       <div class="plan-card featured ${isStandard ? 'current' : ''}">
         ${isStandard ? '<div class="badge current">Current Plan</div>' : '<div class="badge popular">Most Popular</div>'}
         <div class="plan-name">Standard</div>
-        <div class="plan-price">£${PRICING.STANDARD}<span>/mo</span></div>
+        <div class="plan-price">$${PRICING.STANDARD}<span>/mo</span></div>
         <div class="plan-period">~55 product shoots</div>
         
         <div class="plan-credits">
@@ -18106,8 +18168,8 @@ function getPricingPage(user?: User) {
       <div class="plan-card ${isPro ? 'current' : ''}">
         ${isPro ? '<div class="badge current">Current Plan</div>' : '<div class="badge best">Best Quality</div>'}
         <div class="plan-name">Pro</div>
-        <div class="plan-price">£${PRICING.PRO}<span>/mo</span></div>
-        <div class="plan-period">~50 shoots (premium)</div>
+        <div class="plan-price">$${PRICING.PRO}<span>/mo</span></div>
+        <div class="plan-period">~97 product shoots</div>
         
         <div class="plan-credits">
           <div class="credit-row">
@@ -18153,7 +18215,7 @@ function getPricingPage(user?: User) {
         <tbody>
           <tr style="border-bottom:1px solid #E5E7EB;">
             <td style="padding:12px 8px;font-weight:500;">Free</td>
-            <td style="text-align:center;padding:12px 8px;">£0</td>
+            <td style="text-align:center;padding:12px 8px;">$0</td>
             <td style="text-align:center;padding:12px 8px;">~1</td>
             <td style="padding:12px 8px;color:#6B7280;">Trying it out</td>
           </tr>
@@ -18203,27 +18265,27 @@ function getPricingPage(user?: User) {
       <!-- Cheaper/Standard Packs -->
       <div id="packs-cheaper" class="packs-grid">
         <div class="pack-card cheaper" onclick="${user ? "startPackCheckout('cheaper', 25)" : "window.location='/register'"}">
-          <div class="pack-price">£25</div>
+          <div class="pack-price">$25</div>
           <div class="pack-credits cheaper">${CREDITS.PACKS.CHEAPER.PACK_25} credits</div>
-          <div class="pack-per">£0.063 per credit</div>
+          <div class="pack-per">$0.063 per credit</div>
           <button class="pack-btn cheaper">Buy Now</button>
         </div>
         <div class="pack-card cheaper" onclick="${user ? "startPackCheckout('cheaper', 50)" : "window.location='/register'"}">
-          <div class="pack-price">£50</div>
+          <div class="pack-price">$50</div>
           <div class="pack-credits cheaper">${CREDITS.PACKS.CHEAPER.PACK_50} credits</div>
-          <div class="pack-per">£0.063 per credit</div>
+          <div class="pack-per">$0.063 per credit</div>
           <button class="pack-btn cheaper">Buy Now</button>
         </div>
         <div class="pack-card cheaper" onclick="${user ? "startPackCheckout('cheaper', 75)" : "window.location='/register'"}">
-          <div class="pack-price">£75</div>
+          <div class="pack-price">$75</div>
           <div class="pack-credits cheaper">${CREDITS.PACKS.CHEAPER.PACK_75} credits</div>
-          <div class="pack-per">£0.063 per credit</div>
+          <div class="pack-per">$0.063 per credit</div>
           <button class="pack-btn cheaper">Buy Now</button>
         </div>
         <div class="pack-card cheaper" onclick="${user ? "startPackCheckout('cheaper', 100)" : "window.location='/register'"}">
-          <div class="pack-price">£100</div>
+          <div class="pack-price">$100</div>
           <div class="pack-credits cheaper">${CREDITS.PACKS.CHEAPER.PACK_100} credits</div>
-          <div class="pack-per">£0.063 per credit</div>
+          <div class="pack-per">$0.063 per credit</div>
           <button class="pack-btn cheaper">Buy Now</button>
         </div>
       </div>
@@ -18231,27 +18293,27 @@ function getPricingPage(user?: User) {
       <!-- Better/Pro Packs -->
       <div id="packs-better" class="packs-grid hidden">
         <div class="pack-card better" onclick="${user ? "startPackCheckout('better', 25)" : "window.location='/register'"}">
-          <div class="pack-price">£25</div>
+          <div class="pack-price">$25</div>
           <div class="pack-credits better">${CREDITS.PACKS.BETTER.PACK_25} credits</div>
-          <div class="pack-per">£0.22 per credit</div>
+          <div class="pack-per">$0.22 per credit</div>
           <button class="pack-btn better">Buy Now</button>
         </div>
         <div class="pack-card better" onclick="${user ? "startPackCheckout('better', 50)" : "window.location='/register'"}">
-          <div class="pack-price">£50</div>
+          <div class="pack-price">$50</div>
           <div class="pack-credits better">${CREDITS.PACKS.BETTER.PACK_50} credits</div>
-          <div class="pack-per">£0.22 per credit</div>
+          <div class="pack-per">$0.22 per credit</div>
           <button class="pack-btn better">Buy Now</button>
         </div>
         <div class="pack-card better" onclick="${user ? "startPackCheckout('better', 75)" : "window.location='/register'"}">
-          <div class="pack-price">£75</div>
+          <div class="pack-price">$75</div>
           <div class="pack-credits better">${CREDITS.PACKS.BETTER.PACK_75} credits</div>
-          <div class="pack-per">£0.22 per credit</div>
+          <div class="pack-per">$0.22 per credit</div>
           <button class="pack-btn better">Buy Now</button>
         </div>
         <div class="pack-card better" onclick="${user ? "startPackCheckout('better', 100)" : "window.location='/register'"}">
-          <div class="pack-price">£100</div>
+          <div class="pack-price">$100</div>
           <div class="pack-credits better">${CREDITS.PACKS.BETTER.PACK_100} credits</div>
-          <div class="pack-per">£0.22 per credit</div>
+          <div class="pack-per">$0.22 per credit</div>
           <button class="pack-btn better">Buy Now</button>
         </div>
       </div>
@@ -18353,7 +18415,7 @@ function getPricingPage(user?: User) {
           <li>✓ Subscription auto-renews monthly (cancel anytime)</li>
           <li>✓ Credits delivered instantly</li>
           <li>✓ <strong>All sales final - no refunds</strong> (except 48h+ outage)</li>
-          <li>✓ Test with 15 free credits before buying</li>
+          <li>✓ Test with 8 free credits before buying</li>
         </ul>
       </div>
       
@@ -18522,7 +18584,7 @@ function getPricingPage(user?: User) {
         </div>
       </div>
       <div style="border-top: 1px solid #374151; padding-top: 24px; text-align: center; color: #6B7280; font-size: 14px;">
-        <p>&copy; 2025 ShopShot Ltd. All rights reserved.</p>
+        <p>&copy; 2025-2026 ShopShot Ltd. All rights reserved.</p>
         <p style="margin-top: 4px;">Registered in England | Burwash, East Sussex</p>
       </div>
     </div>
@@ -19163,6 +19225,7 @@ function getAdminDashboardPage(user: any) {
       font-weight: 600;
     }
     .plan-badge.free { background: #3F3F46; color: #A1A1AA; }
+    .plan-badge.starter { background: #10B98120; color: #34D399; }
     .plan-badge.standard { background: #3B82F620; color: #60A5FA; }
     .plan-badge.pro { background: #8B5CF620; color: #A78BFA; }
     
@@ -19606,7 +19669,7 @@ function getAdminDashboardPage(user: any) {
               <tr>
                 <td><span class="plan-badge free">Free</span></td>
                 <td>-</td>
-                <td>£0</td>
+                <td>$0</td>
               </tr>
             </tbody>
           </table>
@@ -19636,7 +19699,7 @@ function getAdminDashboardPage(user: any) {
               <div style="background: #27272A; padding: 12px; border-radius: 8px;">
                 <div style="font-size: 10px; color: #71717A; text-transform: uppercase; margin-bottom: 4px;">AI Today</div>
                 <div style="font-size: 20px; font-weight: 700; color: #3B82F6;" id="health-ai">0</div>
-                <div style="font-size: 10px; color: #52525B;" id="health-ai-cost">Est. £0.00</div>
+                <div style="font-size: 10px; color: #52525B;" id="health-ai-cost">Est. $0.00</div>
               </div>
               <!-- Sessions -->
               <div style="background: #27272A; padding: 12px; border-radius: 8px;">
@@ -19840,7 +19903,7 @@ function getAdminDashboardPage(user: any) {
           
           // AI Usage
           document.getElementById('health-ai').textContent = data.vertexAI.totalUsedToday;
-          document.getElementById('health-ai-cost').textContent = 'Est. £' + data.vertexAI.estimatedCostGBP;
+          document.getElementById('health-ai-cost').textContent = 'Est. $' + data.vertexAI.estimatedCostGBP;
           document.getElementById('health-flash').textContent = data.vertexAI.flashUsedToday + ' images';
           document.getElementById('health-pro').textContent = data.vertexAI.proUsedToday + ' images';
           
@@ -19966,7 +20029,7 @@ function getAdminDashboardPage(user: any) {
     function updateKPIs(kpis) {
       document.getElementById('kpi-users').textContent = kpis.totalUsers.toLocaleString();
       document.getElementById('kpi-active').textContent = kpis.activeMembers.toLocaleString();
-      document.getElementById('kpi-mrr').textContent = '£' + (kpis.mrr || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+      document.getElementById('kpi-mrr').textContent = '$' + (kpis.mrr || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
       document.getElementById('kpi-credits').textContent = (kpis.creditsConsumed || 0).toLocaleString();
     }
     
@@ -20177,17 +20240,22 @@ function getAdminDashboardPage(user: any) {
         <tr>
           <td><span class="plan-badge free">Free</span></td>
           <td>\${plans.free.count}</td>
-          <td>£0</td>
+          <td>$0</td>
+        </tr>
+        <tr>
+          <td><span class="plan-badge starter">Starter</span></td>
+          <td>\${plans.starter?.count || 0}</td>
+          <td>$\${(plans.starter?.revenue || 0).toFixed(2)}</td>
         </tr>
         <tr>
           <td><span class="plan-badge standard">Standard</span></td>
           <td>\${plans.standard.count}</td>
-          <td>£\${(plans.standard.revenue || 0).toFixed(2)}</td>
+          <td>$\${(plans.standard.revenue || 0).toFixed(2)}</td>
         </tr>
         <tr>
           <td><span class="plan-badge pro">Pro</span></td>
           <td>\${plans.pro.count}</td>
-          <td>£\${(plans.pro.revenue || 0).toFixed(2)}</td>
+          <td>$\${(plans.pro.revenue || 0).toFixed(2)}</td>
         </tr>
       \`;
     }
@@ -20249,7 +20317,7 @@ function getAdminDashboardPage(user: any) {
         data: {
           labels: labels,
           datasets: [{
-            label: 'Revenue (£)',
+            label: 'Revenue ($)',
             data: data,
             borderColor: '#8B5CF6',
             backgroundColor: 'rgba(139, 92, 246, 0.1)',
@@ -20275,7 +20343,7 @@ function getAdminDashboardPage(user: any) {
               grid: { color: '#27272A' },
               ticks: { 
                 color: '#71717A',
-                callback: value => '£' + value
+                callback: value => '$' + value
               },
               beginAtZero: true
             }
@@ -24603,7 +24671,8 @@ function getAccountPage(user: User) {
     
     .plan-badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }
     .plan-badge.free { background: #F3F4F6; color: #6B7280; }
-    .plan-badge.standard { background: #ECFDF5; color: #059669; }
+    .plan-badge.starter { background: #ECFDF5; color: #059669; }
+    .plan-badge.standard { background: #DBEAFE; color: #1D4ED8; }
     .plan-badge.pro { background: #F3E8FF; color: #6D28D9; }
     
     .status-badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }
