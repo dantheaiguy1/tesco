@@ -3665,6 +3665,52 @@ app.get('/api/sessions', async (c) => {
   }
 })
 
+// API: Create a new session (JSON body - used by batch upload)
+app.post('/api/sessions', async (c) => {
+  try {
+    const db = c.env.TESCO_DB
+    if (!db) {
+      return c.json({ success: false, error: 'Database not configured' }, 500)
+    }
+    await ensureDatabase(db)
+    
+    const user = c.get('user')
+    if (!user) {
+      return c.json({ success: false, error: 'Authentication required', needsAuth: true }, 401)
+    }
+    
+    const body = await c.req.json()
+    const { product_name, original_image, product_size, model } = body
+    
+    if (!product_name) {
+      return c.json({ success: false, error: 'product_name is required' }, 400)
+    }
+    
+    // Determine credit type for the model
+    const creditType = getCreditTypeForModel(model || 'flash')
+    
+    // Create session
+    const sessionId = generateId()
+    
+    // Store a small thumbnail (first 500 chars of base64) for the history sidebar
+    const thumbnail = original_image && original_image.length > 500 
+      ? original_image.substring(0, 500) + '...' 
+      : (original_image || '')
+    
+    await db.prepare(`
+      INSERT INTO sessions (id, product_name, source_type, original_image, status, model, user_id)
+      VALUES (?, ?, 'upload', ?, 'pending', ?, ?)
+    `).bind(sessionId, product_name, thumbnail, model || 'flash', user.id).run()
+    
+    console.log(`[Batch] Session created: ${sessionId} for ${product_name} by user ${user.id}`)
+    
+    return c.json({ success: true, sessionId })
+  } catch (error: any) {
+    console.error('Error creating session:', error)
+    return c.json({ success: false, error: 'Failed to create session', details: error?.message || String(error) }, 500)
+  }
+})
+
 // API: Get single session with its generated images
 app.get('/api/sessions/:id', async (c) => {
   try {
