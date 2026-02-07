@@ -15117,12 +15117,12 @@ function getHomePage(user?: User) {
     ` : ''}
   </script>
   
-  <!-- Feature scripts -->
-  <script src="/static/variation-selector.js"></script>
-  <script src="/static/batch-upload.js"></script>
-  <script src="/static/marketplace-export.js"></script>
-  <script src="/static/comparison-slider.js"></script>
-  <script src="/static/referral.js"></script>
+  <!-- Feature scripts (cache-bust with version) -->
+  <script src="/static/variation-selector.js?v=20260207"></script>
+  <script src="/static/batch-upload.js?v=20260207"></script>
+  <script src="/static/marketplace-export.js?v=20260207"></script>
+  <script src="/static/comparison-slider.js?v=20260207"></script>
+  <script src="/static/referral.js?v=20260207"></script>
   
   <script>
     // Variation selector integration
@@ -15189,8 +15189,8 @@ function getResultsPage(sessionId: string, user?: User) {
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-  <script src="/static/marketplace-export.js"></script>
-  <script src="/static/comparison-slider.js"></script>
+  <script src="/static/marketplace-export.js?v=20260207"></script>
+  <script src="/static/comparison-slider.js?v=20260207"></script>
   <script>
     tailwind.config = {
       theme: {
@@ -18865,7 +18865,7 @@ function getDashboardPage(user: User) {
       }
     })();
   </script>
-  <script src="/static/referral.js"></script>
+  <script src="/static/referral.js?v=20260207"></script>
   <script>
     // Load and render referral panel
     (async function() {

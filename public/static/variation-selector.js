@@ -169,6 +169,7 @@ function getVariationSelectorHTML() {
 }
 
 function toggleVariation(key) {
+  console.log('[ShopShot] toggleVariation called:', key);
   const idx = selectedVariations.indexOf(key);
   if (idx > -1) {
     selectedVariations.splice(idx, 1);
@@ -186,6 +187,7 @@ function toggleVariation(key) {
 }
 
 function selectStylePreset(key) {
+  console.log('[ShopShot] selectStylePreset called:', key);
   selectedStyle = key;
   syncStylePresetUI();
 }
@@ -239,32 +241,52 @@ function openVariationSelector() {
   const selector = document.getElementById('variation-selector');
   if (selector) {
     selector.classList.remove('hidden');
-    // z-index 10001 = higher than all page overlays (lightbox=10000, feedback=10000, etc.)
-    selector.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.7);backdrop-filter:blur(4px);z-index:10001;display:flex;align-items:center;justify-content:center;padding:20px;';
+    selector.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.7);backdrop-filter:blur(4px);z-index:10001;display:flex !important;align-items:center;justify-content:center;padding:20px;';
     updateVariationUI();
-    // Sync style preset buttons to current selection
     syncStylePresetUI();
+    console.log('[ShopShot] openVariationSelector - modal opened');
   }
 }
 
 function closeVariationSelector() {
   const selector = document.getElementById('variation-selector');
   if (selector) {
-    // CRITICAL: Clear ALL inline styles set by openVariationSelector()
-    // Without this, the inline display:flex overrides Tailwind's .hidden display:none
-    selector.style.cssText = '';
+    // Nuclear option: force hide via every method available
+    selector.style.display = 'none';
+    selector.style.position = '';
+    selector.style.inset = '';
+    selector.style.background = '';
+    selector.style.backdropFilter = '';
+    selector.style.zIndex = '';
+    selector.style.padding = '';
+    selector.style.cssText = 'display:none !important;';
     selector.classList.add('hidden');
+    console.log('[ShopShot] closeVariationSelector completed');
   }
 }
 
 function applyVariationSelection() {
+  console.log('[ShopShot] applyVariationSelection called, selectedVariations:', selectedVariations.length, 'selectedStyle:', selectedStyle);
+  
   if (selectedVariations.length === 0) {
     alert('Please select at least 1 shot type.');
     return;
   }
   
-  // Close the modal first
-  closeVariationSelector();
+  // Close the modal
+  const selector = document.getElementById('variation-selector');
+  if (selector) {
+    // Direct DOM manipulation - most reliable way to hide
+    selector.style.display = 'none';
+    selector.style.position = '';
+    selector.style.inset = '';
+    selector.style.background = '';
+    selector.style.backdropFilter = '';
+    selector.style.zIndex = '';
+    selector.style.padding = '';
+    selector.classList.add('hidden');
+    console.log('[ShopShot] Modal hidden via direct style.display = none');
+  }
   
   // Update the variationDefs array used by the generation engine
   if (typeof updateVariationDefs === 'function') {
