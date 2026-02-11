@@ -2089,6 +2089,7 @@ export function getBlogIndexPage(): string {
   <meta name="description" content="Expert tips, tutorials, and guides on product photography for e-commerce sellers. Learn how to create stunning product images that sell.">
   <meta name="keywords" content="product photography, e-commerce photography, Amazon product images, Etsy photography, online store photos">
   <link rel="canonical" href="https://www.shopshot.co.uk/blog">
+  <link rel="alternate" type="text/markdown" href="https://www.shopshot.co.uk/blog/markdown" title="Markdown index for AI and crawlers">
   <meta property="og:title" content="ShopShot Blog - Product Photography Tips & Guides">
   <meta property="og:description" content="Expert tips, tutorials, and guides on product photography for e-commerce sellers.">
   <meta property="og:type" content="website">
@@ -2322,6 +2323,7 @@ export function getBlogPostPage(slug: string): string | null {
   <meta name="description" content="${post.metaDescription}">
   <meta name="keywords" content="${post.keywords.join(', ')}">
   <link rel="canonical" href="https://www.shopshot.co.uk/blog/${post.slug}">
+  <link rel="alternate" type="text/markdown" href="https://www.shopshot.co.uk/blog/${post.slug}.md" title="Markdown version for AI and crawlers">
   <meta property="og:title" content="${post.title}">
   <meta property="og:description" content="${post.metaDescription}">
   <meta property="og:type" content="article">
@@ -2450,4 +2452,210 @@ ${relatedPostsHtml}
   ${FOOTER_HTML}
 </body>
 </html>`;
+}
+
+// ==========================================
+// Markdown Export for AI & Crawlers
+// ==========================================
+
+/**
+ * Convert HTML content to clean Markdown.
+ * Handles: h2, h3, h4, p, ul/ol/li, strong, em, a, blockquote, img, br, code
+ */
+function htmlToMarkdown(html: string): string {
+  let md = html;
+
+  // Remove excessive whitespace between tags
+  md = md.replace(/>\s+</g, '><');
+
+  // Headings
+  md = md.replace(/<h2[^>]*>(.*?)<\/h2>/gi, '\n## $1\n');
+  md = md.replace(/<h3[^>]*>(.*?)<\/h3>/gi, '\n### $1\n');
+  md = md.replace(/<h4[^>]*>(.*?)<\/h4>/gi, '\n#### $1\n');
+
+  // Blockquote
+  md = md.replace(/<blockquote[^>]*>(.*?)<\/blockquote>/gis, (_, inner) => {
+    const text = inner.replace(/<p[^>]*>(.*?)<\/p>/gi, '$1').trim();
+    return '\n> ' + text.split('\n').join('\n> ') + '\n';
+  });
+
+  // Lists - ordered
+  md = md.replace(/<ol[^>]*>(.*?)<\/ol>/gis, (_, inner) => {
+    let index = 0;
+    return '\n' + inner.replace(/<li[^>]*>(.*?)<\/li>/gi, (_: string, li: string) => {
+      index++;
+      return `${index}. ${li.trim()}\n`;
+    }) + '\n';
+  });
+
+  // Lists - unordered
+  md = md.replace(/<ul[^>]*>(.*?)<\/ul>/gis, (_, inner) => {
+    return '\n' + inner.replace(/<li[^>]*>(.*?)<\/li>/gi, '- $1\n') + '\n';
+  });
+
+  // Paragraphs
+  md = md.replace(/<p[^>]*>(.*?)<\/p>/gi, '\n$1\n');
+
+  // Bold and italic
+  md = md.replace(/<strong[^>]*>(.*?)<\/strong>/gi, '**$1**');
+  md = md.replace(/<em[^>]*>(.*?)<\/em>/gi, '*$1*');
+  md = md.replace(/<b[^>]*>(.*?)<\/b>/gi, '**$1**');
+  md = md.replace(/<i[^>]*>(.*?)<\/i>/gi, '*$1*');
+
+  // Links
+  md = md.replace(/<a[^>]*href="([^"]*)"[^>]*>(.*?)<\/a>/gi, '[$2]($1)');
+
+  // Images
+  md = md.replace(/<img[^>]*src="([^"]*)"[^>]*alt="([^"]*)"[^>]*\/?>/gi, '![$2]($1)');
+  md = md.replace(/<img[^>]*alt="([^"]*)"[^>]*src="([^"]*)"[^>]*\/?>/gi, '![$1]($2)');
+
+  // Line breaks
+  md = md.replace(/<br\s*\/?>/gi, '  \n');
+
+  // Code
+  md = md.replace(/<code[^>]*>(.*?)<\/code>/gi, '`$1`');
+
+  // Strip remaining HTML tags
+  md = md.replace(/<[^>]+>/g, '');
+
+  // Decode HTML entities
+  md = md.replace(/&amp;/g, '&');
+  md = md.replace(/&lt;/g, '<');
+  md = md.replace(/&gt;/g, '>');
+  md = md.replace(/&quot;/g, '"');
+  md = md.replace(/&#39;/g, "'");
+  md = md.replace(/&nbsp;/g, ' ');
+  md = md.replace(/&pound;/g, '£');
+
+  // Clean up excessive blank lines
+  md = md.replace(/\n{3,}/g, '\n\n');
+
+  return md.trim();
+}
+
+/**
+ * Generate a complete Markdown document for a blog post with YAML frontmatter.
+ * Designed for AI consumption, RAG pipelines, and search engine crawlers.
+ */
+export function getBlogPostMarkdown(slug: string): string | null {
+  const post = getBlogPost(slug);
+  if (!post) return null;
+
+  // Get related links and FAQs
+  const internalLinkSlugs = INTERNAL_LINKS[slug] || [];
+  const relatedPosts = internalLinkSlugs
+    .map(s => blogPosts.find(p => p.slug === s))
+    .filter(p => p !== undefined) as BlogPost[];
+  const faqs = FAQ_DATA[slug] || [];
+
+  // Build YAML frontmatter
+  const frontmatter = [
+    '---',
+    `title: "${post.title}"`,
+    `slug: "${post.slug}"`,
+    `description: "${post.metaDescription}"`,
+    `keywords:`,
+    ...post.keywords.map(k => `  - "${k}"`),
+    `category: "${post.category}"`,
+    `published: "${post.publishDate}"`,
+    `read_time: ${post.readTime}`,
+    `canonical_url: "https://www.shopshot.co.uk/blog/${post.slug}"`,
+    `html_url: "https://www.shopshot.co.uk/blog/${post.slug}"`,
+    `author: "ShopShot"`,
+    `site: "https://www.shopshot.co.uk"`,
+    '---',
+  ].join('\n');
+
+  // Convert HTML content to Markdown
+  const contentMd = htmlToMarkdown(post.content);
+
+  // Build FAQ section
+  let faqSection = '';
+  if (faqs.length > 0) {
+    faqSection = '\n\n---\n\n## Frequently Asked Questions\n\n';
+    faqSection += faqs.map(faq => 
+      `### ${faq.question}\n\n${faq.answer}`
+    ).join('\n\n');
+  }
+
+  // Build related articles section
+  let relatedSection = '';
+  if (relatedPosts.length > 0) {
+    relatedSection = '\n\n---\n\n## Related Articles\n\n';
+    relatedSection += relatedPosts.map(p => 
+      `- [${p.title}](https://www.shopshot.co.uk/blog/${p.slug})`
+    ).join('\n');
+  }
+
+  // Build the full document
+  const markdown = [
+    frontmatter,
+    '',
+    `# ${post.title}`,
+    '',
+    `*Published: ${post.publishDate} · ${post.readTime} min read · Category: ${post.category}*`,
+    '',
+    `> ${post.excerpt}`,
+    '',
+    contentMd,
+    faqSection,
+    relatedSection,
+    '',
+    '---',
+    '',
+    `*This article is published by [ShopShot](https://www.shopshot.co.uk) — AI-powered product photography for e-commerce sellers. Turn 1 photo into 10 professional variations in 25 seconds.*`,
+  ].join('\n');
+
+  return markdown;
+}
+
+/**
+ * Get a Markdown index of all blog posts (for crawlers and AI discovery).
+ */
+export function getBlogMarkdownIndex(): string {
+  const sortedPosts = [...blogPosts].sort(
+    (a, b) => new Date(b.publishDate).getTime() - new Date(a.publishDate).getTime()
+  );
+
+  const lines = [
+    '---',
+    'title: "ShopShot Blog - All Posts (Markdown Index)"',
+    'description: "Machine-readable index of all ShopShot blog posts available as Markdown for AI systems and crawlers."',
+    'type: "index"',
+    `total_posts: ${sortedPosts.length}`,
+    'site: "https://www.shopshot.co.uk"',
+    '---',
+    '',
+    '# ShopShot Blog — Markdown Index',
+    '',
+    `> ${sortedPosts.length} posts available as Markdown for AI and crawler consumption.`,
+    '',
+    '## How to Access',
+    '',
+    'Each blog post is available as Markdown at:',
+    '```',
+    'https://www.shopshot.co.uk/blog/{slug}.md',
+    '```',
+    '',
+    '## All Posts',
+    '',
+    '| # | Title | Category | Published | Read Time | Markdown URL |',
+    '|---|-------|----------|-----------|-----------|--------------|',
+    ...sortedPosts.map((post, i) => 
+      `| ${i + 1} | ${post.title} | ${post.category} | ${post.publishDate} | ${post.readTime} min | [${post.slug}.md](https://www.shopshot.co.uk/blog/${post.slug}.md) |`
+    ),
+    '',
+    '## Categories',
+    '',
+    ...[...new Set(sortedPosts.map(p => p.category))].map(cat => {
+      const catPosts = sortedPosts.filter(p => p.category === cat);
+      return `### ${cat} (${catPosts.length} posts)\n\n` + 
+        catPosts.map(p => `- [${p.title}](https://www.shopshot.co.uk/blog/${p.slug}.md)`).join('\n') + '\n';
+    }),
+    '---',
+    '',
+    '*Generated by [ShopShot](https://www.shopshot.co.uk) — AI-powered product photography.*',
+  ];
+
+  return lines.join('\n');
 }

@@ -3,7 +3,7 @@ import { cors } from 'hono/cors'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { getPrivacyPage, getTermsPage, getRefundsPage, getCookiesPage } from './legal-pages'
 import { getFaqPage, getAboutPage, getContactPage } from './info-pages'
-import { getBlogIndexPage, getBlogPostPage, getAllBlogPosts } from './blog-pages'
+import { getBlogIndexPage, getBlogPostPage, getAllBlogPosts, getBlogPostMarkdown, getBlogMarkdownIndex } from './blog-pages'
 
 // Google Tag Manager + Google Analytics snippets
 const GTM_HEAD = `<!-- Google Tag Manager -->
@@ -2408,20 +2408,61 @@ app.get('/blog', (c) => {
   return c.html(getBlogIndexPage())
 })
 
-// Individual Blog Post Pages
-app.get('/blog/:slug', (c) => {
-  const slug = c.req.param('slug')
-  const page = getBlogPostPage(slug)
-  if (!page) {
-    return c.redirect('/blog')
+// ==========================================
+// Blog Markdown for AI & Crawlers
+// ==========================================
+
+// Markdown index — lists all posts with .md URLs
+app.get('/blog/markdown', (c) => {
+  const md = getBlogMarkdownIndex()
+  return c.text(md, 200, {
+    'Content-Type': 'text/markdown; charset=utf-8',
+    'Content-Disposition': 'inline; filename="blog-index.md"',
+    'Cache-Control': 'public, max-age=3600',
+    'X-Content-Type-Options': 'nosniff',
+  })
+})
+
+// Individual blog post as Markdown — /blog/{slug}.md
+app.get('/blog/:slugWithExt', (c) => {
+  const slugWithExt = c.req.param('slugWithExt')
+  
+  // Only handle .md extension
+  if (!slugWithExt.endsWith('.md')) {
+    // Fall through to the normal blog post handler
+    const page = getBlogPostPage(slugWithExt)
+    if (!page) {
+      return c.redirect('/blog')
+    }
+    return c.html(page)
   }
-  return c.html(page)
+  
+  // Strip .md extension
+  const slug = slugWithExt.replace(/\.md$/, '')
+  const md = getBlogPostMarkdown(slug)
+  
+  if (!md) {
+    return c.text('# 404 — Blog post not found\n\nThe requested blog post does not exist.\n\nSee all available posts at: https://www.shopshot.co.uk/blog/markdown', 404, {
+      'Content-Type': 'text/markdown; charset=utf-8',
+    })
+  }
+  
+  return c.text(md, 200, {
+    'Content-Type': 'text/markdown; charset=utf-8',
+    'Content-Disposition': `inline; filename="${slug}.md"`,
+    'Cache-Control': 'public, max-age=3600',
+    'X-Content-Type-Options': 'nosniff',
+  })
 })
 
 // SEO: robots.txt
 app.get('/robots.txt', (c) => {
   const robotsTxt = `User-agent: *
 Allow: /
+
+# Blog Markdown for AI & Crawlers
+Allow: /blog/*.md
+Allow: /blog/markdown
 
 # Sitemap
 Sitemap: https://www.shopshot.co.uk/sitemap.xml
@@ -2464,6 +2505,14 @@ app.get('/sitemap.xml', (c) => {
     lastmod: post.publishDate
   }))
   
+  // Add markdown versions for AI/crawlers
+  const markdownUrls = blogPosts.map(post => ({
+    url: `/blog/${post.slug}.md`,
+    priority: '0.6',
+    changefreq: 'monthly',
+    lastmod: post.publishDate
+  }))
+  
   const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 ${pages.map(p => `  <url>
@@ -2473,6 +2522,18 @@ ${pages.map(p => `  <url>
     <priority>${p.priority}</priority>
   </url>`).join('\n')}
 ${blogUrls.map(p => `  <url>
+    <loc>${baseUrl}${p.url}</loc>
+    <lastmod>${p.lastmod}</lastmod>
+    <changefreq>${p.changefreq}</changefreq>
+    <priority>${p.priority}</priority>
+  </url>`).join('\n')}
+  <url>
+    <loc>${baseUrl}/blog/markdown</loc>
+    <lastmod>${today}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+${markdownUrls.map(p => `  <url>
     <loc>${baseUrl}${p.url}</loc>
     <lastmod>${p.lastmod}</lastmod>
     <changefreq>${p.changefreq}</changefreq>
