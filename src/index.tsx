@@ -2412,7 +2412,7 @@ app.get('/blog', (c) => {
 // Blog Markdown for AI & Crawlers
 // ==========================================
 
-// Markdown index — lists all posts with .md URLs
+// Markdown index - lists all posts with .md URLs
 app.get('/blog/markdown', (c) => {
   const md = getBlogMarkdownIndex()
   return c.text(md, 200, {
@@ -2423,7 +2423,7 @@ app.get('/blog/markdown', (c) => {
   })
 })
 
-// Individual blog post as Markdown — /blog/{slug}.md
+// Individual blog post as Markdown - /blog/{slug}.md
 app.get('/blog/:slugWithExt', (c) => {
   const slugWithExt = c.req.param('slugWithExt')
   
@@ -2442,7 +2442,7 @@ app.get('/blog/:slugWithExt', (c) => {
   const md = getBlogPostMarkdown(slug)
   
   if (!md) {
-    return c.text('# 404 — Blog post not found\n\nThe requested blog post does not exist.\n\nSee all available posts at: https://www.shopshot.co.uk/blog/markdown', 404, {
+    return c.text('# 404 - Blog post not found\n\nThe requested blog post does not exist.\n\nSee all available posts at: https://www.shopshot.co.uk/blog/markdown', 404, {
       'Content-Type': 'text/markdown; charset=utf-8',
     })
   }
@@ -18280,7 +18280,7 @@ function getPricingPage(user?: User) {
     <div style="background:linear-gradient(135deg,#7C3AED 0%,#5B21B6 100%);border-radius:16px;padding:32px;margin-bottom:48px;color:white;text-align:center;">
       <div style="font-size:32px;margin-bottom:8px;">⭐⭐⭐⭐⭐</div>
       <p style="font-size:18px;margin:0 0 8px;font-weight:500;">"It will save me hours of set and light design, scene creation, photography and editing."</p>
-      <p style="font-size:14px;margin:0;opacity:0.8;">— Sparklyscotty Gifts, Small Business Owner</p>
+      <p style="font-size:14px;margin:0;opacity:0.8;">- Sparklyscotty Gifts, Small Business Owner</p>
     </div>
     
     <!-- Credit Packs Section -->

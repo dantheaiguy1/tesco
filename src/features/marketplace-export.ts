@@ -43,13 +43,13 @@ export function getMarketplaceExportScript(): string {
         let drawW, drawH, drawX, drawY;
 
         if (imgRatio > canvasRatio) {
-          // Image is wider — fit by width
+          // Image is wider - fit by width
           drawW = canvas.width;
           drawH = canvas.width / imgRatio;
           drawX = 0;
           drawY = (canvas.height - drawH) / 2;
         } else {
-          // Image is taller — fit by height
+          // Image is taller - fit by height
           drawH = canvas.height;
           drawW = canvas.height * imgRatio;
           drawX = (canvas.width - drawW) / 2;

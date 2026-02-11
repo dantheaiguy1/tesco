@@ -311,7 +311,7 @@ const FAQ_DATA: Record<string, Array<{question: string, answer: string}>> = {
   "brand-consistency-product-photos": [
     { question: "How do I maintain consistent product photos across platforms?", answer: "Set brand colours in your AI tool, choose one style preset, and use the same shot types for every product. Process similar products in batches and review all images at thumbnail size before publishing." },
     { question: "What are brand colours in AI product photography?", answer: "Brand colours are your company's colour palette that gets embedded into AI-generated images. When set, lifestyle backgrounds, props, and accent elements incorporate your brand's primary, secondary, and accent colours." },
-    { question: "How do style presets affect product photography?", answer: "Style presets define the overall mood and aesthetic of generated images — lighting style, background textures, colour grading, and composition approach. Options include Minimalist, Luxury, Rustic, Scandinavian, and more." },
+    { question: "How do style presets affect product photography?", answer: "Style presets define the overall mood and aesthetic of generated images - lighting style, background textures, colour grading, and composition approach. Options include Minimalist, Luxury, Rustic, Scandinavian, and more." },
     { question: "Does inconsistent photography really affect sales?", answer: "Yes, brands with consistent presentation across platforms see revenue increases of up to 23%. Inconsistent imagery reduces trust and perceived quality, directly impacting conversion rates." }
   ],
   "360-product-video-ai-guide": [
@@ -328,7 +328,7 @@ const FAQ_DATA: Record<string, Array<{question: string, answer: string}>> = {
   ],
   "product-photography-conversion-optimization": [
     { question: "How much do product photos affect conversion rates?", answer: "Stores with AI-optimised product imagery see 47-53% higher conversion rates. Products with 5+ images convert 25% better than those with 1 image. Image quality is the #1 factor in online purchase decisions for 93% of consumers." },
-    { question: "Which product image type converts best?", answer: "Lifestyle in-use shots deliver the highest conversion lift — up to 30% improvement over white-background-only listings. However, a combination of hero, lifestyle, detail, and scale reference images performs best overall." },
+    { question: "Which product image type converts best?", answer: "Lifestyle in-use shots deliver the highest conversion lift - up to 30% improvement over white-background-only listings. However, a combination of hero, lifestyle, detail, and scale reference images performs best overall." },
     { question: "How many product images should I have per listing?", answer: "Aim for 5-10 images per product. Studies show conversion increases with each additional image up to about 8 images. Include hero, lifestyle, detail close-ups, scale reference, and multi-angle shots." },
     { question: "Does image loading speed affect conversions?", answer: "Yes, slow-loading images significantly hurt conversion rates. Optimise images to 200-500KB using WebP format, implement lazy loading, and use a CDN for global delivery speed." }
   ],
@@ -351,7 +351,7 @@ const FAQ_DATA: Record<string, Array<{question: string, answer: string}>> = {
     { question: "How does AI photography help reduce returns?", answer: "AI generates complete image sets (10 variations) including scale references, detail close-ups, and multi-angle views at no extra cost. More comprehensive imagery means fewer customer surprises and fewer returns." }
   ],
   "ai-product-photography-small-business": [
-    { question: "Can small businesses afford AI product photography?", answer: "Yes, AI photography plans start from £9.99/month — less than a single professional photo shoot. Most tools offer free trials with 10-15 credits to test before committing." },
+    { question: "Can small businesses afford AI product photography?", answer: "Yes, AI photography plans start from £9.99/month - less than a single professional photo shoot. Most tools offer free trials with 10-15 credits to test before committing." },
     { question: "Do I need professional equipment for AI product photography?", answer: "No. A smartphone from the last 3 years, a window or basic ring light, and an AI photography subscription is all you need. The AI handles background removal, lighting correction, and professional scene generation." },
     { question: "How do small businesses compete visually with big brands?", answer: "AI product photography eliminates the visual gap. Upload a smartphone photo and get 10 professional variations in 25 seconds that look like they came from a £500 photoshoot. The quality is indistinguishable from big-brand imagery." },
     { question: "What's the ROI of AI product photography for small businesses?", answer: "AI photography typically delivers 2-5x ROI through increased conversions, reduced returns, and higher perceived value. For the price of one traditional photoshoot, you can run AI photography for an entire year." }
@@ -2086,7 +2086,7 @@ export const blogPosts: BlogPost[] = [
     `
   },
   // ==========================================
-  // NEW POSTS — February 2026 (10 posts)
+  // NEW POSTS - February 2026 (10 posts)
   // ==========================================
   {
     slug: "ai-product-photography-2026-trends",
@@ -2105,19 +2105,19 @@ export const blogPosts: BlogPost[] = [
       <p>Here are the 10 trends defining AI product photography in 2026.</p>
 
       <h2>1. Batch Processing at Scale</h2>
-      <p>The biggest shift in 2026 is volume. Sellers aren't generating one image at a time anymore — they're processing entire catalogues in a single session. Tools like ShopShot now offer batch upload where you queue up to 20 products, hit process, and get 10 professional variations per product automatically.</p>
+      <p>The biggest shift in 2026 is volume. Sellers aren't generating one image at a time anymore - they're processing entire catalogues in a single session. Tools like ShopShot now offer batch upload where you queue up to 20 products, hit process, and get 10 professional variations per product automatically.</p>
       <p>For a 50-product store, that's 500 professional images in under an hour. Traditional photography would take 2-3 weeks and cost thousands.</p>
 
       <h2>2. Brand Colour Consistency Across Every Image</h2>
       <p>Generic AI images are dead. The 2026 standard is branded AI imagery. Sellers now embed their brand colours directly into the generation process so every lifestyle shot, every background, every accent matches their visual identity.</p>
-      <p>ShopShot's brand colour feature lets you set your palette once and it persists across every session — ensuring your Shopify store, Amazon listings, and Instagram feed all look like they came from the same shoot.</p>
+      <p>ShopShot's brand colour feature lets you set your palette once and it persists across every session - ensuring your Shopify store, Amazon listings, and Instagram feed all look like they came from the same shoot.</p>
 
       <h2>3. 360-Degree Product Videos From a Single Photo</h2>
-      <p>Static images are losing ground to interactive content. In 2026, AI can generate smooth 360-degree spin videos from a single product photo. These aren't choppy animations — they're 8-second cinematic spins powered by models like Google Veo that create genuinely convincing rotation effects.</p>
+      <p>Static images are losing ground to interactive content. In 2026, AI can generate smooth 360-degree spin videos from a single product photo. These aren't choppy animations - they're 8-second cinematic spins powered by models like Google Veo that create genuinely convincing rotation effects.</p>
       <p>Products with 360° views see engagement increases of 30% or more, and return rates drop because customers understand exactly what they're buying.</p>
 
       <h2>4. Style Presets and Mood-Based Generation</h2>
-      <p>AI photography tools have moved beyond "white background" vs "lifestyle shot." The 2026 approach uses style presets — Minimalist, Luxury, Rustic, Scandinavian, Industrial, Tropical, Vintage — that transform your product's entire visual language with one click.</p>
+      <p>AI photography tools have moved beyond "white background" vs "lifestyle shot." The 2026 approach uses style presets - Minimalist, Luxury, Rustic, Scandinavian, Industrial, Tropical, Vintage - that transform your product's entire visual language with one click.</p>
       <p>This means the same product can be instantly repositioned for different audiences. Your handmade candle gets a Rustic preset for Etsy and a Minimalist preset for your direct-to-consumer site.</p>
 
       <h2>5. AI-Powered Background Removal as a Standalone Tool</h2>
@@ -2128,22 +2128,22 @@ export const blogPosts: BlogPost[] = [
       <p>This level of customisation means every generated image has a specific purpose in your sales funnel.</p>
 
       <h2>7. Before-and-After Comparison Views</h2>
-      <p>Product transformation is a powerful selling technique. AI now generates split-screen comparison images — raw vs styled, unboxed vs in-use — that tell a visual story. Combined with interactive comparison sliders on product pages, these images boost engagement significantly.</p>
+      <p>Product transformation is a powerful selling technique. AI now generates split-screen comparison images - raw vs styled, unboxed vs in-use - that tell a visual story. Combined with interactive comparison sliders on product pages, these images boost engagement significantly.</p>
 
       <h2>8. Multi-Platform Export Optimisation</h2>
-      <p>One set of AI-generated images now gets automatically formatted for every platform: Amazon-compliant white backgrounds (RGB 255,255,255), Instagram 4:5 portrait crops, TikTok 9:16 vertical formats, and Pinterest-optimised aspect ratios — all from the same source generation.</p>
+      <p>One set of AI-generated images now gets automatically formatted for every platform: Amazon-compliant white backgrounds (RGB 255,255,255), Instagram 4:5 portrait crops, TikTok 9:16 vertical formats, and Pinterest-optimised aspect ratios - all from the same source generation.</p>
 
       <h2>9. AI Photography Marketplaces</h2>
       <p>A new category is emerging: marketplaces where photographers sell AI-enhanced product shots, templates, and presets. Sellers can browse and purchase pre-made visual assets, then customise them with their own products. This hybrid approach combines human creativity with AI efficiency.</p>
 
       <h2>10. Two-Tier Quality Models</h2>
-      <p>The one-size-fits-all approach is dead. In 2026, AI photography tools offer tiered generation: a fast, affordable model for bulk catalogue work, and a premium model for hero images and marketing campaigns. ShopShot's Pro and Standard tiers reflect this — use Standard for volume, Pro for your best sellers.</p>
+      <p>The one-size-fits-all approach is dead. In 2026, AI photography tools offer tiered generation: a fast, affordable model for bulk catalogue work, and a premium model for hero images and marketing campaigns. ShopShot's Pro and Standard tiers reflect this - use Standard for volume, Pro for your best sellers.</p>
 
       <h2>What This Means for Sellers</h2>
       <p>The bottom line: AI product photography isn't a nice-to-have anymore. It's infrastructure. If your competitors are generating 10 professional variations per product in 25 seconds and you're still booking studio time, you're not competing on a level playing field.</p>
 
       <blockquote>
-        <p>Stay ahead of every trend. ShopShot includes batch processing, brand colours, 360° video, style presets, and customisable shot types — all in one platform. Try it free with 15 credits.</p>
+        <p>Stay ahead of every trend. ShopShot includes batch processing, brand colours, 360° video, style presets, and customisable shot types - all in one platform. Try it free with 15 credits.</p>
       </blockquote>
     `
   },
@@ -2158,13 +2158,13 @@ export const blogPosts: BlogPost[] = [
     readTime: 8,
     content: `
       <h2>Why Batch Processing Changes Everything</h2>
-      <p>If you're generating product images one at a time, you're leaving money on the table. Batch processing is the single biggest time-saver in AI product photography — and most sellers don't know it exists.</p>
+      <p>If you're generating product images one at a time, you're leaving money on the table. Batch processing is the single biggest time-saver in AI product photography - and most sellers don't know it exists.</p>
       <p>Here's the maths: a single product with 10 AI variations takes about 25 seconds. Processing 20 products one-by-one means 20 separate sessions, 20 uploads, 20 waits. That's at least 30 minutes of active management.</p>
       <p>With batch processing, you upload all 20 at once, hit "Process All," and walk away. Total hands-on time: about 2 minutes. The system handles the rest.</p>
 
       <h2>How Batch Product Photography Works</h2>
       <h3>Step 1: Prepare Your Product Images</h3>
-      <p>Take a clear photo of each product. It doesn't need to be professional — a well-lit smartphone photo works. The AI handles background removal, lighting correction, and scene generation.</p>
+      <p>Take a clear photo of each product. It doesn't need to be professional - a well-lit smartphone photo works. The AI handles background removal, lighting correction, and scene generation.</p>
       <ul>
         <li>Use natural light or a simple ring light</li>
         <li>Shoot against any clean background</li>
@@ -2179,7 +2179,7 @@ export const blogPosts: BlogPost[] = [
       <p>Before hitting process, customise which variations you want. You might choose: hero white background, lifestyle in-use, flat-lay styled, macro texture detail, and environment context. Every product in the batch gets the same shot types for consistency.</p>
 
       <h3>Step 4: Process and Download</h3>
-      <p>Hit "Process All" and each product is processed sequentially — creating a session, generating 10 variations, and completing the session automatically. When done, download everything as a ZIP file organized by product.</p>
+      <p>Hit "Process All" and each product is processed sequentially - creating a session, generating 10 variations, and completing the session automatically. When done, download everything as a ZIP file organized by product.</p>
 
       <h2>Cost Comparison: Batch AI vs Traditional</h2>
       <p>Let's compare the real costs for a 50-product catalogue:</p>
@@ -2200,7 +2200,7 @@ export const blogPosts: BlogPost[] = [
       <p>ShopShot's batch mode defaults to Standard quality (Gemini Flash) which is faster and more cost-effective for volume. Once batch results are in, you can re-generate your best sellers individually with Pro quality for marketing campaigns.</p>
 
       <h3>Review Before Publishing</h3>
-      <p>AI-generated images are impressive but not infallible. Review each batch result before uploading to your store. Occasionally an image might need a re-generate — this is normal and expected.</p>
+      <p>AI-generated images are impressive but not infallible. Review each batch result before uploading to your store. Occasionally an image might need a re-generate - this is normal and expected.</p>
 
       <h2>Who Benefits Most from Batch Processing?</h2>
       <ul>
@@ -2234,7 +2234,7 @@ export const blogPosts: BlogPost[] = [
       
       <h3>1. Brand Colours</h3>
       <p>The most impactful consistency lever is colour. When your product images share a common colour palette in backgrounds, props, and accent elements, they create a cohesive visual story.</p>
-      <p>ShopShot lets you set brand colours as account defaults. Once saved, every AI-generated lifestyle shot incorporates your palette — your signature blue appears in backgrounds, your accent gold shows up in props. It persists across sessions so you never have to re-enter it.</p>
+      <p>ShopShot lets you set brand colours as account defaults. Once saved, every AI-generated lifestyle shot incorporates your palette - your signature blue appears in backgrounds, your accent gold shows up in props. It persists across sessions so you never have to re-enter it.</p>
       <ul>
         <li><strong>Primary colour:</strong> Your dominant brand colour (appears in backgrounds and major elements)</li>
         <li><strong>Secondary colour:</strong> Supporting colour for accents and details</li>
@@ -2250,13 +2250,13 @@ export const blogPosts: BlogPost[] = [
 
       <h2>Platform-Specific Consistency</h2>
       <h3>Amazon</h3>
-      <p>Amazon demands pure white backgrounds for main images. Use AI to ensure every single product meets the RGB 255,255,255 standard — no grey tints, no shadows on the background. Consistency here prevents listing suppressions.</p>
+      <p>Amazon demands pure white backgrounds for main images. Use AI to ensure every single product meets the RGB 255,255,255 standard - no grey tints, no shadows on the background. Consistency here prevents listing suppressions.</p>
 
       <h3>Shopify / Your Own Store</h3>
       <p>Your own store gives you the most freedom. Set your brand colours and style preset, then batch-generate all products with the same configuration. The result is a store that looks like it had a professional brand photoshoot.</p>
 
       <h3>Instagram / TikTok</h3>
-      <p>Social media rewards visual cohesion. A consistent Instagram grid — same colour tones, same styling approach, same quality level — dramatically improves follower conversion and engagement.</p>
+      <p>Social media rewards visual cohesion. A consistent Instagram grid - same colour tones, same styling approach, same quality level - dramatically improves follower conversion and engagement.</p>
 
       <h2>Common Consistency Mistakes</h2>
       <ul>
@@ -2328,10 +2328,10 @@ export const blogPosts: BlogPost[] = [
 
       <h2>Tips for Better 360° AI Videos</h2>
       <ul>
-        <li>Start with a clear, well-lit source photo — garbage in, garbage out</li>
+        <li>Start with a clear, well-lit source photo - garbage in, garbage out</li>
         <li>Products with distinct 3D shapes generate better rotations than flat items</li>
         <li>Use the highest quality source image you have (the AI needs detail to invent new angles)</li>
-        <li>Review the video before publishing — occasionally the AI may misinterpret complex geometries</li>
+        <li>Review the video before publishing - occasionally the AI may misinterpret complex geometries</li>
       </ul>
 
       <blockquote>
@@ -2365,35 +2365,35 @@ export const blogPosts: BlogPost[] = [
 
       <h2>Background Removal + AI Generation: The Power Combo</h2>
       <p>Background removal on its own gives you a product on a transparent background. That's useful for white backgrounds and basic compositing. But the real power comes when you combine it with AI scene generation.</p>
-      <p>The workflow: remove background → AI generates 10 different scenes around your product. Your kitchen knife goes from a messy countertop photo to a professional studio shot, a chef's kitchen lifestyle image, a flat-lay arrangement, and more — all from one source photo.</p>
+      <p>The workflow: remove background → AI generates 10 different scenes around your product. Your kitchen knife goes from a messy countertop photo to a professional studio shot, a chef's kitchen lifestyle image, a flat-lay arrangement, and more - all from one source photo.</p>
 
       <h2>Platform-Specific Background Requirements</h2>
       <h3>Amazon</h3>
       <p>Main images must have pure white backgrounds (RGB 255,255,255). The product must fill at least 85% of the frame. AI background removal creates compliant images automatically.</p>
 
       <h3>Etsy</h3>
-      <p>Etsy is more flexible — lifestyle backgrounds often perform better than white. Use background removal as a starting point, then generate contextual scenes that match your brand's handmade aesthetic.</p>
+      <p>Etsy is more flexible - lifestyle backgrounds often perform better than white. Use background removal as a starting point, then generate contextual scenes that match your brand's handmade aesthetic.</p>
 
       <h3>Shopify</h3>
       <p>Consistency matters most on your own store. Remove all backgrounds and generate new ones with matching style for a cohesive product catalogue.</p>
 
       <h3>Social Media</h3>
-      <p>Background removal enables creative compositing. Place your product in trending visual contexts — seasonal themes, trending colour palettes, or lifestyle scenarios that resonate with your audience.</p>
+      <p>Background removal enables creative compositing. Place your product in trending visual contexts - seasonal themes, trending colour palettes, or lifestyle scenarios that resonate with your audience.</p>
 
       <h2>Free vs Paid Background Removal Tools</h2>
       <ul>
         <li><strong>Free tools (remove.bg, Canva):</strong> Good for occasional use. Quality is decent but may struggle with complex edges. Usually limited to basic PNG output.</li>
-        <li><strong>Integrated AI tools (ShopShot):</strong> Background removal is built into the generation pipeline. You don't just get a cutout — you get 10 complete product images with professionally generated backgrounds.</li>
+        <li><strong>Integrated AI tools (ShopShot):</strong> Background removal is built into the generation pipeline. You don't just get a cutout - you get 10 complete product images with professionally generated backgrounds.</li>
         <li><strong>Professional tools (Photoshop AI, Capture One):</strong> Best accuracy for complex products. Overkill for most e-commerce use cases.</li>
       </ul>
 
       <h2>Best Practices for Better Results</h2>
       <ol>
         <li>Photograph products against a contrasting background (not the same colour as the product)</li>
-        <li>Ensure good, even lighting — shadows help the AI understand 3D shape</li>
+        <li>Ensure good, even lighting - shadows help the AI understand 3D shape</li>
         <li>Avoid busy backgrounds that might confuse edge detection</li>
         <li>For transparent products (glass, bottles), photograph against a mid-grey background</li>
-        <li>Keep the product in focus — blurry edges produce blurry cutouts</li>
+        <li>Keep the product in focus - blurry edges produce blurry cutouts</li>
       </ol>
 
       <blockquote>
@@ -2412,7 +2412,7 @@ export const blogPosts: BlogPost[] = [
     readTime: 11,
     content: `
       <h2>The Conversion Impact of Product Photography</h2>
-      <p>Product photography isn't creative expression — it's a conversion lever. Every image on your product page either moves a customer closer to buying or pushes them away. The data is unambiguous: better product images = more sales.</p>
+      <p>Product photography isn't creative expression - it's a conversion lever. Every image on your product page either moves a customer closer to buying or pushes them away. The data is unambiguous: better product images = more sales.</p>
       <p>Key statistics from recent e-commerce research:</p>
       <ul>
         <li>93% of consumers consider visual appearance the key deciding factor in a purchase</li>
@@ -2424,23 +2424,23 @@ export const blogPosts: BlogPost[] = [
 
       <h2>Which Image Types Convert Best?</h2>
       <h3>1. Hero White Background (Required)</h3>
-      <p>This is your main product image — the one that appears in search results, category pages, and marketplace listings. Pure white background, product filling the frame, excellent lighting. It must be perfect because it's the first impression.</p>
+      <p>This is your main product image - the one that appears in search results, category pages, and marketplace listings. Pure white background, product filling the frame, excellent lighting. It must be perfect because it's the first impression.</p>
       <p>Conversion impact: Products without a clean hero image lose up to 40% of potential clicks in search results.</p>
 
       <h3>2. Lifestyle In-Use Shots (Highest Conversion Lift)</h3>
-      <p>Lifestyle images showing the product being used in real-world contexts consistently deliver the highest conversion lift — up to 30% improvement over white-background-only listings. They help customers visualise ownership.</p>
+      <p>Lifestyle images showing the product being used in real-world contexts consistently deliver the highest conversion lift - up to 30% improvement over white-background-only listings. They help customers visualise ownership.</p>
 
       <h3>3. Scale Reference Images</h3>
       <p>Size uncertainty is a major purchase barrier. Including a scale reference (product next to a common object, or held in a hand) reduces "not what I expected" returns by up to 25%.</p>
 
       <h3>4. Detail and Texture Close-Ups</h3>
-      <p>Macro shots of materials, stitching, labels, and construction details signal quality. Premium and handmade products see the biggest boost from detail shots — they justify higher price points.</p>
+      <p>Macro shots of materials, stitching, labels, and construction details signal quality. Premium and handmade products see the biggest boost from detail shots - they justify higher price points.</p>
 
       <h3>5. Multi-Angle Views</h3>
       <p>Showing the product from three-quarter view, side profile, back, and top-down gives buyers confidence. Each additional angle reduces return likelihood.</p>
 
       <h2>The AI Photography Advantage for Conversions</h2>
-      <p>AI photography doesn't just save money — it's strategically superior for conversion optimisation:</p>
+      <p>AI photography doesn't just save money - it's strategically superior for conversion optimisation:</p>
       <ul>
         <li><strong>A/B testing at scale:</strong> Generate 10 variations, test which lifestyle scene converts best, then use the winner across your catalogue. Traditional photography can't match this iteration speed.</li>
         <li><strong>Complete image sets:</strong> Every product gets the full set of image types (hero, lifestyle, detail, scale). No more "we only had time to shoot 3 angles."</li>
@@ -2469,7 +2469,7 @@ export const blogPosts: BlogPost[] = [
       </ol>
 
       <blockquote>
-        <p>Get the complete image set for every product — hero, lifestyle, detail, scale, and multi-angle — in 25 seconds with ShopShot. Optimise your product photography for maximum conversions. Start free.</p>
+        <p>Get the complete image set for every product - hero, lifestyle, detail, scale, and multi-angle - in 25 seconds with ShopShot. Optimise your product photography for maximum conversions. Start free.</p>
       </blockquote>
     `
   },
@@ -2478,7 +2478,7 @@ export const blogPosts: BlogPost[] = [
     title: "AI Product Photos vs Professional Photographer: Honest 2026 Comparison",
     metaDescription: "An honest comparison of AI-generated product photos versus professional photography. When to use each, real cost analysis, and quality comparison.",
     keywords: ["AI vs professional product photography", "AI product photos quality", "professional photographer cost", "AI photography comparison"],
-    excerpt: "AI isn't replacing photographers — it's changing when you need one. Here's an honest breakdown of when AI wins, when a photographer wins, and when to use both.",
+    excerpt: "AI isn't replacing photographers - it's changing when you need one. Here's an honest breakdown of when AI wins, when a photographer wins, and when to use both.",
     category: "Guides",
     publishDate: "2026-01-26",
     readTime: 10,
@@ -2509,7 +2509,7 @@ export const blogPosts: BlogPost[] = [
       <p>High-end jewellery, watches, glassware, and products with complex reflective surfaces still benefit from professional photography. AI handles these well enough for most e-commerce, but luxury brands may need the extra precision.</p>
 
       <h3>On-Model Photography</h3>
-      <p>Products worn on the body — clothing, accessories, shoes — generally look better shot on real models. AI can generate model-like scenes, but actual model photography for fashion remains superior for now.</p>
+      <p>Products worn on the body - clothing, accessories, shoes - generally look better shot on real models. AI can generate model-like scenes, but actual model photography for fashion remains superior for now.</p>
 
       <h3>Brand Campaign Imagery</h3>
       <p>If you're creating images for a brand campaign, advertisement, or editorial piece, a creative photographer brings artistic vision that AI can't replicate. These are the images on your homepage hero banner, not your product detail page.</p>
@@ -2518,7 +2518,7 @@ export const blogPosts: BlogPost[] = [
       <p>Full product videos with hand movements, unboxing sequences, and dynamic scenes still need real videography. However, AI 360° spin videos are closing this gap rapidly for simple product showcases.</p>
 
       <h2>The Smart Hybrid Approach</h2>
-      <p>The most effective strategy in 2026 isn't AI <em>or</em> a photographer — it's both:</p>
+      <p>The most effective strategy in 2026 isn't AI <em>or</em> a photographer - it's both:</p>
       <ol>
         <li><strong>Use AI for:</strong> Catalogue imagery, marketplace listings, seasonal updates, social media content, variation testing</li>
         <li><strong>Use a photographer for:</strong> Hero brand imagery, on-model shoots, campaign visuals, complex/luxury products</li>
@@ -2530,7 +2530,7 @@ export const blogPosts: BlogPost[] = [
       <p>Where AI still trails: ultra-high-resolution print campaigns, products requiring precise colour matching (textiles, paint), and anything needing creative direction beyond standard e-commerce formats.</p>
 
       <h2>The Bottom Line</h2>
-      <p>If you're an e-commerce seller with more than 20 products, AI product photography should be your primary tool for catalogue imagery. It's not a compromise — it's a strategic advantage. Then allocate the money you saved toward professional photography for your hero products and brand campaigns.</p>
+      <p>If you're an e-commerce seller with more than 20 products, AI product photography should be your primary tool for catalogue imagery. It's not a compromise - it's a strategic advantage. Then allocate the money you saved toward professional photography for your hero products and brand campaigns.</p>
 
       <blockquote>
         <p>See the quality for yourself. Upload any product photo to ShopShot and get 10 professional variations in 25 seconds. 15 free credits, no credit card required.</p>
@@ -2542,7 +2542,7 @@ export const blogPosts: BlogPost[] = [
     title: "Product Photography Style Presets: How to Choose the Right Look for Your Brand",
     metaDescription: "Guide to choosing the perfect photography style for your brand. Learn about Minimalist, Luxury, Rustic, Scandinavian, and more style presets for product photos.",
     keywords: ["product photography style", "photography presets", "brand photography style", "product image aesthetic"],
-    excerpt: "Minimalist, Luxury, Rustic, Scandinavian — the style preset you choose defines your brand's visual identity. Here's how to pick the right one.",
+    excerpt: "Minimalist, Luxury, Rustic, Scandinavian - the style preset you choose defines your brand's visual identity. Here's how to pick the right one.",
     category: "Brand Strategy",
     publishDate: "2026-01-22",
     readTime: 8,
@@ -2555,11 +2555,11 @@ export const blogPosts: BlogPost[] = [
 
       <h3>Default</h3>
       <p><strong>Best for:</strong> Multi-category stores, general e-commerce, Amazon/eBay listings</p>
-      <p>Clean, professional imagery with neutral backgrounds and balanced lighting. No specific mood — just well-executed product photography. Choose this if your product range is diverse and you need a versatile, inoffensive style.</p>
+      <p>Clean, professional imagery with neutral backgrounds and balanced lighting. No specific mood - just well-executed product photography. Choose this if your product range is diverse and you need a versatile, inoffensive style.</p>
 
       <h3>Minimalist</h3>
       <p><strong>Best for:</strong> Tech products, modern homeware, premium accessories, SaaS physical products</p>
-      <p>Clean lines, ample white space, muted colour palette. Minimalist imagery communicates sophistication and simplicity. Think Apple product shots — the product is the star, everything else fades away.</p>
+      <p>Clean lines, ample white space, muted colour palette. Minimalist imagery communicates sophistication and simplicity. Think Apple product shots - the product is the star, everything else fades away.</p>
 
       <h3>Luxury</h3>
       <p><strong>Best for:</strong> Jewellery, watches, premium beauty, high-end fashion accessories</p>
@@ -2567,7 +2567,7 @@ export const blogPosts: BlogPost[] = [
 
       <h3>Rustic</h3>
       <p><strong>Best for:</strong> Handmade goods, organic products, artisan food, Etsy shops</p>
-      <p>Warm tones, natural wood surfaces, soft textiles, organic materials. Rustic imagery conveys authenticity, craftsmanship, and care. It's the visual equivalent of "handmade with love" — and it works because it feels genuine.</p>
+      <p>Warm tones, natural wood surfaces, soft textiles, organic materials. Rustic imagery conveys authenticity, craftsmanship, and care. It's the visual equivalent of "handmade with love" - and it works because it feels genuine.</p>
 
       <h3>Vibrant</h3>
       <p><strong>Best for:</strong> Children's products, fitness accessories, party supplies, bold fashion</p>
@@ -2579,7 +2579,7 @@ export const blogPosts: BlogPost[] = [
 
       <h3>Scandinavian</h3>
       <p><strong>Best for:</strong> Furniture, homeware, baby products, wellness brands</p>
-      <p>Light, airy, hygge-inspired imagery. Soft pastels, natural light feeling, clean compositions. Scandinavian design has become a global shorthand for "thoughtfully designed" — and this preset channels that perception.</p>
+      <p>Light, airy, hygge-inspired imagery. Soft pastels, natural light feeling, clean compositions. Scandinavian design has become a global shorthand for "thoughtfully designed" - and this preset channels that perception.</p>
 
       <h3>Industrial</h3>
       <p><strong>Best for:</strong> Tools, hardware, men's grooming, urban lifestyle products</p>
@@ -2587,7 +2587,7 @@ export const blogPosts: BlogPost[] = [
 
       <h3>Tropical</h3>
       <p><strong>Best for:</strong> Swimwear, suncare, travel accessories, summer seasonal products</p>
-      <p>Lush greens, warm sunlight, natural textures. Tropical presets create an immediate emotional response — relaxation, holiday, escape. Perfect for seasonal campaigns or year-round for warm-climate brands.</p>
+      <p>Lush greens, warm sunlight, natural textures. Tropical presets create an immediate emotional response - relaxation, holiday, escape. Perfect for seasonal campaigns or year-round for warm-climate brands.</p>
 
       <h3>Vintage</h3>
       <p><strong>Best for:</strong> Retro products, antiques, craft supplies, nostalgic brands</p>
@@ -2623,20 +2623,20 @@ export const blogPosts: BlogPost[] = [
       <h2>Which Images Prevent Returns?</h2>
 
       <h3>Scale Reference Images (Biggest Impact)</h3>
-      <p>The #1 return reason for non-clothing products is "smaller/larger than expected." A single scale reference image — showing the product next to a common object or being held — reduces size-related returns by up to 30%.</p>
+      <p>The #1 return reason for non-clothing products is "smaller/larger than expected." A single scale reference image - showing the product next to a common object or being held - reduces size-related returns by up to 30%.</p>
       <p>AI photography tools can generate scale reference shots automatically. ShopShot includes this in its standard shot library.</p>
 
       <h3>Material and Texture Close-Ups</h3>
       <p>"Looked different in person" often means "the material wasn't what I expected." Macro detail shots showing texture, weave, finish, and material quality set accurate expectations. Particularly important for premium products where material quality justifies the price.</p>
 
       <h3>Multi-Angle Views</h3>
-      <p>Showing the product from 4-6 angles eliminates surprises. The back of the product, the underside, the inside — every hidden angle that might disappoint a customer should be visible before purchase.</p>
+      <p>Showing the product from 4-6 angles eliminates surprises. The back of the product, the underside, the inside - every hidden angle that might disappoint a customer should be visible before purchase.</p>
 
       <h3>Accurate Colour Representation</h3>
       <p>"Colour was wrong" is a perennial return reason. AI-generated images maintain colour accuracy from the source photo, but you must ensure your source image has accurate white balance. Shoot in daylight or use calibrated lighting.</p>
 
       <h3>Lifestyle Context (Sets Expectations)</h3>
-      <p>A coffee mug photographed alone could be any size. That same mug shown on a kitchen counter next to a kettle immediately communicates its proportions. Lifestyle images don't just sell — they set expectations.</p>
+      <p>A coffee mug photographed alone could be any size. That same mug shown on a kitchen counter next to a kettle immediately communicates its proportions. Lifestyle images don't just sell - they set expectations.</p>
 
       <h2>The AI Photography Advantage for Returns</h2>
       <p>Traditional photography often means 3-4 images per product due to cost constraints. AI photography means every product gets 10 comprehensive images at the same cost. More images = more information = fewer surprises = fewer returns.</p>
@@ -2657,7 +2657,7 @@ export const blogPosts: BlogPost[] = [
 
       <h2>Implementation Checklist</h2>
       <ol>
-        <li>Audit your current return reasons — identify which are photography-solvable</li>
+        <li>Audit your current return reasons - identify which are photography-solvable</li>
         <li>Ensure every product has at least 5 images including a scale reference</li>
         <li>Add texture/detail close-ups for products over £20</li>
         <li>Include lifestyle context showing the product in real use</li>
@@ -2681,12 +2681,12 @@ export const blogPosts: BlogPost[] = [
     readTime: 9,
     content: `
       <h2>The Visual Gap Between Big and Small</h2>
-      <p>Here's the uncomfortable truth: customers judge your products by your images before they read a single word. Big brands spend £50,000+ annually on product photography — professional studios, dedicated photographers, post-production teams. The result is polished, consistent, conversion-optimised imagery.</p>
+      <p>Here's the uncomfortable truth: customers judge your products by your images before they read a single word. Big brands spend £50,000+ annually on product photography - professional studios, dedicated photographers, post-production teams. The result is polished, consistent, conversion-optimised imagery.</p>
       <p>Small businesses typically rely on smartphone photos, inconsistent lighting, and kitchen-table backdrops. The quality gap is immediately visible, and it directly impacts conversion rates and perceived product value.</p>
       <p>AI product photography eliminates this gap overnight.</p>
 
       <h2>The Real Cost of "Good Enough" Photography</h2>
-      <p>Many small business owners say, "My photos are fine — they show the product." But "fine" has a measurable cost:</p>
+      <p>Many small business owners say, "My photos are fine - they show the product." But "fine" has a measurable cost:</p>
       <ul>
         <li><strong>Lower conversion rates:</strong> Professional imagery converts 2-3x better than amateur photos. If you're getting 2% conversion, you could be getting 4-6%.</li>
         <li><strong>Lower perceived value:</strong> Customers associate image quality with product quality. Amateur photos signal cheap products, even if your product is premium.</li>
@@ -2723,7 +2723,7 @@ export const blogPosts: BlogPost[] = [
         <li><strong>Set your brand colours:</strong> Enter your brand palette once and every image matches your visual identity.</li>
         <li><strong>Choose a style preset:</strong> Pick the preset that matches your brand personality and stick with it.</li>
         <li><strong>Batch process your catalogue:</strong> Upload all products, process in batches, download as ZIP files.</li>
-        <li><strong>Update seasonally:</strong> Swap style presets for seasonal campaigns — Christmas, summer, back-to-school — without reshooting.</li>
+        <li><strong>Update seasonally:</strong> Swap style presets for seasonal campaigns - Christmas, summer, back-to-school - without reshooting.</li>
       </ol>
 
       <h2>What You Need (And Don't Need)</h2>
@@ -2760,12 +2760,12 @@ export const blogPosts: BlogPost[] = [
     readTime: 12,
     content: `
       <h2>Why Platform-Specific Images Matter</h2>
-      <p>Uploading the same image to every marketplace is leaving money on the table. Amazon rewards compliance, Etsy rewards personality, eBay rewards clarity, and Shopify rewards brand consistency. The sellers winning on multiple platforms create platform-specific imagery — and AI makes this financially viable.</p>
+      <p>Uploading the same image to every marketplace is leaving money on the table. Amazon rewards compliance, Etsy rewards personality, eBay rewards clarity, and Shopify rewards brand consistency. The sellers winning on multiple platforms create platform-specific imagery - and AI makes this financially viable.</p>
 
       <h2>Amazon Product Image Requirements (2026)</h2>
       <h3>Main Image (MAIN)</h3>
       <ul>
-        <li><strong>Background:</strong> Pure white (RGB 255,255,255) — no gradients, no off-white</li>
+        <li><strong>Background:</strong> Pure white (RGB 255,255,255) - no gradients, no off-white</li>
         <li><strong>Product fill:</strong> Product must fill at least 85% of the image frame</li>
         <li><strong>Resolution:</strong> Minimum 1000px on longest side; 1600px+ recommended for zoom</li>
         <li><strong>Format:</strong> JPEG (.jpg), PNG (.png), GIF (.gif), or TIFF (.tif)</li>
@@ -2783,7 +2783,7 @@ export const blogPosts: BlogPost[] = [
       </ul>
 
       <h3>How AI Handles Amazon</h3>
-      <p>ShopShot's "Hero White Background" variation generates Amazon-compliant main images automatically — pure white, product-centred, no distractions. The lifestyle and detail variations cover your secondary image slots perfectly.</p>
+      <p>ShopShot's "Hero White Background" variation generates Amazon-compliant main images automatically - pure white, product-centred, no distractions. The lifestyle and detail variations cover your secondary image slots perfectly.</p>
 
       <h2>Etsy Product Image Requirements (2026)</h2>
       <h3>Technical Specs</h3>
@@ -2830,7 +2830,7 @@ export const blogPosts: BlogPost[] = [
         <li><strong>Generate 10 variations per product</strong> using AI with your brand settings</li>
         <li><strong>Amazon:</strong> Use the hero white background as main image, lifestyle shots for secondary</li>
         <li><strong>Etsy:</strong> Lead with the lifestyle image, include the detail close-ups and flat-lay</li>
-        <li><strong>eBay:</strong> Use everything — all 10 variations plus any re-generates</li>
+        <li><strong>eBay:</strong> Use everything - all 10 variations plus any re-generates</li>
         <li><strong>Shopify:</strong> Use all 10 in your product gallery for the complete shopping experience</li>
       </ol>
 
@@ -3463,7 +3463,7 @@ export function getBlogPostMarkdown(slug: string): string | null {
     '',
     '---',
     '',
-    `*This article is published by [ShopShot](https://www.shopshot.co.uk) — AI-powered product photography for e-commerce sellers. Turn 1 photo into 10 professional variations in 25 seconds.*`,
+    `*This article is published by [ShopShot](https://www.shopshot.co.uk) - AI-powered product photography for e-commerce sellers. Turn 1 photo into 10 professional variations in 25 seconds.*`,
   ].join('\n');
 
   return markdown;
@@ -3486,7 +3486,7 @@ export function getBlogMarkdownIndex(): string {
     'site: "https://www.shopshot.co.uk"',
     '---',
     '',
-    '# ShopShot Blog — Markdown Index',
+    '# ShopShot Blog - Markdown Index',
     '',
     `> ${sortedPosts.length} posts available as Markdown for AI and crawler consumption.`,
     '',
@@ -3514,7 +3514,7 @@ export function getBlogMarkdownIndex(): string {
     }),
     '---',
     '',
-    '*Generated by [ShopShot](https://www.shopshot.co.uk) — AI-powered product photography.*',
+    '*Generated by [ShopShot](https://www.shopshot.co.uk) - AI-powered product photography.*',
   ];
 
   return lines.join('\n');
