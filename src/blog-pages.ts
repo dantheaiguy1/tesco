@@ -2886,7 +2886,11 @@ export function getBlogIndexPage(): string {
   const postCards = allPosts.map(post => `
     <article class="blog-card bg-white rounded-xl shadow-md overflow-hidden">
       <a href="/blog/${post.slug}">
-        <img src="/static/blog/${post.slug}.jpg" alt="${post.title}" class="w-full h-48 object-cover" onerror="this.src='/static/blog/default.jpg'">
+        <picture>
+          <source srcset="/static/blog/${post.slug}.webp" type="image/webp">
+          <source srcset="/static/blog/${post.slug}.jpg" type="image/jpeg">
+          <img src="/static/blog/${post.slug}.jpg" alt="${post.title}" class="w-full h-48 object-cover" width="800" height="450" loading="lazy" decoding="async" onerror="this.closest('picture')?.querySelector('source')?.remove();this.src='/static/blog/default.jpg'">
+        </picture>
       </a>
       <div class="p-6">
         <span class="text-xs font-semibold text-purple-600 uppercase tracking-wider">${post.category}</span>
@@ -2908,7 +2912,10 @@ export function getBlogIndexPage(): string {
   const popularPostsList = popularPosts.map(post => `
     <li class="py-3 border-b border-gray-100 last:border-0">
       <a href="/blog/${post.slug}" class="flex gap-3 group">
-        <img src="/static/blog/${post.slug}.jpg" alt="${post.title}" class="w-16 h-16 object-cover rounded-lg flex-shrink-0" onerror="this.src='/static/blog/default.jpg'">
+        <picture>
+          <source srcset="/static/blog/${post.slug}.webp" type="image/webp">
+          <img src="/static/blog/${post.slug}.jpg" alt="${post.title}" class="w-16 h-16 object-cover rounded-lg flex-shrink-0" width="64" height="64" loading="lazy" decoding="async" onerror="this.src='/static/blog/default.jpg'">
+        </picture>
         <div>
           <h4 class="text-sm font-semibold text-gray-900 group-hover:text-purple-600 line-clamp-2">${post.title}</h4>
           <span class="text-xs text-gray-500">${post.readTime} min read</span>
@@ -2974,7 +2981,11 @@ export function getBlogIndexPage(): string {
       <div class="bg-white rounded-2xl shadow-xl overflow-hidden max-w-4xl mx-auto">
         <div class="md:flex">
           <div class="md:w-1/2">
-            <img src="/static/blog/${featuredPost.slug}.jpg" alt="${featuredPost.title}" class="w-full h-64 md:h-full object-cover" onerror="this.src='/static/blog/default.jpg'">
+            <picture>
+              <source srcset="/static/blog/${featuredPost.slug}.webp" type="image/webp">
+              <source srcset="/static/blog/${featuredPost.slug}.jpg" type="image/jpeg">
+              <img src="/static/blog/${featuredPost.slug}.jpg" alt="${featuredPost.title}" class="w-full h-64 md:h-full object-cover" width="800" height="450" loading="eager" fetchpriority="high" decoding="async" onerror="this.closest('picture')?.querySelector('source')?.remove();this.src='/static/blog/default.jpg'">
+            </picture>
           </div>
           <div class="md:w-1/2 p-8 flex flex-col justify-center">
             <span class="text-purple-600 font-semibold text-sm uppercase tracking-wider">Featured</span>
@@ -3143,7 +3154,11 @@ export function getBlogPostPage(slug: string): string | null {
       <div class="grid md:grid-cols-3 gap-6">
         ${relatedPosts.map(p => `<article class="blog-card bg-white rounded-xl shadow-md overflow-hidden">
             <a href="/blog/${p.slug}">
-              <img src="/static/blog/${p.slug}.jpg" alt="${p.title}" class="w-full h-40 object-cover" onerror="this.src='/static/blog/default.jpg'">
+              <picture>
+                <source srcset="/static/blog/${p.slug}.webp" type="image/webp">
+                <source srcset="/static/blog/${p.slug}.jpg" type="image/jpeg">
+                <img src="/static/blog/${p.slug}.jpg" alt="${p.title}" class="w-full h-40 object-cover" width="800" height="450" loading="lazy" decoding="async" onerror="this.closest('picture')?.querySelector('source')?.remove();this.src='/static/blog/default.jpg'">
+              </picture>
             </a>
             <div class="p-4">
               <h3 class="font-semibold text-gray-900 hover:text-purple-600 line-clamp-2">
@@ -3242,7 +3257,11 @@ export function getBlogPostPage(slug: string): string | null {
 
     <article class="bg-white rounded-2xl shadow-lg overflow-hidden">
       <!-- Hero Image -->
-      <img src="/static/blog/${post.slug}.jpg" alt="${post.title}" class="w-full h-64 md:h-96 object-cover" onerror="this.src='/static/blog/default.jpg'">
+      <picture>
+        <source srcset="/static/blog/${post.slug}.webp" type="image/webp">
+        <source srcset="/static/blog/${post.slug}.jpg" type="image/jpeg">
+        <img src="/static/blog/${post.slug}.jpg" alt="${post.title}" class="w-full h-64 md:h-96 object-cover" width="800" height="450" loading="eager" fetchpriority="high" decoding="async" onerror="this.closest('picture')?.querySelector('source')?.remove();this.src='/static/blog/default.jpg'">
+      </picture>
       
       <div class="p-8 md:p-12">
         <!-- Meta -->
