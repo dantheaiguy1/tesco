@@ -3,10 +3,12 @@
 // ============================================================================
 
 export const CREDITS = {
-  // Signup bonus (free tier) - reduced to encourage upgrades
-  SIGNUP_CHEAPER: 5,          // Free cheaper credits on registration
-  SIGNUP_BETTER: 3,           // Free better credits on registration
-  
+  // Signup bonus (free tier).
+  // MUST be >= the 10 credits a full shoot costs, otherwise a free user can
+  // never see a completed set and hits the paywall mid-generation.
+  SIGNUP_CHEAPER: 10,         // Free cheaper credits on registration - exactly one full shoot
+  SIGNUP_BETTER: 3,           // Free better credits on registration - a taste of Pro quality
+
   // Per-image costs (always 1 credit of the appropriate type)
   PER_IMAGE: 1,
   
@@ -279,3 +281,11 @@ export const BATCH_CONFIG = {
   MAX_FILE_SIZE_MB: 20,
   SUPPORTED_FORMATS: ['image/jpeg', 'image/png', 'image/webp'],
 }
+
+// ============================================================================
+// DERIVED VALUES - use these in copy so marketing text can never drift
+// from the actual grant again.
+// ============================================================================
+export const SIGNUP_CREDITS_TOTAL = CREDITS.SIGNUP_CHEAPER + CREDITS.SIGNUP_BETTER;
+export const REFERRAL_CREDITS_TOTAL = CREDITS.REFERRAL_CHEAPER + CREDITS.REFERRAL_BETTER;
+export const IMAGES_PER_SHOOT = 10;

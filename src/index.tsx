@@ -4,6 +4,7 @@ import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { getPrivacyPage, getTermsPage, getRefundsPage, getCookiesPage } from './legal-pages'
 import { getFaqPage, getAboutPage, getContactPage } from './info-pages'
 import { getBlogIndexPage, getBlogPostPage, getAllBlogPosts, getBlogPostMarkdown, getBlogMarkdownIndex } from './blog-pages'
+import { CREDITS, PRICING, SIGNUP_CREDITS_TOTAL, REFERRAL_CREDITS_TOTAL, IMAGES_PER_SHOOT } from './config/constants'
 
 // Google Tag Manager + Google Analytics snippets
 const GTM_HEAD = `<!-- Google Tag Manager -->
@@ -20,6 +21,19 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
   function gtag(){dataLayer.push(arguments);}
   gtag('js', new Date());
   gtag('config', 'G-FJR6WVMLHE');
+
+  // Funnel tracking. Previously only 'purchase' reached GA4, which meant every
+  // stage before payment was invisible and drop-off could not be diagnosed.
+  // Safe to call before gtag.js finishes loading - dataLayer queues the hit.
+  window.ssTrack = function (eventName, params) {
+    try {
+      window.dataLayer = window.dataLayer || [];
+      if (typeof gtag === 'function') gtag('event', eventName, params || {});
+      window.dataLayer.push(Object.assign({ event: eventName }, params || {}));
+    } catch (e) {
+      // Never let analytics break the app
+    }
+  };
 </script>`;
 
 const GTM_BODY = `<!-- Google Tag Manager (noscript) -->
@@ -84,54 +98,9 @@ type Variables = {
 // - CHEAPER: For Flash model (Nano Banana) - £0.031/credit API cost
 // - BETTER: For Pro model (Nano Banana Pro) - £0.107/credit API cost
 
-const CREDITS = {
-  // Signup bonus (free tier) - reduced to encourage upgrades
-  SIGNUP_CHEAPER: 5,          // Free cheaper credits on registration (was 10)
-  SIGNUP_BETTER: 3,           // Free better credits on registration (was 5)
-  
-  // Per-image costs (always 1 credit of the appropriate type)
-  PER_IMAGE: 1,
-  
-  // 360° Video generation cost (uses cheaper credits)
-  VIDEO_360: 40,              // 40 credits for 8-second 360° spin video (~£5 value)
-  
-  // Subscription allocations
-  STARTER_CHEAPER: 100,       // Starter plan: 100 standard credits/month (~10 shoots)
-  STARTER_BETTER: 10,         // Starter plan: 10 pro credits/month (~1 shoot)
-  STANDARD_CHEAPER: 500,      // Standard plan: 500 standard credits/month (~50 shoots)
-  STANDARD_BETTER: 45,        // Standard plan: 45 pro credits/month
-  PRO_CHEAPER: 800,           // Pro plan: 800 standard credits/month (500 base + 300 additional)
-  PRO_BETTER: 175,            // Pro plan: 175 pro credits/month
-  
-  // Credit pack amounts (for top-ups) - 100% margin pricing
-  PACKS: {
-    CHEAPER: {
-      PACK_25: 400,           // £25 = 400 cheaper credits
-      PACK_50: 800,           // £50 = 800 cheaper credits
-      PACK_75: 1200,          // £75 = 1200 cheaper credits
-      PACK_100: 1600,         // £100 = 1600 cheaper credits
-    },
-    BETTER: {
-      PACK_25: 115,           // £25 = 115 better credits
-      PACK_50: 230,           // £50 = 230 better credits
-      PACK_75: 350,           // £75 = 350 better credits
-      PACK_100: 465,          // £100 = 465 better credits
-    }
-  }
-}
-
-const PRICING = {
-  // Subscriptions (monthly) - USD
-  STARTER: 9.99,              // $9.99/month - 100 standard + 10 pro (~11 shoots)
-  STANDARD: 39.99,            // $39.99/month - 500 standard + 45 pro (~55 shoots)
-  PRO: 59.99,                 // $59.99/month - 800 standard + 175 pro (includes everything in Standard + more)
-  
-  // Credit packs
-  PACK_25: 25.00,
-  PACK_50: 50.00,
-  PACK_75: 75.00,
-  PACK_100: 100.00,
-}
+// NOTE: CREDITS and PRICING live in src/config/constants.ts - the single source
+// of truth. They used to be duplicated here, which is how the site's marketing
+// copy drifted out of sync with the actual credit grant.
 
 // ============================================================================
 // VERTEX AI MODEL CONFIGURATION
@@ -3901,12 +3870,12 @@ app.post('/api/auth/register', async (c) => {
       return c.json({ success: false, error: 'Email and password required' }, 400);
     }
     
-    // Validate phone number (required)
-    if (!phone || phone.trim().length < 10) {
-      console.log('[Register] Failed: Invalid phone', phone);
-      return c.json({ success: false, error: 'Valid mobile phone number required' }, 400);
+    // Phone is optional - it is never used for SMS and requiring it was
+    // costing signups. Only validate the format when one is actually supplied.
+    if (phone && phone.trim().length > 0 && phone.trim().length < 10) {
+      return c.json({ success: false, error: 'Please enter a valid phone number, or leave it blank' }, 400);
     }
-    
+
     // Validate password confirmation
     if (password !== confirmPassword) {
       return c.json({ success: false, error: 'Passwords do not match' }, 400);
@@ -9377,15 +9346,12 @@ function getMarketingPage(user?: User) {
       "@type": "Offer",
       "price": "0",
       "priceCurrency": "USD",
-      "description": "Free tier with 8 credits (5 Standard + 3 Pro)"
-    },
-    "aggregateRating": {
-      "@type": "AggregateRating",
-      "ratingValue": "4.8",
-      "ratingCount": "150"
+      "description": "Free tier with ${SIGNUP_CREDITS_TOTAL} credits (${CREDITS.SIGNUP_CHEAPER} Standard + ${CREDITS.SIGNUP_BETTER} Pro)"
     }
   }
   </script>
+  <!-- Add aggregateRating here only when real, on-page reviews exist to back it.
+       See BUSINESS_REVIEW_2026_07.md -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   ${GTM_HEAD}
@@ -9950,7 +9916,7 @@ function getMarketingPage(user?: User) {
     <div class="hero-ctas">
       <a href="${isLoggedIn ? '/app' : '/register'}" class="btn-primary">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-        ${isLoggedIn ? 'Open App' : 'Start Free - 8 Credits'}
+        ${isLoggedIn ? 'Open App' : `Start Free - ${SIGNUP_CREDITS_TOTAL} Credits`}
       </a>
       <button onclick="scrollToVideo()" class="btn-secondary">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8" fill="currentColor"/></svg>
@@ -9964,7 +9930,7 @@ function getMarketingPage(user?: User) {
       </div>
       <div class="hero-trust-item">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="#10B981" stroke="none"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-        8 free credits on signup
+        ${SIGNUP_CREDITS_TOTAL} free credits on signup
       </div>
       <div class="hero-trust-item">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="#10B981" stroke="none"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
@@ -10367,10 +10333,12 @@ function getMarketingPage(user?: User) {
   <section class="testimonials-section">
     <div class="section-header">
       <div class="section-badge">Social Proof</div>
-      <h2 class="section-title">Loved by Online Sellers</h2>
-      <p class="section-subtitle">Real sellers. Real results. See what our customers say about ShopShot.</p>
+      <h2 class="section-title">What Sellers Say</h2>
+      <p class="section-subtitle">We only publish reviews from real, named customers.</p>
     </div>
-    <div class="testimonials-grid">
+    <!-- Only add cards here for real, named customers who have given permission.
+         See BUSINESS_REVIEW_2026_07.md -->
+    <div class="testimonials-grid" style="max-width: 680px;">
       <div class="testimonial-card">
         <div class="testimonial-stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
         <p class="testimonial-quote">"I am actually blown away by the images your product creates. It will save me hours of set and light design, scene creation, photography and editing. It's affordable and intuitive to use. I love that it creates lay flats, white background and environment shots while retaining the original product detail."</p>
@@ -10383,37 +10351,16 @@ function getMarketingPage(user?: User) {
           </div>
         </div>
       </div>
-      <div class="testimonial-card">
-        <div class="testimonial-stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
-        <p class="testimonial-quote">"The batch upload feature is a game-changer. I listed 20 new products in under an hour, complete with marketplace-optimised images. Used to take me a full weekend with a camera setup."</p>
-        <div class="testimonial-author">
-          <div style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#3B82F6,#8B5CF6);display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:20px;">M</div>
-          <div class="testimonial-info">
-            <h4>Mike R.</h4>
-            <p>eBay Power Seller</p>
-            <span class="testimonial-badge">&#x1F4E6; 500+ listings</span>
-          </div>
-        </div>
-      </div>
-      <div class="testimonial-card">
-        <div class="testimonial-stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
-        <p class="testimonial-quote">"The marketplace export presets alone are worth it. No more googling 'eBay image size requirements'. One click and every image is perfectly formatted. Brilliant."</p>
-        <div class="testimonial-author">
-          <div style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#F59E0B,#EF4444);display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:20px;">S</div>
-          <div class="testimonial-info">
-            <h4>Sarah K.</h4>
-            <p>Etsy Seller & Maker</p>
-            <span class="testimonial-badge">&#x1F3A8; Handmade Jewellery</span>
-          </div>
-        </div>
-      </div>
     </div>
+    <p style="text-align:center; margin-top:32px; color:#6B7280; font-size:15px;">
+      Used ShopShot? <a href="/contact" style="color:#3B82F6; font-weight:600; text-decoration:none;">Send us your review</a> and we'll feature it here.
+    </p>
   </section>
 
   <!-- ===== REFERRAL CTA ===== -->
   <section class="referral-cta-section">
     <div class="section-badge" style="background: rgba(22, 163, 74, 0.1); color: #16A34A;">Referral Programme</div>
-    <h2>Give 8 Credits. Get 8 Credits.</h2>
+    <h2>Give ${REFERRAL_CREDITS_TOTAL} Credits. Get ${REFERRAL_CREDITS_TOTAL} Credits.</h2>
     <p>Share your referral link with fellow sellers. When they sign up, you BOTH get 5 Standard + 3 Pro credits. No cap. No catch.</p>
     <div class="referral-badges">
       <div class="referral-badge-item">
@@ -10424,7 +10371,7 @@ function getMarketingPage(user?: User) {
       <div class="referral-badge-item">
         <div class="r-icon">&#x1F46B;</div>
         <h4>Friend Signs Up</h4>
-        <p>They get 8 credits automatically</p>
+        <p>They get ${REFERRAL_CREDITS_TOTAL} credits automatically</p>
       </div>
       <div class="referral-badge-item">
         <div class="r-icon">&#x1F381;</div>
@@ -10788,26 +10735,32 @@ function getHomePage(user?: User) {
     .guest-signup-btn:hover { opacity: 0.9; transform: translateY(-1px); }
     
     /* Free credits banner for guests */
-    .free-credits-banner-inline {
-      display: ${isLoggedIn ? 'none' : 'flex'};
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      padding: 12px 20px;
+    .welcome-panel {
+      position: relative;
+      padding: 20px 24px;
       background: linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%);
       border: 1px solid #6EE7B7;
-      border-radius: 10px;
-      margin-bottom: 20px;
+      border-radius: 12px;
+      margin-bottom: 24px;
+      text-align: left;
     }
-    .free-credits-banner-inline span {
-      font-size: 14px;
-      color: #065F46;
-      font-weight: 500;
+    .welcome-dismiss {
+      position: absolute; top: 10px; right: 12px;
+      background: none; border: none; cursor: pointer;
+      font-size: 22px; line-height: 1; color: #047857; opacity: 0.6;
     }
-    .free-credits-banner-inline strong {
-      font-weight: 700;
+    .welcome-dismiss:hover { opacity: 1; }
+    .welcome-title { font-size: 16px; font-weight: 700; color: #065F46; margin-bottom: 4px; padding-right: 24px; }
+    .welcome-sub { font-size: 13px; color: #047857; margin-bottom: 16px; }
+    .welcome-steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; }
+    .welcome-step { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; color: #065F46; line-height: 1.5; }
+    .welcome-step strong { font-weight: 700; }
+    .ws-num {
+      flex: 0 0 22px; width: 22px; height: 22px; border-radius: 50%;
+      background: #059669; color: white; font-size: 12px; font-weight: 700;
+      display: flex; align-items: center; justify-content: center; margin-top: 1px;
     }
-    
+
     /* Sidebar - ElevenLabs style */
     .sidebar {
       position: fixed;
@@ -12764,7 +12717,8 @@ function getHomePage(user?: User) {
           </a>
           <button onclick="closePaywall()" class="paywall-btn paywall-btn-secondary">Maybe Later</button>
         </div>
-        <p style="font-size:12px; color:#9CA3AF; margin-top:16px;">Your existing images are safe and won't be deleted.</p>
+        <p style="font-size:13px; color:#059669; font-weight:600; margin-top:14px;">7-day money-back guarantee on your first payment</p>
+        <p style="font-size:12px; color:#9CA3AF; margin-top:6px;">Your existing images are safe and won't be deleted.</p>
       </div>
     </div>
 
@@ -12777,7 +12731,7 @@ function getHomePage(user?: User) {
         
         <div class="preview-count">
           <span>🎉</span>
-          <span>Get <strong>8 free credits</strong> when you sign up!</span>
+          <span>Get <strong>${SIGNUP_CREDITS_TOTAL} free credits</strong> when you sign up!</span>
         </div>
         
         <div class="benefit-list">
@@ -12817,12 +12771,20 @@ function getHomePage(user?: User) {
     <!-- Upload Screen with Guidelines -->
     <div id="upload-screen" class="upload-wrapper">
       <div class="upload-container">
-        <!-- Free credits banner for guests -->
-        <div class="free-credits-banner-inline">
-          <span>🎁</span>
-          <span>Sign up now and get <strong>8 free credits</strong> to start!</span>
+        <!-- First-run welcome. This page is only ever served to authenticated
+             users, so it previously showed a "Sign up now" banner to people who
+             had already signed up. Shown on ?welcome=1 and dismissible. -->
+        <div id="welcome-panel" class="welcome-panel" style="display:none">
+          <button class="welcome-dismiss" onclick="dismissWelcome()" aria-label="Dismiss">&times;</button>
+          <div class="welcome-title">Welcome${user?.name ? `, ${user.name.split(' ')[0]}` : ''} - you have ${CREDITS.SIGNUP_CHEAPER} Standard and ${CREDITS.SIGNUP_BETTER} Pro credits</div>
+          <div class="welcome-sub">Your ${CREDITS.SIGNUP_CHEAPER} Standard credits cover one complete ${IMAGES_PER_SHOOT}-shot set. Nothing to pay, no card needed.</div>
+          <div class="welcome-steps">
+            <div class="welcome-step"><span class="ws-num">1</span><div><strong>Upload one photo</strong><br>Any clear shot of your product. A phone photo is fine.</div></div>
+            <div class="welcome-step"><span class="ws-num">2</span><div><strong>Pick a size and quality</strong><br>Standard is fast and reliable. Start there.</div></div>
+            <div class="welcome-step"><span class="ws-num">3</span><div><strong>Generate and export</strong><br>${IMAGES_PER_SHOOT} shots in ~25 seconds, sized for each marketplace.</div></div>
+          </div>
         </div>
-        
+
         <div class="upload-header">
           <h1>Upload Your Product Photo</h1>
           <p>Upload your best shot - get 10 professional variations in ~25 seconds</p>
@@ -13161,6 +13123,7 @@ function getHomePage(user?: User) {
     
     // Show paywall modal with specific required/current values
     function showPaywallModal(required = 1, current = 0, creditType = 'standard') {
+      if (window.ssTrack) window.ssTrack('paywall_hit', { credit_type: creditType, credits_required: required, credits_remaining: current });
       const modal = document.getElementById('paywall-modal');
       const reqEl = document.getElementById('paywall-required');
       const curEl = document.getElementById('paywall-current');
@@ -13237,6 +13200,27 @@ function getHomePage(user?: User) {
     };
 
     // Sidebar
+    // First-run welcome panel. Shows on ?welcome=1 (set by the post-signup
+    // redirect) and for any user who has not dismissed it and has no sessions.
+    const WELCOME_DISMISSED_KEY = 'shopshot_welcome_dismissed';
+    function dismissWelcome() {
+      const panel = document.getElementById('welcome-panel');
+      if (panel) panel.style.display = 'none';
+      try { localStorage.setItem(WELCOME_DISMISSED_KEY, '1'); } catch (e) {}
+    }
+    function maybeShowWelcome() {
+      const panel = document.getElementById('welcome-panel');
+      if (!panel) return;
+      let dismissed = false;
+      try { dismissed = localStorage.getItem(WELCOME_DISMISSED_KEY) === '1'; } catch (e) {}
+      const isWelcome = new URLSearchParams(window.location.search).get('welcome') === '1';
+      if (isWelcome || !dismissed) {
+        panel.style.display = 'block';
+        if (isWelcome && window.ssTrack) window.ssTrack('onboarding_started', {});
+      }
+    }
+    maybeShowWelcome();
+
     function toggleSidebar() {
       sidebarOpen = !sidebarOpen;
       document.getElementById('sidebar').classList.toggle('open', sidebarOpen);
@@ -13472,6 +13456,7 @@ function getHomePage(user?: User) {
         const data = await res.json();
         if (data.success) {
           currentSessionId = data.sessionId;
+          if (window.ssTrack) window.ssTrack('image_uploaded', { model: data.model, credit_type: data.creditType });
           loadSessions();
           // Enable generate button now that upload is complete
           document.getElementById('generate-btn').disabled = false;
@@ -13583,7 +13568,16 @@ function getHomePage(user?: User) {
       // Wait for all to complete
       await Promise.allSettled(allPromises);
       console.log('[Generate] All variations completed!');
-      
+
+      if (window.ssTrack) {
+        const rendered = document.querySelectorAll('.image-card img').length;
+        window.ssTrack('generation_complete', {
+          variations_requested: variationDefs.length,
+          variations_rendered: rendered,
+          seconds_elapsed: Math.round((Date.now() - startTime) / 1000)
+        });
+      }
+
       try {
         const completeRes = await fetch('/api/sessions/' + currentSessionId + '/complete', {
           method: 'POST'
@@ -16567,6 +16561,7 @@ function getLoginPage() {
         const data = await res.json();
         
         if (data.success) {
+          if (window.ssTrack) window.ssTrack('login', { method: 'email' });
           // Redirect to original page or app
           window.location.href = redirectTo || '/app';
         } else if (data.needsVerification) {
@@ -16788,9 +16783,9 @@ function getRegisterPage() {
             <input type="email" id="email" class="form-input" placeholder="you@example.com" required autocomplete="email">
           </div>
           <div class="form-group">
-            <label class="form-label">Mobile Phone <span style="color: #DC2626;">*</span></label>
-            <input type="tel" id="phone" class="form-input" placeholder="+44 7XXX XXXXXX" required autocomplete="tel" pattern="[0-9+\\- ]{10,20}">
-            <p style="font-size: 11px; color: #6B7280; margin-top: 4px;">For important account updates and exclusive offers</p>
+            <label class="form-label">Mobile Phone <span style="color: #9CA3AF; font-weight: 400;">(optional)</span></label>
+            <input type="tel" id="phone" class="form-input" placeholder="+44 7XXX XXXXXX" autocomplete="tel" pattern="[0-9+\\- ]{10,20}">
+            <p style="font-size: 11px; color: #6B7280; margin-top: 4px;">Only used if we need to reach you about your account</p>
           </div>
           <div class="form-group">
             <label class="form-label">Password <span style="color: #DC2626;">*</span></label>
@@ -16977,10 +16972,10 @@ function getRegisterPage() {
       btn.textContent = 'Creating account...';
       errEl.classList.remove('show');
       
-      // Validate phone number
+      // Phone is optional - only validate a value the user actually entered
       const phone = document.getElementById('phone').value.trim();
-      if (!phone || phone.length < 10) {
-        errEl.textContent = 'Please enter a valid mobile phone number';
+      if (phone && phone.length < 10) {
+        errEl.textContent = 'Please enter a valid phone number, or leave it blank';
         errEl.classList.add('show');
         btn.disabled = false;
         btn.textContent = 'Create Account';
@@ -17097,6 +17092,7 @@ function getRegisterPage() {
         const data = await res.json();
         
         if (data.success) {
+          if (window.ssTrack) window.ssTrack('sign_up', { method: 'email', plan: selectedPlan || 'free' });
           // If paid plan, go to checkout
           if (selectedPlan === 'starter' || selectedPlan === 'standard' || selectedPlan === 'pro') {
             btn.textContent = 'Redirecting to payment...';
@@ -17659,7 +17655,7 @@ function getGetStartedPage() {
     <section class="pricing-section">
       <div class="pricing-header">
         <h1>Simple, Transparent Pricing</h1>
-        <p>Start free with 8 credits. Upgrade anytime for more.</p>
+        <p>Start free with ${SIGNUP_CREDITS_TOTAL} credits - enough for a complete ${IMAGES_PER_SHOOT}-shot set. Upgrade anytime for more.</p>
       </div>
       
       <div class="pricing-grid">
@@ -18092,6 +18088,10 @@ function getPricingPage(user?: User) {
     <!-- Subscription Plans -->
     <h2 class="section-title">Monthly Subscriptions</h2>
     <p class="section-subtitle">Get fresh credits every month. Cancel anytime.</p>
+    <div style="max-width:560px; margin:0 auto 32px; background:#D1FAE5; border:1px solid #6EE7B7; border-radius:12px; padding:14px 20px; text-align:center;">
+      <span style="font-size:15px; font-weight:700; color:#065F46;">7-Day Money-Back Guarantee</span>
+      <span style="display:block; font-size:13px; color:#047857; margin-top:2px;">Not right for you? Email us within 7 days of your first payment for a full refund. <a href="/refunds" style="color:#047857; text-decoration:underline;">Details</a></span>
+    </div>
     
     <div class="plans-grid">
       <!-- Free Tier -->
@@ -18450,7 +18450,7 @@ function getPricingPage(user?: User) {
           <li>✓ Subscription auto-renews monthly (cancel anytime)</li>
           <li>✓ Credits delivered instantly</li>
           <li>✓ <strong>All sales final - no refunds</strong> (except 48h+ outage)</li>
-          <li>✓ Test with 8 free credits before buying</li>
+          <li>✓ Test with ${SIGNUP_CREDITS_TOTAL} free credits before buying</li>
         </ul>
       </div>
       
@@ -18529,6 +18529,7 @@ function getPricingPage(user?: User) {
     }
     
     function startCheckout(plan) {
+      if (window.ssTrack) window.ssTrack('begin_checkout', { plan: plan, item_category: 'subscription' });
       ${!user ? 'window.location.href = "/register?plan=" + encodeURIComponent(plan); return;' : ''}
       showCheckoutModal('subscription', plan, null, null);
     }
@@ -18556,6 +18557,7 @@ function getPricingPage(user?: User) {
     }
     
     function startPackCheckout(creditType, amount) {
+      if (window.ssTrack) window.ssTrack('begin_checkout', { credit_type: creditType, value: amount, item_category: 'credit_pack' });
       ${!user ? 'window.location.href = "/register?redirect=" + encodeURIComponent("/pricing"); return;' : ''}
       showCheckoutModal('pack', null, creditType, amount);
     }

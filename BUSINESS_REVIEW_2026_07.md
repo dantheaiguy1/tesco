@@ -1,6 +1,6 @@
 # ShopShot - Business & Product Review
 
-**Date:** 27 July 2026
+**Date:** 27 July 2026 (revised after the first round of fixes)
 **Scope:** Full review of the business model, application, website, funnel and unit economics
 **Live site reviewed:** https://www.shopshot.co.uk
 **Codebase reviewed:** `dantheaiguy1/tesco` @ `claude/shop-shot-business-review-5hlv8i`
@@ -11,14 +11,14 @@
 
 ShopShot is a genuinely good product with a broken commercial funnel. The AI pipeline works, the feature set is deep (36+ shot types, 14 marketplace export presets, batch upload, background removal, referrals, brand colours, 360 video), and the one real named testimonial is glowing.
 
-Revenue is near zero for four compounding reasons, roughly in order of impact:
+Revenue was near zero for four compounding reasons, roughly in order of impact:
 
-1. **You cannot buy.** On `/pricing`, all three subscription buttons render with the HTML `disabled` attribute for logged-out visitors. The highest-intent page on the site has been unable to convert a single anonymous visitor.
-2. **You cannot try.** The free tier grants 8 credits (5 Standard + 3 Pro) and a shoot costs 10. It is arithmetically impossible for a free user to see the thing the homepage promises. They watch the grid fill halfway and then hit a paywall modal mid-generation.
-3. **You cannot get in easily.** Signup demands name, email, a **required mobile phone number**, password + confirm + three complexity rules, two consent checkboxes, and then a 6-digit email verification code - before any value is delivered.
-4. **The economics do not reward success.** Gross margin *falls* as customers upgrade. The Pro plan runs at roughly 5% gross margin before infrastructure or support.
+1. **You could not buy.** On `/pricing`, all three subscription buttons rendered with the HTML `disabled` attribute for logged-out visitors. The highest-intent page on the site could not convert a single anonymous visitor. **Fixed.**
+2. **You could not try.** The free tier granted 8 credits (5 Standard + 3 Pro) and a shoot costs 10. It was arithmetically impossible for a free user to see the thing the homepage promises - they watched the grid fill halfway and hit a paywall mid-generation. **Fixed** (now 10 Standard + 3 Pro).
+3. **You could not get in easily.** Signup demanded name, email, a **required mobile phone number**, password + confirm + three complexity rules, two consent checkboxes, then a 6-digit email code - all before any value. **Partly fixed** (phone now optional; verification gate unchanged).
+4. **The economics do not reward success.** Gross margin *falls* as customers upgrade, and the Pro plan runs at roughly 5% gross margin before infrastructure or support. **Not fixed** - this needs pricing decisions and new Stripe products, covered in §6.
 
-Fix 1, 2 and 3 and the funnel starts working. Fix 4 or the growth will not be worth having.
+Items 1-3 are what kept revenue at zero. Item 4 is what decides whether the revenue that now starts arriving is worth having.
 
 ---
 
@@ -31,14 +31,14 @@ Fix 1, 2 and 3 and the funnel starts working. Fix 4 or the growth will not be wo
 | **Stack** | Hono on Cloudflare Pages/Workers, D1 (SQLite), R2, Gemini API Direct with Vertex AI fallback |
 | **Models** | `gemini-2.5-flash-image` (Standard) and `gemini-3-pro-image-preview` (Pro) |
 | **Monetisation** | Dual-credit system, 3 subscription tiers + one-off credit packs, Stripe |
-| **Pricing** | Free (8 credits once) / Starter $9.99 / Standard $39.99 / Pro $59.99 per month |
+| **Pricing** | Free (13 credits once) / Starter $9.99 / Standard $39.99 / Pro $59.99 per month |
 | **Acquisition** | SEO only - 31 blog posts, 73 URLs in sitemap. No paid, no marketplace distribution |
 
 ---
 
 ## 3. Critical defects blocking revenue
 
-These are bugs, not strategy. Four of the five are fixed in the accompanying commit.
+These are bugs, not strategy. All five are fixed.
 
 ### 3.1 `/pricing` subscription buttons are disabled for logged-out visitors — FIXED
 
@@ -84,9 +84,9 @@ The page had no auth awareness, so a logged-out visitor uploaded an image and re
 
 Fixed by routing logged-out users to signup with a return path, and correcting the copy on both pages. See §6.1 for the strategic version of this fix.
 
-### 3.5 Stale credit counts across 19 blog CTAs — FIXED
+### 3.5 Stale credit counts sitewide — FIXED
 
-Nineteen blog CTAs promised "15 free credits". The actual grant is 8. The refund policy page also still says 15. Corrected in `src/blog-pages.ts`; the legal pages still need a manual pass.
+Nineteen blog CTAs promised "15 free credits" against an actual grant of 8; the refund policy said 15 too. Rather than correcting the numbers by hand again, every one of these strings now interpolates `SIGNUP_CREDITS_TOTAL` from `src/config/constants.ts`, so marketing copy cannot drift from the code a third time. See §4 for why it drifted in the first place.
 
 ---
 
@@ -122,11 +122,14 @@ Making this worse: the anonymous try-before-signup flow **used to exist and was 
 
 The dead UI is still shipped - `signup-gate-modal`, "You've seen 3 previews - sign up free to get the rest". That removed flow was the single best asset this funnel had. For a visual product, demonstration *is* the sales pitch.
 
-**Recommendation (highest priority, business decision - not implemented):**
+**Status: the grant is now 10 Standard + 3 Pro** (`SIGNUP_CHEAPER: 10`), so the first shoot always completes. Marginal COGS of the 5 extra Standard images is about **$0.20 per signup** - the cheapest acquisition spend available.
 
-- Grant **10 Standard + 3 Pro** at signup, so the first shoot always completes. The marginal COGS of the 5 extra Standard images is about **$0.20 per signup**. That is the cheapest customer acquisition spend available to you and you are currently declining to make it.
+`CREDITS` and `PRICING` were duplicated in `src/index.tsx` and `src/config/constants.ts`, with `index.tsx` winning and `constants.ts` dead. That is the mechanism by which copy drifted from reality. `index.tsx` now imports from `constants.ts`, and every "N free credits" string across the marketing pages, blog and legal pages interpolates `SIGNUP_CREDITS_TOTAL` rather than hardcoding a number.
+
+**Still recommended, not implemented:**
+
 - Add a recurring free allowance - 10 Standard credits per month - so lapsed users have a reason to return. Pebblely proves this works.
-- Restore anonymous try-before-signup: let a visitor generate 3 variations with no account, then gate the remaining 7 behind signup. The session-claim mechanic already existed.
+- Restore anonymous try-before-signup: let a visitor generate 3 variations with no account, then gate the remaining 7 behind signup. The session-claim mechanic already existed. **Not implemented here** - it needs new endpoints plus abuse controls, since anonymous generation spends real Gemini budget. Worth a decision on rate limiting first.
 
 ---
 
@@ -138,8 +141,8 @@ Current path from "I want to try this" to "I have seen an image":
 
 Every step is a drop-off. Specific problems:
 
-- **Required mobile phone number.** For a $9.99 self-serve tool. The field is justified in the UI as *"For important account updates and exclusive offers"* - which reads as "we will text you marketing". Nothing in the codebase sends SMS. This is pure friction with no payoff. **Make it optional or remove it.**
-- **Mandatory email verification before first value.** Verification is reasonable *eventually*; blocking the first generation on it is not. Let users generate immediately and require verification before download or before the second session.
+- ~~**Required mobile phone number.**~~ **Fixed.** It was required, justified in the UI as *"For important account updates and exclusive offers"* - which reads as "we will text you marketing" - while nothing in the codebase sends SMS. Now optional on both the client and the server, with the format check applying only to values actually entered.
+- **Mandatory email verification before first value.** Still in place. Verification is reasonable *eventually*; blocking the first generation on it is not. Let users generate immediately and require verification before download or before the second session. Not changed here because it touches the abuse model.
 - **Password complexity rules** (8+ chars, upper, lower, number) on an account holding no sensitive data. Google OAuth exists and should be the visually dominant option - right now it is present but not privileged.
 
 Realistic target: land → Google sign-in → upload → 10 images. Three steps, no typing.
@@ -176,10 +179,10 @@ Three problems:
 ## 7. Website & conversion
 
 ### Trust
-- **Refund policy is hostile.** *"All purchases are final... Unused credits are forfeited upon cancellation. No exceptions."* On a product the buyer could not properly test first. This is the biggest single objection on the site, it sits awkwardly with UK consumer contract regulations on a `.co.uk` domain, and at your current volume a **7-day money-back guarantee would cost almost nothing** while removing the top reason people don't click buy.
-- **Testimonials read as partly fabricated.** One real named customer with a logo (Sparklyscotty Gifts) alongside two initial-only entries ("Mike R.", "Sarah K.") with generated gradient avatars and "Verified Customer" badges. Sophisticated buyers spot this instantly and it discounts the real testimonial too. Use the one real one, prominently, and go get two more.
-- **`aggregateRating: 4.8 / 150 ratings` in schema.org markup.** If those 150 ratings do not exist this is a Google structured-data policy violation and a manual-action risk. Remove it or make it real.
-- **Currency mismatch.** USD pricing on a `.co.uk` domain, with a UK postal address in schema, British spelling throughout ("optimised", "colour", "programme") and UK-centric content. UK sellers seeing `$` assume FX fees. Either price in GBP for UK traffic or move to a `.com`.
+- ~~**Refund policy is hostile.**~~ **Fixed.** It read *"All purchases are final... Unused credits are forfeited upon cancellation. No exceptions."* - on a product the buyer could not properly test first. Replaced with a **7-day money-back guarantee** on the first subscription payment, surfaced on the pricing page and inside the paywall modal where it does the work. Cancellation now keeps credits usable to the end of the paid period. **This is a commercial and legal commitment - have it read before it goes live.**
+- ~~**Testimonials read as partly fabricated.**~~ **Fixed.** One real named customer (Sparklyscotty Gifts, with logo) sat alongside two initial-only entries ("Mike R.", "Sarah K.") with generated gradient avatars and "Verified Customer" badges. Anonymous composites next to a real named review discount the real one. The two invented cards are gone; the section now carries the single real review plus an invitation to submit one. **Go and collect two more real ones** - that is the only fix that actually restores the lost proof.
+- ~~**`aggregateRating: 4.8 / 150 ratings`.**~~ **Removed** from the schema.org markup. Google requires ratings to be genuine and displayed on the page; there is no review system behind that claim, so it was a manual-action risk. Re-add it when real reviews exist.
+- **Currency mismatch.** Still open. USD pricing on a `.co.uk` domain, with a UK postal address in schema, British spelling throughout ("optimised", "colour", "programme") and UK-centric content. UK sellers seeing `$` assume FX fees. Either price in GBP for UK traffic or move to a `.com`.
 
 ### Conversion mechanics
 - No exit-intent capture, no email capture anywhere outside registration, no abandoned-checkout recovery.
@@ -196,18 +199,18 @@ Three problems:
 ## 8. Application & user journey
 
 ### The dual-credit system is the biggest UX tax in the product
-Two non-interchangeable currencies ("Standard" and "Pro") with different burn rates, shown as two separate balances, granted in different amounts, purchased in different packs. Users have to understand a two-currency exchange system before they understand the product. It also creates the absurdity in §4, where 8 credits cannot buy one 10-credit job.
+Two non-interchangeable currencies ("Standard" and "Pro") with different burn rates, shown as two separate balances, granted in different amounts, purchased in different packs. Users have to understand a two-currency exchange system before they understand the product. It created the absurdity in §4, where 8 credits could not buy one 10-credit job.
 
 Internally the naming is inverted too - model key `nano` means Pro, `flash` means Standard - which is a reliable source of future bugs even though it is currently wired correctly.
 
-**Recommendation:** collapse to a single credit. Pro generations cost 3 credits, Standard cost 1. One balance, one number, one mental model. This also fixes the free-tier arithmetic automatically.
+**Recommendation:** collapse to a single credit. Pro generations cost 3 credits, Standard cost 1. One balance, one number, one mental model. Not done here - it is a data migration across `users`, `credit_transactions` and every pricing surface, and it deserves its own change.
 
 ### Missing from the app
-- **No onboarding.** No product tour, no sample image to try, no empty state guidance. A new user lands on a bare upload box.
-- **No sample product.** A "try it with our demo photo" button would let people see the output before committing their own image. Trivial to build, high impact.
+- ~~**No onboarding.**~~ **Partly fixed.** A new user landed on a bare upload box. There is now a first-run welcome panel on `/app?welcome=1` showing the credit balance, that it covers one complete set, and the three steps. Dismissible, remembered in `localStorage`.
+- **No sample product.** A "try it with our demo photo" button would let people see output before committing their own image. **Not built** - it needs an asset that does not exist. Every image in `public/static/examples/` is either a finished result grid or an AI *output*; using one as the "before" would misrepresent the input. Send one genuine rough phone photo of a real product and this becomes a small change.
 - **No re-engagement.** There is an out-of-credits email, but no "you haven't finished your shoot" nudge, no day-2 activation email for signups who never uploaded.
 - **Pro tier is Beta.** `quality: 'Best (Beta)'`, `totalTime: '~2-5 minutes'`, with auto-fallback after 2 failures. Either stabilise it or stop selling a 50% premium on it.
-- **Dead code shipped to production.** The anonymous `signup-gate-modal` and "You've seen 3 previews" copy render on a flow that no longer exists.
+- **Dead code shipped to production.** The anonymous `signup-gate-modal` and "You've seen 3 previews" copy are still in the app page markup for a flow that no longer exists. Left in place deliberately: it is the scaffolding for restoring try-before-signup, and deleting it now would mean rebuilding it later.
 
 ---
 
@@ -215,7 +218,9 @@ Internally the naming is inverted too - model key `nano` means Pro, `flash` mean
 
 You have one channel - SEO - and it is the slowest possible channel in a category dominated by Photoroom, Canva and Pebblely, all with vastly greater domain authority. 31 posts and 73 URLs is respectable effort but it is a 6-12 month bet, and it currently converts badly because each post carries roughly one register CTA and the offer at the end of it ("15 free credits") was both wrong and insufficient.
 
-**Analytics is the blocking issue.** GA4 fires exactly one event - purchase. Signup, upload, generation-complete and paywall-hit are tracked server-side into D1 only. So in GA4 you cannot see where people drop, cannot build remarketing audiences, and cannot optimise any ad campaign you might run. **Fix this first** - you are flying blind, which is also why these funnel defects survived this long.
+**Analytics was the blocking issue - now fixed.** GA4 fired exactly one event: purchase. Signup, upload, generation-complete and paywall-hit went to D1 only, so GA4 showed no drop-off, supported no remarketing audiences, and could not optimise any ad spend. Being blind to the funnel is why these defects survived as long as they did.
+
+A `window.ssTrack()` helper now sits in the shared GTM snippet and fires to both `gtag` and `dataLayer`: `sign_up`, `login`, `image_uploaded`, `generation_complete` (with variations requested vs actually rendered, and elapsed seconds), `paywall_hit` (with credit type and balance), `begin_checkout` and `onboarding_started`. **You need to register these as conversions in GA4** - the code emits them, but GA4 will not treat them as conversions until you say so.
 
 **Channel recommendations, in order:**
 
@@ -228,7 +233,7 @@ You have one channel - SEO - and it is the slowest possible channel in a categor
 
 ## 10. Technical debt
 
-`src/index.tsx` is **25,063 lines**. Backend routes, all HTML pages, all inline CSS and all frontend JavaScript are in one file. This is the root cause of most of what is in this document - the site has drifted out of sync with itself because no change is safely reviewable. The dead signup-gate modal, the stale "15 credits" copy, the missing `starter` branch and the disabled pricing buttons are all symptoms of the same thing.
+`src/index.tsx` is **25,063 lines**. Backend routes, all HTML pages, all inline CSS and all frontend JavaScript are in one file. This is the root cause of most of what is in this document - the site has drifted out of sync with itself because no change is safely reviewable. The stale "15 credits" copy, the missing `starter` branch, the disabled pricing buttons and the duplicated `CREDITS` block are all symptoms of the same thing.
 
 Split it: `routes/`, `pages/`, `lib/`, `api/`. Not glamorous, but every week it stays monolithic is a week where the next revenue-blocking one-line bug ships unnoticed.
 
@@ -236,33 +241,45 @@ Split it: `routes/`, `pages/`, `lib/`, `api/`. Not glamorous, but every week it 
 
 ## 11. Prioritised action plan
 
-### This week - unblock revenue
-1. ~~Enable pricing page buy buttons for logged-out visitors~~ **done**
-2. ~~Route Starter to Stripe checkout~~ **done**
-3. ~~Send new users to `/app`, not the marketing page~~ **done**
-4. ~~Fix the background-removal tool and its false "no account needed" copy~~ **done**
-5. ~~Correct the "15 free credits" claims~~ **done in blog; legal pages still need a pass**
-6. **Raise the free tier to 10 Standard + 3 Pro** so the first shoot always completes (~$0.20/signup)
-7. **Make the phone number optional**
-8. **Add GA4 events** for signup, upload, generation_complete, paywall_hit
+### Done - shipped in this branch
+1. Enable pricing page buy buttons for logged-out visitors, carrying plan intent into signup
+2. Route Starter to Stripe checkout (email verification path and Google OAuth path)
+3. Send new users to `/app`, not the marketing page
+4. Fix the background-removal tool and its false "no account needed" copy
+5. Free tier raised to 10 Standard + 3 Pro so the first shoot always completes
+6. De-duplicate `CREDITS`/`PRICING` into `config/constants.ts` and interpolate every credit figure in copy
+7. Phone number made optional, client and server
+8. GA4 funnel events via `window.ssTrack()`
+9. 7-day money-back guarantee, surfaced on `/pricing` and in the paywall modal
+10. Remove unsubstantiated `aggregateRating` schema and the two invented testimonials
+11. First-run welcome panel on `/app`
 
-### Weeks 2-4 - fix the offer
-9. Add a 7-day money-back guarantee and rewrite the refund page
-10. Add annual plans at 30-35% off
-11. Re-price Pro to a sustainable margin
-12. Remove or substantiate the `aggregateRating` schema and the two anonymous testimonials
-13. Restore anonymous try-before-signup (3 free variations, then gate)
-14. Add a "try our sample photo" button and a basic onboarding tour
+### Needs you, not code
+- **Register the new GA4 events as conversions** in the GA4 UI. The code emits them; GA4 will not count them until configured.
+- **Have the refund policy read** before deploy. It is now a commercial commitment.
+- **Confirm the `WELCOME20` coupon exists** in Stripe. It is hard-coded into the paywall modal, and a promoted code that errors at checkout is worse than no code.
+- **Collect two real named testimonials.** The section is honest now but thinner.
+- **Supply one genuine rough phone photo** of a real product so the "try our sample" button can be built.
 
-### Months 2-3 - grow
-15. Ship a Shopify app
-16. Collapse the dual-credit system to a single currency
-17. Replace the Tailwind CDN with a build-time stylesheet; migrate images to R2
-18. Split `index.tsx`
-19. Begin seller-community distribution
+### Next - the offer (needs Stripe products, so not built here)
+- **Annual plans at 30-35% off.** You have none; competitors lead with them (Photoroom's headline $7.50/mo is the annual rate). Annual fixes cash flow and roughly halves churn. Needs new Stripe prices, plus a decision: grant 12x credits upfront (simple, cash-positive, risks a stockpile-and-churn user) or drip monthly (correct, but needs a scheduled job because `invoice.payment_succeeded` only fires annually). **Recommendation: drip monthly.**
+- **Re-price Pro.** At $59.99 with 800 Standard + 175 Pro it clears about 5% gross margin. Either $79-99/month at current credits, or hold $59.99 and cut to ~500 Standard + 120 Pro. Needs a new Stripe price either way.
+- **Implement the advertised "credits roll over (2x)" cap**, or drop the claim. Today credits accumulate without limit, so a stockpiler can burn a year of COGS in a weekend.
+- **Stabilise or stop selling Pro.** It is marked Beta, takes 2-5 minutes against Standard's 25 seconds, and auto-falls-back after two failures. A 50% premium on the least reliable path is not defensible.
+
+### Then - growth and structure
+- **Restore anonymous try-before-signup** (3 free variations, then gate). Highest-leverage remaining conversion change. Needs rate limiting first, since anonymous generation spends real Gemini budget.
+- **Recurring free allowance** - 10 Standard credits monthly - to give lapsed users a reason to return.
+- **Ship a Shopify app.** Where competitors get their volume, with billing and trust built in.
+- **Seller-community distribution** - eBay/Etsy/Vinted groups and subreddits.
+- **Collapse the dual-credit system** to a single currency.
+- **Replace the Tailwind CDN** with a build-time stylesheet; migrate generated images from base64-in-D1 to R2.
+- **Split `index.tsx`.**
 
 ---
 
 ## 12. The one-paragraph answer to "why is there no revenue?"
 
 Because for the entire period you have been measuring, a logged-out visitor could not click a buy button, the cheapest plan could not reach Stripe even if they signed up first, the free tier could not complete a single job, the free tool advertised as needing no account returned an authentication error, and newly verified users were returned to the sales page instead of the product. None of those are marketing problems. The product works; the path to paying for it did not.
+
+All five are now fixed. What is left is a pricing structure that pays you least when customers spend most, and a distribution strategy that is one slow channel. Those are decisions, not bugs.
