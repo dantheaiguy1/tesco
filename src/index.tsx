@@ -74,6 +74,14 @@ type Bindings = {
   STRIPE_WEBHOOK_SECRET: string;
   STRIPE_PRICE_ID_SUBSCRIPTION: string;
   STRIPE_PRICE_ID_TOPUP: string;
+  // Subscription price IDs, one per plan and billing interval.
+  // Required for anything except Starter monthly - see create-checkout.
+  STRIPE_PRICE_STARTER_MONTHLY: string;
+  STRIPE_PRICE_STANDARD_MONTHLY: string;
+  STRIPE_PRICE_PRO_MONTHLY: string;
+  STRIPE_PRICE_STARTER_ANNUAL: string;
+  STRIPE_PRICE_STANDARD_ANNUAL: string;
+  STRIPE_PRICE_PRO_ANNUAL: string;
   // Session
   SESSION_SECRET: string;
   // Email (Resend)
@@ -105,6 +113,9 @@ type User = {
   stripe_customer_id: string | null;
   email_verified: boolean;
   google_id: string | null;
+  subscription_interval?: 'month' | 'year';
+  next_credit_grant_at?: string | null;
+  subscription_period_end?: string | null;
 }
 
 type Variables = {
@@ -1439,8 +1450,111 @@ async function getUserFromSession(db: D1Database, sessionId: string): Promise<Us
     subscription_plan: session.subscription_plan,
     stripe_customer_id: session.stripe_customer_id,
     role: session.role || 'user',
-    is_banned: session.is_banned || 0
+    is_banned: session.is_banned || 0,
+    subscription_interval: session.subscription_interval || 'month',
+    next_credit_grant_at: session.next_credit_grant_at || null,
+    subscription_period_end: session.subscription_period_end || null
   };
+}
+
+// ============================================================================
+// ANNUAL SUBSCRIPTION CREDIT ACCRUAL
+// ============================================================================
+// Annual subscribers pay once for twelve months. Granting all twelve months of
+// credits at signup would let one subscriber draw a year of API cost in a
+// weekend and then churn, so credits accrue a month at a time.
+//
+// Cloudflare Pages has no cron trigger, so accrual is lazy: we check on
+// authenticated requests and grant when one is due. Monthly subscribers are
+// untouched - their top-up already arrives via invoice.payment_succeeded, and
+// running both paths for them would double-grant.
+
+/** Returns the plan's monthly allocation, or null for plans without one. */
+function monthlyAllocationFor(plan: string): { cheaper: number; better: number } | null {
+  switch (plan) {
+    case 'starter':  return { cheaper: CREDITS.STARTER_CHEAPER,  better: CREDITS.STARTER_BETTER };
+    case 'standard': return { cheaper: CREDITS.STANDARD_CHEAPER, better: CREDITS.STANDARD_BETTER };
+    case 'pro':      return { cheaper: CREDITS.PRO_CHEAPER,      better: CREDITS.PRO_BETTER };
+    default:         return null;
+  }
+}
+
+function addMonths(iso: string, months: number): string {
+  const d = new Date(iso);
+  d.setUTCMonth(d.getUTCMonth() + months);
+  return d.toISOString();
+}
+
+/**
+ * Grants any monthly allocations an annual subscriber is owed.
+ * Safe to call on every request: it does nothing unless a grant is actually
+ * due, and the conditional UPDATE makes concurrent requests grant at most once.
+ */
+async function accrueAnnualCredits(db: D1Database, user: User): Promise<User> {
+  if (user.subscription_status !== 'active') return user;
+  if (user.subscription_interval !== 'year') return user;
+  if (!user.next_credit_grant_at) return user;
+
+  const allocation = monthlyAllocationFor(user.subscription_plan);
+  if (!allocation) return user;
+
+  const now = Date.now();
+  // Never grant past the period the subscriber has actually paid for.
+  const periodEnd = user.subscription_period_end ? Date.parse(user.subscription_period_end) : NaN;
+
+  let due = Date.parse(user.next_credit_grant_at);
+  let granted = 0;
+
+  // Catch up if the account was dormant for several months, but bound the loop
+  // so a corrupt date can never spin.
+  while (!isNaN(due) && due <= now && granted < 12) {
+    if (!isNaN(periodEnd) && due >= periodEnd) break;
+
+    const nextDue = addMonths(new Date(due).toISOString(), 1);
+
+    // Conditional on the current value, so two in-flight requests cannot both
+    // grant the same month.
+    const res = await db.prepare(`
+      UPDATE users
+      SET cheaper_credits = cheaper_credits + ?,
+          better_credits = better_credits + ?,
+          next_credit_grant_at = ?,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND next_credit_grant_at = ?
+    `).bind(
+      allocation.cheaper, allocation.better, nextDue,
+      user.id, user.next_credit_grant_at
+    ).run();
+
+    if (!res.meta || res.meta.changes !== 1) break; // another request won the race
+
+    user.cheaper_credits += allocation.cheaper;
+    user.better_credits += allocation.better;
+    user.next_credit_grant_at = nextDue;
+    granted++;
+
+    await db.prepare(`
+      INSERT INTO credit_transactions (id, user_id, amount, balance_after, credit_type, type, description)
+      VALUES (?, ?, ?, ?, 'cheaper', 'subscription', ?)
+    `).bind(
+      generateId(), user.id, allocation.cheaper, user.cheaper_credits,
+      `Annual plan monthly allocation (${user.subscription_plan})`
+    ).run();
+    await db.prepare(`
+      INSERT INTO credit_transactions (id, user_id, amount, balance_after, credit_type, type, description)
+      VALUES (?, ?, ?, ?, 'better', 'subscription', ?)
+    `).bind(
+      generateId(), user.id, allocation.better, user.better_credits,
+      `Annual plan monthly allocation (${user.subscription_plan})`
+    ).run();
+
+    due = Date.parse(nextDue);
+  }
+
+  if (granted > 0) {
+    console.log(`[Accrual] Granted ${granted} month(s) to ${user.id} (${user.subscription_plan}/year)`);
+  }
+  return user;
 }
 
 async function deleteUserSession(db: D1Database, sessionId: string): Promise<void> {
@@ -1780,7 +1894,37 @@ async function ensureDatabase(db: D1Database) {
     try {
       await db.prepare('ALTER TABLE users ADD COLUMN is_banned INTEGER NOT NULL DEFAULT 0').run();
     } catch (e) { /* Column exists */ }
-    
+
+    // Annual subscriptions with monthly credit accrual (see migration 0006)
+    try {
+      await db.prepare("ALTER TABLE users ADD COLUMN subscription_interval TEXT DEFAULT 'month'").run();
+    } catch (e) { /* Column exists */ }
+    try {
+      await db.prepare('ALTER TABLE users ADD COLUMN next_credit_grant_at DATETIME').run();
+    } catch (e) { /* Column exists */ }
+    try {
+      await db.prepare('ALTER TABLE users ADD COLUMN subscription_period_end DATETIME').run();
+    } catch (e) { /* Column exists */ }
+
+    // Anonymous try-before-signup sessions (see migration 0006)
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS anonymous_generations (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        ip_hash TEXT NOT NULL,
+        ip_country TEXT,
+        images_generated INTEGER NOT NULL DEFAULT 0,
+        claimed_by_user_id TEXT,
+        claimed_at DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `).run();
+    try {
+      await db.prepare('CREATE INDEX IF NOT EXISTS idx_anon_gen_ip ON anonymous_generations (ip_hash, created_at)').run();
+      await db.prepare('CREATE INDEX IF NOT EXISTS idx_anon_gen_session ON anonymous_generations (session_id)').run();
+    } catch (e) { /* Index exists */ }
+
+
     // Add password reset columns
     try {
       await db.prepare('ALTER TABLE users ADD COLUMN password_reset_token TEXT').run();
@@ -2112,8 +2256,17 @@ app.use('*', async (c, next) => {
   const sessionId = getCookie(c, 'session');
   if (sessionId) {
     const db = c.env.TESCO_DB;
-    const user = await getUserFromSession(db, sessionId);
+    let user = await getUserFromSession(db, sessionId);
     if (user) {
+      // Annual subscribers accrue their allocation a month at a time. This is
+      // a no-op unless a grant is actually due.
+      if (user.subscription_interval === 'year' && user.subscription_status === 'active') {
+        try {
+          user = await accrueAnnualCredits(db, user);
+        } catch (e) {
+          console.error('[Accrual] Failed:', e);
+        }
+      }
       c.set('user', user);
     }
   }
@@ -4443,7 +4596,9 @@ app.get('/api/auth/google/callback', async (c) => {
   let user = await db.prepare(`
     SELECT id, email, google_id, email_verified FROM users WHERE email = ? OR google_id = ?
   `).bind(googleUser.email.toLowerCase(), googleUser.id).first() as any;
-  
+
+  const isNewUser = !user;
+
   if (user) {
     // User exists - update Google ID if needed and log them in
     if (!user.google_id) {
@@ -4749,7 +4904,7 @@ app.post('/api/billing/create-checkout', async (c) => {
   if (authResult instanceof Response) return authResult;
   const user = authResult;
   
-  const { type, creditType, amount, plan } = await c.req.json(); // 'subscription', 'topup', or 'pack'
+  const { type, creditType, amount, plan, interval } = await c.req.json(); // 'subscription', 'topup', or 'pack'
   const db = c.env.TESCO_DB;
   
   console.log('[Checkout] Request:', { type, creditType, amount, plan, userId: user.id });
@@ -4774,22 +4929,47 @@ app.post('/api/billing/create-checkout', async (c) => {
     }
   };
   
-  // Subscription plan price IDs (Stripe)
-  const SUBSCRIPTION_PRICE_IDS: Record<string, string> = {
-    starter: 'price_1SxnmqK5jVZf8VX1TwmwvuIs',    // Starter $9.99/mo - 100 Std + 10 Pro
-    standard: c.env.STRIPE_PRICE_ID_SUBSCRIPTION,  // Standard $39.99/mo - 500 Std + 45 Pro
-    pro: 'price_1SXodWK5jVZf8VX1wO25BZHt',         // Pro $59.99/mo - 800 Std + 175 Pro
+  // Subscription price IDs, resolved from the environment.
+  //
+  // These are deliberately NOT hard-coded any more. The plan prices changed
+  // (Standard $39.99 -> $29.99, Pro $59.99 -> $79.99) and the old Stripe price
+  // objects still carry the old amounts, so falling back to them would charge a
+  // price the site no longer advertises. Missing configuration must fail loudly
+  // rather than quietly overcharge.
+  //
+  // Starter kept its $9.99 amount, so its original price ID is still valid as a
+  // fallback - only its credit allocation changed, and allocations are granted
+  // by our own webhook rather than by Stripe.
+  const SUBSCRIPTION_PRICE_IDS: Record<string, Record<string, string | undefined>> = {
+    month: {
+      starter:  c.env.STRIPE_PRICE_STARTER_MONTHLY || 'price_1SxnmqK5jVZf8VX1TwmwvuIs',
+      standard: c.env.STRIPE_PRICE_STANDARD_MONTHLY,
+      pro:      c.env.STRIPE_PRICE_PRO_MONTHLY,
+    },
+    year: {
+      starter:  c.env.STRIPE_PRICE_STARTER_ANNUAL,
+      standard: c.env.STRIPE_PRICE_STANDARD_ANNUAL,
+      pro:      c.env.STRIPE_PRICE_PRO_ANNUAL,
+    }
   };
-  
+
   // Determine price ID based on type
   let priceId: string;
   let mode: 'subscription' | 'payment';
-  
+  const billingInterval: 'month' | 'year' = interval === 'year' ? 'year' : 'month';
+
   if (type === 'subscription') {
-    // Use plan-specific price ID for subscriptions
     const planKey = (plan || 'standard') as string;
-    priceId = SUBSCRIPTION_PRICE_IDS[planKey] || c.env.STRIPE_PRICE_ID_SUBSCRIPTION;
-    console.log(`[Checkout] Subscription plan: ${planKey}, priceId: ${priceId}`);
+    const resolved = SUBSCRIPTION_PRICE_IDS[billingInterval]?.[planKey];
+    if (!resolved) {
+      console.error(`[Checkout] No Stripe price configured for ${planKey}/${billingInterval}`);
+      return c.json({
+        success: false,
+        error: 'That billing option is not available yet. Please choose another plan or contact support.'
+      }, 503);
+    }
+    priceId = resolved;
+    console.log(`[Checkout] Subscription plan: ${planKey}/${billingInterval}, priceId: ${priceId}`);
     mode = 'subscription';
   } else {
     // For 'topup' or 'pack', look up the correct price ID
@@ -4839,7 +5019,12 @@ app.post('/api/billing/create-checkout', async (c) => {
   
   // Add plan type for subscriptions
   if (type === 'subscription' && plan) {
-    sessionParams['metadata[plan_type]'] = plan; // 'standard' or 'pro'
+    sessionParams['metadata[plan_type]'] = plan; // 'starter', 'standard' or 'pro'
+    sessionParams['metadata[billing_interval]'] = billingInterval;
+    // Stripe copies subscription_data metadata onto the subscription itself, so
+    // renewal invoices can still tell us which interval and plan they are for.
+    sessionParams['subscription_data[metadata][plan_type]'] = plan;
+    sessionParams['subscription_data[metadata][billing_interval]'] = billingInterval;
   }
   
   console.log('[Checkout] Creating Stripe session with params:', JSON.stringify(sessionParams));
@@ -4953,16 +5138,28 @@ app.post('/api/billing/webhook', async (c) => {
               });
             }
             
+            // Annual subscribers pay once but accrue credits monthly, so record
+            // the interval and schedule the next grant a month out. Monthly
+            // subscribers keep next_credit_grant_at null - their top-up arrives
+            // via invoice.payment_succeeded instead.
+            const billingInterval = session.metadata?.billing_interval === 'year' ? 'year' : 'month';
+            const nowIso = new Date().toISOString();
+            const nextGrant = billingInterval === 'year' ? addMonths(nowIso, 1) : null;
+            const periodEnd = billingInterval === 'year' ? addMonths(nowIso, 12) : null;
+
             await db.prepare(`
               UPDATE users SET 
                 subscription_status = 'active', 
                 subscription_plan = ?,
                 stripe_subscription_id = ?,
+                subscription_interval = ?,
+                next_credit_grant_at = ?,
+                subscription_period_end = ?,
                 updated_at = CURRENT_TIMESTAMP
               WHERE id = ?
-            `).bind(planType, session.subscription, userId).run();
-            
-            console.log(`[Webhook] User ${userId} subscription activated: ${planType}`);
+            `).bind(planType, session.subscription, billingInterval, nextGrant, periodEnd, userId).run();
+
+            console.log(`[Webhook] User ${userId} subscription activated: ${planType}/${billingInterval}`);
             
             // Send admin notification for subscription purchase
             const user = await db.prepare('SELECT email, name FROM users WHERE id = ?').bind(userId).first() as any;
@@ -5035,6 +5232,7 @@ app.post('/api/billing/webhook', async (c) => {
           
           // Track subscription purchase (if it was a subscription)
           if (checkoutType === 'subscription') {
+            const granted = monthlyAllocationFor(planType);
             c.executionCtx.waitUntil(
               trackEvent(db, {
                 eventType: 'purchase_completed',
@@ -5042,8 +5240,8 @@ app.post('/api/billing/webhook', async (c) => {
                 metadata: {
                   type: 'subscription',
                   plan: planType,
-                  cheaper_credits: cheaperCredits,
-                  better_credits: betterCredits
+                  cheaper_credits: granted?.cheaper ?? null,
+                  better_credits: granted?.better ?? null
                 }
               })
             );
@@ -5067,31 +5265,36 @@ app.post('/api/billing/webhook', async (c) => {
           const userId = customer.metadata?.user_id;
           
           if (userId) {
-            // Get user's subscription plan to determine credit amounts
-            const user = await db.prepare('SELECT subscription_plan FROM users WHERE id = ?').bind(userId).first() as any;
+            // Get user's subscription plan and interval to determine what to grant
+            const user = await db.prepare(
+              'SELECT subscription_plan, subscription_interval FROM users WHERE id = ?'
+            ).bind(userId).first() as any;
             const planType = user?.subscription_plan || 'standard';
-            
-            let cheaperCredits: number;
-            let betterCredits: number;
-            
-            switch (planType) {
-              case 'starter':
-                cheaperCredits = CREDITS.STARTER_CHEAPER;
-                betterCredits = CREDITS.STARTER_BETTER;
-                break;
-              case 'pro':
-                cheaperCredits = CREDITS.PRO_CHEAPER;
-                betterCredits = CREDITS.PRO_BETTER;
-                break;
-              default: // 'standard'
-                cheaperCredits = CREDITS.STANDARD_CHEAPER;
-                betterCredits = CREDITS.STANDARD_BETTER;
+            const interval = user?.subscription_interval === 'year' ? 'year' : 'month';
+
+            const allocation = monthlyAllocationFor(planType) || {
+              cheaper: CREDITS.STANDARD_CHEAPER,
+              better: CREDITS.STANDARD_BETTER
+            };
+
+            // Annual renewals grant one month here and let accrueAnnualCredits
+            // deliver the remaining eleven, one per month. Granting the full
+            // year now would hand a subscriber twelve months of API cost on day
+            // one of a period they can still cancel.
+            const nowIso = new Date().toISOString();
+            const label = interval === 'year' ? 'Annual renewal - month 1 of 12' : 'Monthly subscription renewal';
+
+            await addCredits(db, userId, allocation.cheaper, 'cheaper', 'subscription',
+              `${label} - Standard credits`, invoice.id);
+            await addCredits(db, userId, allocation.better, 'better', 'subscription',
+              `${label} - Pro credits`, invoice.id);
+
+            if (interval === 'year') {
+              await db.prepare(`
+                UPDATE users SET next_credit_grant_at = ?, subscription_period_end = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+              `).bind(addMonths(nowIso, 1), addMonths(nowIso, 12), userId).run();
             }
-            
-            await addCredits(db, userId, cheaperCredits, 'cheaper', 'subscription',
-              'Monthly subscription renewal - Standard credits', invoice.id);
-            await addCredits(db, userId, betterCredits, 'better', 'subscription',
-              'Monthly subscription renewal - Pro credits', invoice.id);
             
             await db.prepare('UPDATE stripe_events SET user_id = ?, processed = 1 WHERE id = ?')
               .bind(userId, event.id).run();
@@ -5107,10 +5310,14 @@ app.post('/api/billing/webhook', async (c) => {
         `).bind(subscription.id).first() as any;
         
         if (user) {
+          // Clearing next_credit_grant_at stops annual accrual immediately.
           await db.prepare(`
             UPDATE users SET 
               subscription_status = 'canceled',
               stripe_subscription_id = NULL,
+              next_credit_grant_at = NULL,
+              subscription_period_end = NULL,
+              subscription_interval = 'month',
               updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
           `).bind(user.id).run();
@@ -5385,8 +5592,267 @@ app.post('/api/upload', async (c) => {
 // ============================================================================
 // ANONYMOUS UPLOAD FLOW - Progressive Disclosure for Conversion
 // ============================================================================
-// REMOVED: Anonymous upload, preview generation, and claim-session endpoints
-// All users must sign up/login before uploading or generating images
+// ============================================================================
+// ANONYMOUS TRY-BEFORE-SIGNUP
+// ============================================================================
+// A visitor can generate a few preview variations with no account. For a
+// visual product the demonstration is the sales pitch, and requiring signup
+// before anyone sees a single image was the largest drop-off in the funnel.
+//
+// This spends real API budget, so it is bounded on three axes:
+//   1. ANON_PREVIEW_LIMIT images per anonymous session
+//   2. ANON_IP_DAILY_LIMIT images per IP per rolling 24h
+//   3. the cheap model only - anonymous users never reach gemini-3-pro-image
+// Worst case per IP per day is ANON_IP_DAILY_LIMIT * $0.039.
+
+const ANON_PREVIEW_LIMIT = 3;      // preview images per anonymous session
+const ANON_IP_DAILY_LIMIT = 6;     // images per IP per rolling 24h - the money limit
+const ANON_SESSION_LIMIT = 10;     // sessions per IP per rolling 24h - stops row spam
+const ANON_MODEL = 'flash';        // cheap model only - never Pro
+
+/** Hashes a client IP with the session secret so raw IPs are never stored. */
+async function hashIp(ip: string, secret: string): Promise<string> {
+  const data = new TextEncoder().encode(`${secret || 'shopshot'}:${ip}`);
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function clientIp(c: any): string {
+  return c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+}
+
+/** Images this IP has generated anonymously in the last 24 hours. */
+async function anonImagesLast24h(db: D1Database, ipHash: string): Promise<number> {
+  const row = await db.prepare(`
+    SELECT COALESCE(SUM(images_generated), 0) AS total
+    FROM anonymous_generations
+    WHERE ip_hash = ? AND created_at > datetime('now', '-1 day')
+  `).bind(ipHash).first() as any;
+  return Number(row?.total || 0);
+}
+
+// Start an anonymous preview session
+app.post('/api/anon/start', async (c) => {
+  const db = c.env.TESCO_DB;
+  await ensureDatabase(db);
+
+  // Signed-in users have credits and should use the real flow
+  if (c.get('user')) {
+    return c.json({ success: false, error: 'Already signed in', signedIn: true }, 400);
+  }
+
+  const ipHash = await hashIp(clientIp(c), c.env.SESSION_SECRET);
+  const used = await anonImagesLast24h(db, ipHash);
+  if (used >= ANON_IP_DAILY_LIMIT) {
+    return c.json({
+      success: false,
+      error: 'You have used your free previews for today. Create a free account to keep going.',
+      rateLimited: true,
+      needsAuth: true
+    }, 429);
+  }
+
+  // Generation is the expensive part and is capped above, but an unbounded
+  // number of sessions would still let one IP fill the table with base64.
+  const sessionCount = await db.prepare(`
+    SELECT COUNT(*) AS n FROM anonymous_generations
+    WHERE ip_hash = ? AND created_at > datetime('now', '-1 day')
+  `).bind(ipHash).first() as any;
+  if (Number(sessionCount?.n || 0) >= ANON_SESSION_LIMIT) {
+    return c.json({
+      success: false,
+      error: 'Too many previews from this connection today. Create a free account to keep going.',
+      rateLimited: true,
+      needsAuth: true
+    }, 429);
+  }
+
+  let formData: FormData;
+  try {
+    formData = await c.req.formData();
+  } catch {
+    return c.json({ success: false, error: 'No image file provided' }, 400);
+  }
+  const file = formData.get('image') as File | null;
+  if (!file || typeof (file as any).arrayBuffer !== 'function') {
+    return c.json({ success: false, error: 'No image file provided' }, 400);
+  }
+  if (file.size > 10 * 1024 * 1024) {
+    return c.json({ success: false, error: 'File too large. Maximum size is 10MB.' }, 400);
+  }
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+    return c.json({ success: false, error: 'Invalid file type. Please upload JPG, PNG, or WebP.' }, 400);
+  }
+
+  const buffer = await file.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 8192) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192) as any);
+  }
+  const dataUrl = `data:${file.type};base64,${btoa(binary)}`;
+
+  const sessionId = generateId();
+  const productName = file.name.replace(/\.[^.]+$/, '');
+
+  await db.prepare(`
+    INSERT INTO sessions (id, product_name, source_type, original_image, status, model, user_id)
+    VALUES (?, ?, 'upload', '', 'pending', ?, NULL)
+  `).bind(sessionId, productName, ANON_MODEL).run();
+
+  await db.prepare(`
+    INSERT INTO anonymous_generations (id, session_id, ip_hash, ip_country, images_generated)
+    VALUES (?, ?, ?, ?, 0)
+  `).bind(generateId(), sessionId, ipHash, c.req.header('cf-ipcountry') || null).run();
+
+  c.executionCtx.waitUntil(trackEvent(db, {
+    eventType: 'anon_preview_started',
+    sessionId,
+    ipCountry: c.req.header('cf-ipcountry') || null,
+    metadata: { file_type: file.type, file_size: file.size }
+  }));
+
+  return c.json({
+    success: true,
+    sessionId,
+    originalImage: dataUrl,
+    productName,
+    previewLimit: ANON_PREVIEW_LIMIT,
+    remainingToday: Math.max(0, ANON_IP_DAILY_LIMIT - used)
+  });
+});
+
+// Generate one anonymous preview variation
+app.post('/api/anon/generate/:sessionId/:variationIndex', async (c) => {
+  const db = c.env.TESCO_DB;
+  const sessionId = c.req.param('sessionId');
+  const variationIndex = parseInt(c.req.param('variationIndex'));
+
+  if (c.get('user')) {
+    return c.json({ success: false, error: 'Already signed in', signedIn: true }, 400);
+  }
+
+  const record = await db.prepare(
+    'SELECT * FROM anonymous_generations WHERE session_id = ?'
+  ).bind(sessionId).first() as any;
+  if (!record) return c.json({ success: false, error: 'Unknown preview session' }, 404);
+  if (record.claimed_by_user_id) {
+    return c.json({ success: false, error: 'This preview has already been claimed' }, 409);
+  }
+
+  if (record.images_generated >= ANON_PREVIEW_LIMIT) {
+    return c.json({
+      success: false,
+      error: `Free preview is limited to ${ANON_PREVIEW_LIMIT} images. Sign up free to generate all ${IMAGES_PER_SHOOT}.`,
+      previewExhausted: true,
+      needsAuth: true
+    }, 402);
+  }
+
+  const ipHash = await hashIp(clientIp(c), c.env.SESSION_SECRET);
+  if (await anonImagesLast24h(db, ipHash) >= ANON_IP_DAILY_LIMIT) {
+    return c.json({
+      success: false,
+      error: 'You have used your free previews for today. Create a free account to keep going.',
+      rateLimited: true,
+      needsAuth: true
+    }, 429);
+  }
+
+  const variation = variationDefinitions[variationIndex];
+  if (!variation) return c.json({ success: false, error: 'Invalid variation' }, 400);
+
+  const body = await c.req.json().catch(() => ({} as any));
+  const originalImage = body.originalImage;
+  if (!originalImage || originalImage.length < 100) {
+    return c.json({ success: false, error: 'No image provided' }, 400);
+  }
+
+  const geminiApiKey = c.env.GEMINI_API_KEY;
+  if (!geminiApiKey) return c.json({ success: false, error: 'AI service not configured' }, 500);
+
+  const productName = body.productName || 'product';
+  const prompts = getPrompts(productName, body.productSize || 'medium');
+  const prompt = prompts[variation.field];
+
+  const matches = originalImage.match(/^data:([^;]+);base64,(.+)$/);
+  if (!matches) return c.json({ success: false, error: 'Invalid image data' }, 400);
+
+  // Reserve the slot before spending money, so parallel requests cannot exceed
+  // the limit. Released again if generation fails.
+  const reserve = await db.prepare(`
+    UPDATE anonymous_generations SET images_generated = images_generated + 1
+    WHERE session_id = ? AND images_generated = ?
+  `).bind(sessionId, record.images_generated).run();
+  if (!reserve.meta || reserve.meta.changes !== 1) {
+    return c.json({ success: false, error: 'Please wait for the current preview to finish' }, 429);
+  }
+
+  const result = await generateImageWithGeminiDirect(
+    geminiApiKey, matches[2], matches[1], prompt, ANON_MODEL
+  );
+
+  if (!result.success) {
+    await db.prepare(
+      'UPDATE anonymous_generations SET images_generated = MAX(0, images_generated - 1) WHERE session_id = ?'
+    ).bind(sessionId).run();
+    return c.json({ success: false, error: result.error, field: variation.field }, 500);
+  }
+
+  await db.prepare(`
+    INSERT INTO generated_images (session_id, variation_type, variation_index, image_data, model)
+    VALUES (?, ?, ?, ?, ?)
+  `).bind(sessionId, variation.field, variationIndex, result.image, ANON_MODEL).run();
+
+  const generated = record.images_generated + 1;
+  c.executionCtx.waitUntil(trackEvent(db, {
+    eventType: 'anon_preview_generated',
+    sessionId,
+    metadata: { variation: variation.field, index: generated }
+  }));
+
+  return c.json({
+    success: true,
+    image: result.image,
+    field: variation.field,
+    label: variation.label,
+    generated,
+    previewLimit: ANON_PREVIEW_LIMIT,
+    previewExhausted: generated >= ANON_PREVIEW_LIMIT
+  });
+});
+
+/**
+ * Attaches an anonymous preview session to a newly registered user, so the
+ * images they already watched appear in their history instead of vanishing.
+ */
+async function claimAnonymousSession(db: D1Database, sessionId: string, userId: string): Promise<boolean> {
+  const record = await db.prepare(
+    'SELECT id, claimed_by_user_id FROM anonymous_generations WHERE session_id = ?'
+  ).bind(sessionId).first() as any;
+  if (!record || record.claimed_by_user_id) return false;
+
+  const claimed = await db.prepare(`
+    UPDATE anonymous_generations SET claimed_by_user_id = ?, claimed_at = CURRENT_TIMESTAMP
+    WHERE session_id = ? AND claimed_by_user_id IS NULL
+  `).bind(userId, sessionId).run();
+  if (!claimed.meta || claimed.meta.changes !== 1) return false;
+
+  await db.prepare('UPDATE sessions SET user_id = ? WHERE id = ? AND user_id IS NULL')
+    .bind(userId, sessionId).run();
+  return true;
+}
+
+app.post('/api/anon/claim', async (c) => {
+  const user = c.get('user');
+  if (!user) return c.json({ success: false, error: 'Authentication required' }, 401);
+  const { sessionId } = await c.req.json().catch(() => ({ sessionId: null }));
+  if (!sessionId) return c.json({ success: false, error: 'sessionId required' }, 400);
+
+  const ok = await claimAnonymousSession(c.env.TESCO_DB, sessionId, user.id);
+  return c.json({ success: ok, sessionId });
+});
+
 
 // API: Scrape URL (requires auth + credits)
 app.post('/api/scrape', async (c) => {
@@ -8012,7 +8478,7 @@ No text overlays. High quality, suitable for ${platform || 'social media'}.`;
     console.log('[social-image] Generating for platform:', platform, 'aspect:', aspect);
     
     // Get access token
-    const token = await getVertexAccessToken(clientEmail, privateKey);
+    const token = await getAccessToken(clientEmail, privateKey);
     
     // Use Imagen 3 for image generation
     const endpoint = `https://us-central1-aiplatform.googleapis.com/v1/projects/${projectId}/locations/us-central1/publishers/google/models/imagen-3.0-generate-002:predict`;
@@ -9534,6 +10000,58 @@ function getMarketingPage(user?: User) {
     .ticker-item:hover { transform: scale(1.08); box-shadow: 0 12px 40px rgba(99, 102, 241, 0.3); border-color: #8B5CF6; }
     .ticker-item img { width: 100%; height: 100%; object-fit: cover; }
 
+    /* ===== TRY IT NOW ===== */
+    .tryit-section { padding: 72px 32px; background: white; }
+    .tryit-panel { max-width: 900px; margin: 0 auto; }
+    .tryit-drop {
+      border: 2px dashed #C7D2FE; border-radius: 18px; padding: 48px 24px;
+      text-align: center; cursor: pointer; background: #F8FAFF;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .tryit-drop:hover, .tryit-drop.dragging { border-color: #8B5CF6; background: #F5F3FF; }
+    .tryit-drop.busy { pointer-events: none; opacity: 0.6; }
+    .tryit-icon { width: 52px; height: 52px; margin: 0 auto 16px; color: #8B5CF6; }
+    .tryit-icon svg { width: 100%; height: 100%; }
+    .tryit-primary { font-size: 18px; font-weight: 700; color: #1F2937; margin-bottom: 6px; }
+    .tryit-secondary { font-size: 14px; color: #6B7280; }
+    .tryit-status {
+      margin-top: 20px; padding: 14px 18px; border-radius: 10px;
+      background: #EFF6FF; border: 1px solid #BFDBFE; color: #1E40AF;
+      font-size: 15px; font-weight: 500; text-align: center;
+    }
+    .tryit-status.error { background: #FEF2F2; border-color: #FECACA; color: #B91C1C; }
+    .tryit-results { margin-top: 28px; }
+    .tryit-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 18px;
+    }
+    .tryit-card {
+      border-radius: 14px; overflow: hidden; background: #F3F4F6;
+      border: 1px solid #E5E7EB; position: relative;
+    }
+    .tryit-card img { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; }
+    .tryit-card .tryit-caption {
+      padding: 10px 12px; font-size: 13px; font-weight: 600; color: #4B5563;
+      background: white; text-align: center;
+    }
+    .tryit-card.pending { display: flex; align-items: center; justify-content: center; aspect-ratio: 1; }
+    .tryit-spinner {
+      width: 28px; height: 28px; border: 3px solid #E5E7EB; border-top-color: #8B5CF6;
+      border-radius: 50%; animation: tryit-spin 0.8s linear infinite;
+    }
+    @keyframes tryit-spin { to { transform: rotate(360deg); } }
+    .tryit-gate {
+      margin-top: 28px; padding: 32px 24px; text-align: center;
+      background: linear-gradient(135deg, #F5F3FF 0%, #EFF6FF 100%);
+      border: 1px solid #DDD6FE; border-radius: 18px;
+    }
+    .tryit-gate h3 { font-size: 22px; font-weight: 800; color: #1F2937; margin-bottom: 8px; }
+    .tryit-gate p { font-size: 15px; color: #4B5563; max-width: 520px; margin: 0 auto 20px; line-height: 1.6; }
+    .tryit-gate-note { margin-top: 12px; font-size: 13px; color: #6B7280; }
+    @media (max-width: 640px) {
+      .tryit-section { padding: 48px 20px; }
+      .tryit-drop { padding: 36px 16px; }
+    }
+
     /* ===== LIGHTBOX ===== */
     .lightbox-overlay {
       display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
@@ -9934,9 +10452,9 @@ function getMarketingPage(user?: User) {
     <h1>Professional Product Photos That <span class="hero-highlight">Actually Sell</span></h1>
     <p>Upload one photo. Get 10 marketplace-ready variations in 25 seconds. Export-optimised for eBay, Amazon, Etsy, Depop & more. No design skills needed.</p>
     <div class="hero-ctas">
-      <a href="${isLoggedIn ? '/app' : '/register'}" class="btn-primary">
+      <a href="${isLoggedIn ? '/app' : '#try-it'}" class="btn-primary">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-        ${isLoggedIn ? 'Open App' : `Start Free - ${SIGNUP_CREDITS_TOTAL} Credits`}
+        ${isLoggedIn ? 'Open App' : 'Try It Free - No Account Needed'}
       </a>
       <button onclick="scrollToVideo()" class="btn-secondary">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8" fill="currentColor"/></svg>
@@ -9946,7 +10464,7 @@ function getMarketingPage(user?: User) {
     <div class="hero-trust">
       <div class="hero-trust-item">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="#10B981" stroke="none"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-        No credit card required
+        No account needed to try
       </div>
       <div class="hero-trust-item">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="#10B981" stroke="none"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
@@ -9958,6 +10476,44 @@ function getMarketingPage(user?: User) {
       </div>
     </div>
   </section>
+
+  <!-- ===== TRY IT NOW (anonymous preview) ===== -->
+  ${isLoggedIn ? '' : `
+  <section class="tryit-section" id="try-it">
+    <div class="section-header">
+      <div class="section-badge">Try It Now</div>
+      <h2 class="section-title">See It On Your Own Product</h2>
+      <p class="section-subtitle">Upload a photo and we'll generate ${ANON_PREVIEW_LIMIT} shots right here. No account, no card, nothing to fill in.</p>
+    </div>
+
+    <div class="tryit-panel">
+      <div id="tryit-drop" class="tryit-drop"
+           onclick="document.getElementById('tryit-file').click()"
+           ondragover="tryitDragOver(event)" ondragleave="tryitDragLeave(event)" ondrop="tryitDrop(event)">
+        <input type="file" id="tryit-file" accept="image/jpeg,image/png,image/webp" hidden onchange="tryitSelect(event)">
+        <div class="tryit-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+        </div>
+        <div class="tryit-primary">Drop a product photo, or click to choose</div>
+        <div class="tryit-secondary">JPG, PNG or WebP up to 10MB. A phone photo is fine.</div>
+      </div>
+
+      <div id="tryit-status" class="tryit-status" hidden></div>
+
+      <div id="tryit-results" class="tryit-results" hidden>
+        <div class="tryit-grid" id="tryit-grid"></div>
+        <div class="tryit-gate" id="tryit-gate" hidden>
+          <h3>That's ${ANON_PREVIEW_LIMIT} of ${IMAGES_PER_SHOOT}</h3>
+          <p>Create a free account to generate the full set - plus size reference, flat-lay, in-use and packaging shots, and marketplace export presets.</p>
+          <a id="tryit-signup" href="/register" class="btn-primary">Get the other ${IMAGES_PER_SHOOT - ANON_PREVIEW_LIMIT} shots free</a>
+          <div class="tryit-gate-note">${SIGNUP_CREDITS_TOTAL} free credits. No card. Your previews carry over.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+  `}
 
   <!-- ===== PLATFORM LOGOS ===== -->
   <div class="platform-bar">
@@ -10559,6 +11115,134 @@ function getMarketingPage(user?: User) {
     });
 
     // Scroll to video and auto-play
+    // ===== TRY IT NOW: anonymous preview =====
+    // Generates a few variations with no account. Server enforces the real
+    // limits (per-session and per-IP); this is just the UI around it.
+    const TRYIT_PREVIEW_INDEXES = [5, 8, 0]; // Hero (white BG), Environment, Texture
+    let tryitSession = null;
+
+    function tryitDragOver(e) { e.preventDefault(); document.getElementById('tryit-drop').classList.add('dragging'); }
+    function tryitDragLeave() { document.getElementById('tryit-drop').classList.remove('dragging'); }
+    function tryitDrop(e) {
+      e.preventDefault();
+      tryitDragLeave();
+      const file = e.dataTransfer.files[0];
+      if (file && file.type.startsWith('image/')) tryitRun(file);
+    }
+    function tryitSelect(e) {
+      const file = e.target.files[0];
+      if (file) tryitRun(file);
+    }
+
+    function tryitSay(message, isError) {
+      const el = document.getElementById('tryit-status');
+      el.textContent = message;
+      el.classList.toggle('error', !!isError);
+      el.hidden = false;
+    }
+
+    async function tryitRun(file) {
+      const drop = document.getElementById('tryit-drop');
+      drop.classList.add('busy');
+      document.getElementById('tryit-results').hidden = true;
+      document.getElementById('tryit-gate').hidden = true;
+      document.getElementById('tryit-grid').innerHTML = '';
+      tryitSay('Uploading your photo...');
+
+      if (window.ssTrack) window.ssTrack('anon_preview_started', {});
+
+      try {
+        const form = new FormData();
+        form.append('image', file);
+        const res = await fetch('/api/anon/start', { method: 'POST', body: form });
+        const data = await res.json();
+
+        if (!data.success) {
+          tryitSay(data.error || 'Something went wrong. Please try again.', true);
+          if (data.needsAuth) tryitShowGate();
+          drop.classList.remove('busy');
+          return;
+        }
+
+        tryitSession = data;
+        tryitSay('Generating ' + data.previewLimit + ' professional shots. This takes about 20 seconds...');
+        document.getElementById('tryit-results').hidden = false;
+
+        const grid = document.getElementById('tryit-grid');
+        const wanted = TRYIT_PREVIEW_INDEXES.slice(0, data.previewLimit);
+        wanted.forEach((_, i) => {
+          const card = document.createElement('div');
+          card.className = 'tryit-card pending';
+          card.id = 'tryit-card-' + i;
+          card.innerHTML = '<div class="tryit-spinner"></div>';
+          grid.appendChild(card);
+        });
+
+        let produced = 0;
+        for (let i = 0; i < wanted.length; i++) {
+          const ok = await tryitGenerate(wanted[i], i, data);
+          if (ok) produced++;
+          else break;
+        }
+
+        if (produced > 0) {
+          tryitSay('Done. That is ' + produced + ' of ' + ${'`${IMAGES_PER_SHOOT}`'} + ' shots ShopShot generates for each product.');
+          tryitShowGate();
+          if (window.ssTrack) window.ssTrack('anon_preview_completed', { images: produced });
+        }
+      } catch (err) {
+        console.error('[TryIt]', err);
+        tryitSay('Something went wrong. Please try again.', true);
+      } finally {
+        drop.classList.remove('busy');
+      }
+    }
+
+    async function tryitGenerate(variationIndex, slot, session) {
+      const card = document.getElementById('tryit-card-' + slot);
+      try {
+        const res = await fetch('/api/anon/generate/' + session.sessionId + '/' + variationIndex, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            originalImage: session.originalImage,
+            productName: session.productName
+          })
+        });
+        const data = await res.json();
+        if (!data.success) {
+          if (data.needsAuth || data.rateLimited || data.previewExhausted) {
+            card.remove();
+            tryitSay(data.error, true);
+            tryitShowGate();
+            return false;
+          }
+          card.classList.remove('pending');
+          card.innerHTML = '<div class="tryit-caption">Could not generate this one</div>';
+          return true;
+        }
+        card.classList.remove('pending');
+        card.innerHTML = '<img src="' + data.image + '" alt="' + data.label + '">' +
+                         '<div class="tryit-caption">' + data.label.replace(/^\d+\.\s*/, '') + '</div>';
+        return true;
+      } catch (e) {
+        card.remove();
+        return false;
+      }
+    }
+
+    function tryitShowGate() {
+      const gate = document.getElementById('tryit-gate');
+      if (!gate) return;
+      gate.hidden = false;
+      const link = document.getElementById('tryit-signup');
+      if (link && tryitSession) {
+        // Carry the preview session so the images follow them into the account
+        link.href = '/register?anon=' + encodeURIComponent(tryitSession.sessionId);
+      }
+      if (window.ssTrack) window.ssTrack('anon_preview_gate_shown', {});
+    }
+
     function scrollToVideo() {
       const vc = document.querySelector('.promo-video-container');
       const vp = document.getElementById('promo-video-placeholder');
@@ -16881,6 +17565,10 @@ function getRegisterPage() {
     const urlParams = new URLSearchParams(window.location.search);
     const redirectTo = urlParams.get('redirect');
     const selectedPlan = urlParams.get('plan');
+    const selectedInterval = urlParams.get('interval') === 'year' ? 'year' : 'month';
+    // Anonymous preview session to attach to the new account, if they came
+    // from the homepage "try it now" widget.
+    const anonSessionId = urlParams.get('anon');
     let userEmail = '';
     let resendCooldown = 0;
     
@@ -16893,17 +17581,17 @@ function getRegisterPage() {
     if (selectedPlan === 'starter') {
       title.textContent = 'Get Starter Plan';
       subtitle.textContent = 'Create account to start your subscription';
-      badge.innerHTML = '<span class="plan-badge starter">🚀 Starter Plan - $${PRICING.STARTER}/month</span>';
+      badge.innerHTML = '<span class="plan-badge starter">🚀 Starter Plan - ' + (selectedInterval === 'year' ? '$${PRICING.STARTER_ANNUAL}/year' : '$${PRICING.STARTER}/month') + '</span>';
       btn.textContent = 'Create Account & Subscribe';
     } else if (selectedPlan === 'standard') {
       title.textContent = 'Get Standard Plan';
       subtitle.textContent = 'Create account to start your subscription';
-      badge.innerHTML = '<span class="plan-badge standard">⚡ Standard Plan - $${PRICING.STANDARD}/month</span>';
+      badge.innerHTML = '<span class="plan-badge standard">⚡ Standard Plan - ' + (selectedInterval === 'year' ? '$${PRICING.STANDARD_ANNUAL}/year' : '$${PRICING.STANDARD}/month') + '</span>';
       btn.textContent = 'Create Account & Subscribe';
     } else if (selectedPlan === 'pro') {
       title.textContent = 'Get Pro Plan';
       subtitle.textContent = 'Create account to start your subscription';
-      badge.innerHTML = '<span class="plan-badge pro">👑 Pro Plan - $${PRICING.PRO}/month</span>';
+      badge.innerHTML = '<span class="plan-badge pro">👑 Pro Plan - ' + (selectedInterval === 'year' ? '$${PRICING.PRO_ANNUAL}/year' : '$${PRICING.PRO}/month') + '</span>';
       btn.textContent = 'Create Account & Subscribe';
     }
     
@@ -17112,14 +17800,25 @@ function getRegisterPage() {
         const data = await res.json();
         
         if (data.success) {
-          if (window.ssTrack) window.ssTrack('sign_up', { method: 'email', plan: selectedPlan || 'free' });
+          if (window.ssTrack) window.ssTrack('sign_up', { method: 'email', plan: selectedPlan || 'free', from_preview: !!anonSessionId });
+          // Attach the preview they already generated. Best effort - never block
+          // the redirect on it.
+          if (anonSessionId) {
+            try {
+              await fetch('/api/anon/claim', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sessionId: anonSessionId })
+              });
+            } catch (e) { /* non-fatal */ }
+          }
           // If paid plan, go to checkout
           if (selectedPlan === 'starter' || selectedPlan === 'standard' || selectedPlan === 'pro') {
             btn.textContent = 'Redirecting to payment...';
             const checkoutRes = await fetch('/api/billing/create-checkout', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ type: 'subscription', plan: selectedPlan })
+              body: JSON.stringify({ type: 'subscription', plan: selectedPlan, interval: selectedInterval })
             });
             const checkoutData = await checkoutRes.json();
             if (checkoutData.success && checkoutData.url) {
@@ -17973,6 +18672,24 @@ function getPricingPage(user?: User) {
     .plan-name { font-size: 24px; font-weight: 700; color: #1F2937; margin-bottom: 8px; margin-top: 8px; }
     .plan-price { font-size: 48px; font-weight: 800; color: #1F2937; line-height: 1; }
     .plan-price span { font-size: 18px; font-weight: 500; color: #6B7280; }
+    .plan-price > span { font-size: inherit; font-weight: inherit; color: inherit; }
+    .billing-toggle {
+      display: inline-flex; gap: 4px; padding: 4px; margin: 0 auto 28px;
+      background: #F3F4F6; border-radius: 12px;
+    }
+    .billing-toggle { display: flex; width: fit-content; }
+    .bill-opt {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 10px 20px; border: none; border-radius: 9px; cursor: pointer;
+      background: transparent; color: #6B7280; font-size: 15px; font-weight: 600;
+      font-family: inherit; transition: all 0.15s;
+    }
+    .bill-opt.active { background: white; color: #1F2937; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .bill-save {
+      font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 999px;
+      background: #D1FAE5; color: #065F46; text-transform: uppercase; letter-spacing: 0.03em;
+    }
+    [hidden] { display: none !important; }
     .plan-period { font-size: 14px; color: #6B7280; margin-bottom: 24px; }
     
     .plan-credits { background: #F9FAFB; border-radius: 12px; padding: 16px; margin-bottom: 24px; }
@@ -18117,8 +18834,15 @@ function getPricingPage(user?: User) {
     </div>
     
     <!-- Subscription Plans -->
-    <h2 class="section-title">Monthly Subscriptions</h2>
-    <p class="section-subtitle">Get fresh credits every month. Cancel anytime.</p>
+    <h2 class="section-title">Subscriptions</h2>
+    <p class="section-subtitle">Fresh credits every month. Cancel anytime.</p>
+
+    <div class="billing-toggle" role="group" aria-label="Billing interval">
+      <button type="button" id="bill-month" class="bill-opt active" onclick="setInterval_('month')">Monthly</button>
+      <button type="button" id="bill-year" class="bill-opt" onclick="setInterval_('year')">
+        Annual <span class="bill-save">2 months free</span>
+      </button>
+    </div>
     <div style="max-width:560px; margin:0 auto 32px; background:#D1FAE5; border:1px solid #6EE7B7; border-radius:12px; padding:14px 20px; text-align:center;">
       <span style="font-size:15px; font-weight:700; color:#065F46;">7-Day Money-Back Guarantee</span>
       <span style="display:block; font-size:13px; color:#047857; margin-top:2px;">Not right for you? Email us within 7 days of your first payment for a full refund. <a href="/refunds" style="color:#047857; text-decoration:underline;">Details</a></span>
@@ -18164,8 +18888,8 @@ function getPricingPage(user?: User) {
       <div class="plan-card ${isStarter ? 'current' : ''}">
         ${isStarter ? '<div class="badge current">Current Plan</div>' : '<div class="badge" style="background:#10B981;color:white;">New!</div>'}
         <div class="plan-name">Starter</div>
-        <div class="plan-price">$${PRICING.STARTER}<span>/mo</span></div>
-        <div class="plan-period">~11 product shoots</div>
+        <div class="plan-price"><span class="price-month">$${PRICING.STARTER}<span>/mo</span></span><span class="price-year" hidden>$${PRICING.STARTER_ANNUAL}<span>/yr</span></span></div>
+        <div class="plan-period">${Math.floor(CREDITS.STARTER_CHEAPER / IMAGES_PER_SHOOT)} shoots a month</div>
         
         <div class="plan-credits">
           <div class="credit-row">
@@ -18199,8 +18923,8 @@ function getPricingPage(user?: User) {
       <div class="plan-card featured ${isStandard ? 'current' : ''}">
         ${isStandard ? '<div class="badge current">Current Plan</div>' : '<div class="badge popular">Most Popular</div>'}
         <div class="plan-name">Standard</div>
-        <div class="plan-price">$${PRICING.STANDARD}<span>/mo</span></div>
-        <div class="plan-period">~55 product shoots</div>
+        <div class="plan-price"><span class="price-month">$${PRICING.STANDARD}<span>/mo</span></span><span class="price-year" hidden>$${PRICING.STANDARD_ANNUAL}<span>/yr</span></span></div>
+        <div class="plan-period">${Math.floor(CREDITS.STANDARD_CHEAPER / IMAGES_PER_SHOOT)} shoots a month</div>
         
         <div class="plan-credits">
           <div class="credit-row">
@@ -18222,7 +18946,7 @@ function getPricingPage(user?: User) {
         <ul class="plan-features">
           <li>Best for regular sellers</li>
           <li>Priority generation</li>
-          <li>Credits roll over (2x)</li>
+          <li>Unused credits carry over</li>
         </ul>
         
         <button class="plan-btn plan-btn-primary" onclick="startCheckout('standard')" ${isStandard ? 'disabled' : ''}>
@@ -18234,8 +18958,8 @@ function getPricingPage(user?: User) {
       <div class="plan-card ${isPro ? 'current' : ''}">
         ${isPro ? '<div class="badge current">Current Plan</div>' : '<div class="badge best">Best Quality</div>'}
         <div class="plan-name">Pro</div>
-        <div class="plan-price">$${PRICING.PRO}<span>/mo</span></div>
-        <div class="plan-period">~97 product shoots</div>
+        <div class="plan-price"><span class="price-month">$${PRICING.PRO}<span>/mo</span></span><span class="price-year" hidden>$${PRICING.PRO_ANNUAL}<span>/yr</span></span></div>
+        <div class="plan-period">${Math.floor(CREDITS.PRO_CHEAPER / IMAGES_PER_SHOOT)} shoots a month</div>
         
         <div class="plan-credits">
           <div class="credit-row">
@@ -18559,9 +19283,20 @@ function getPricingPage(user?: User) {
       document.getElementById('packs-better').classList.toggle('hidden', type !== 'better');
     }
     
+    // Billing interval state. Named setInterval_ to avoid shadowing the global.
+    let billingInterval = 'month';
+    function setInterval_(next) {
+      billingInterval = next === 'year' ? 'year' : 'month';
+      document.getElementById('bill-month').classList.toggle('active', billingInterval === 'month');
+      document.getElementById('bill-year').classList.toggle('active', billingInterval === 'year');
+      document.querySelectorAll('.price-month').forEach(el => { el.hidden = billingInterval !== 'month'; });
+      document.querySelectorAll('.price-year').forEach(el => { el.hidden = billingInterval !== 'year'; });
+      if (window.ssTrack) window.ssTrack('billing_interval_changed', { interval: billingInterval });
+    }
+
     function startCheckout(plan) {
-      if (window.ssTrack) window.ssTrack('begin_checkout', { plan: plan, item_category: 'subscription' });
-      ${!user ? 'window.location.href = "/register?plan=" + encodeURIComponent(plan); return;' : ''}
+      if (window.ssTrack) window.ssTrack('begin_checkout', { plan: plan, interval: billingInterval, item_category: 'subscription' });
+      ${!user ? 'window.location.href = "/register?plan=" + encodeURIComponent(plan) + "&interval=" + encodeURIComponent(billingInterval); return;' : ''}
       showCheckoutModal('subscription', plan, null, null);
     }
     
@@ -18571,7 +19306,7 @@ function getPricingPage(user?: User) {
       const res = await fetch('/api/billing/create-checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'subscription', plan })
+        body: JSON.stringify({ type: 'subscription', plan, interval: billingInterval })
       });
       
       console.log('[Checkout] Response status:', res.status);
@@ -18623,6 +19358,7 @@ function getPricingPage(user?: User) {
       if (params.get('checkout') !== '1') return;
       const plan = params.get('plan');
       if (!['starter', 'standard', 'pro'].includes(plan)) return;
+      if (params.get('interval') === 'year') setInterval_('year');
       startCheckout(plan);
     })();
     ` : ''}

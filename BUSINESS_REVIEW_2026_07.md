@@ -16,9 +16,11 @@ Revenue was near zero for four compounding reasons, roughly in order of impact:
 1. **You could not buy.** On `/pricing`, all three subscription buttons rendered with the HTML `disabled` attribute for logged-out visitors. The highest-intent page on the site could not convert a single anonymous visitor. **Fixed.**
 2. **You could not try.** The free tier granted 8 credits (5 Standard + 3 Pro) and a shoot costs 10. It was arithmetically impossible for a free user to see the thing the homepage promises - they watched the grid fill halfway and hit a paywall mid-generation. **Fixed** (now 10 Standard + 3 Pro).
 3. **You could not get in easily.** Signup demanded name, email, a **required mobile phone number**, password + confirm + three complexity rules, two consent checkboxes, then a 6-digit email code - all before any value. **Partly fixed** (phone now optional; verification gate unchanged).
-4. **The economics do not reward success.** Gross margin *falls* as customers upgrade, and the Pro plan runs at roughly 5% gross margin before infrastructure or support. **Not fixed** - this needs pricing decisions and new Stripe products, covered in §6.
+4. **The economics did not reward success.** Gross margin *fell* as customers upgraded, and the Pro plan ran at roughly 5% gross margin before infrastructure or support. **Repriced** - see §6. With no customers yet there was no grandfathering constraint, so the pricing was redesigned rather than patched.
 
-Items 1-3 are what kept revenue at zero. Item 4 is what decides whether the revenue that now starts arriving is worth having.
+Items 1-3 are what kept revenue at zero. Item 4 decides whether the revenue that now starts arriving is worth having.
+
+The remaining open item is distribution: one slow channel (SEO) against competitors with far greater domain authority. That is covered in §9 and is now the binding constraint.
 
 ---
 
@@ -31,7 +33,7 @@ Items 1-3 are what kept revenue at zero. Item 4 is what decides whether the reve
 | **Stack** | Hono on Cloudflare Pages/Workers, D1 (SQLite), R2, Gemini API Direct with Vertex AI fallback |
 | **Models** | `gemini-2.5-flash-image` (Standard) and `gemini-3-pro-image-preview` (Pro) |
 | **Monetisation** | Dual-credit system, 3 subscription tiers + one-off credit packs, Stripe |
-| **Pricing** | Free (13 credits once) / Starter $9.99 / Standard $39.99 / Pro $59.99 per month |
+| **Pricing** | Free (13 credits once) / Starter $9.99 / Standard $29.99 / Pro $79.99 per month, or 10x those annually |
 | **Acquisition** | SEO only - 31 blog posts, 73 URLs in sitemap. No paid, no marketplace distribution |
 
 ---
@@ -129,7 +131,7 @@ The dead UI is still shipped - `signup-gate-modal`, "You've seen 3 previews - si
 **Still recommended, not implemented:**
 
 - Add a recurring free allowance - 10 Standard credits per month - so lapsed users have a reason to return. Pebblely proves this works.
-- Restore anonymous try-before-signup: let a visitor generate 3 variations with no account, then gate the remaining 7 behind signup. The session-claim mechanic already existed. **Not implemented here** - it needs new endpoints plus abuse controls, since anonymous generation spends real Gemini budget. Worth a decision on rate limiting first.
+- ~~Restore anonymous try-before-signup.~~ **Implemented.** A visitor can now generate 3 variations from the homepage with no account, then hits a signup gate, and the previews follow them into the new account. Bounded on three axes so it cannot be farmed: 3 images per preview session, 6 images and 10 sessions per IP per rolling 24h, and the cheap model only - anonymous visitors never reach `gemini-3-pro-image-preview`. Worst case is about $0.23 of API cost per IP per day. IPs are stored only as a salted SHA-256 hash.
 
 ---
 
@@ -151,28 +153,41 @@ Realistic target: land → Google sign-in → upload → 10 images. Three steps,
 
 ## 6. Unit economics
 
-Current API costs: Standard (`gemini-2.5-flash-image`) ≈ **$0.039/image**, Pro (`gemini-3-pro-image-preview`) ≈ **$0.134/image**.
+**This section has been rewritten and implemented.** The original finding stands: at $59.99 for 800 Standard + 175 Pro credits, the Pro plan cleared about 5% gross margin, and margin *fell* as customers upgraded. Since there are no customers yet, there was no grandfathering constraint, so the pricing was redesigned rather than patched.
 
-| Plan | Price | Credits | COGS at full use | After Stripe (2.9% + 30¢) | Gross margin |
-|---|---|---|---|---|---|
-| Starter | $9.99 | 100 Std + 10 Pro | $5.25 | $9.40 | **~44%** |
-| Standard | $39.99 | 500 Std + 45 Pro | $25.58 | $38.53 | **~34%** |
-| Pro | $59.99 | 800 Std + 175 Pro | $54.80 | $58.05 | **~5%** |
-| Std pack | $25.00 | 400 Std | $15.60 | $23.98 | **~35%** |
-| Pro pack | $25.00 | 115 Pro | $15.41 | $23.98 | **~36%** |
+### What was wrong
 
-Three problems:
+Pro credits cost 3.4x Standard ($0.134 vs $0.039) and were being bundled generously into every tier. On the old Standard plan, 45 Pro credits were $6.03 of COGS out of $39.99 - 15% of revenue given away as a "taste". On the old Pro plan, 175 Pro credits were $23.45. That single decision is what destroyed the margin at the top.
 
-1. **Margin falls as customers spend more.** Your best customers are your worst customers. This is backwards - volume should buy you margin, not cost you margin.
-2. **The Pro plan is effectively break-even.** $3.25/month contribution before any Cloudflare, Resend, Loops, Stripe Radar or support cost. If Pro ever sold well it would be a problem, not a win. It is also the tier labelled `quality: 'Best (Beta)'`, taking 2-5 minutes vs 25 seconds, with an auto-fallback that silently switches to Standard after two consecutive failures - so you are charging a 50% premium for the least reliable experience.
-3. **Credits accumulate without limit.** The pricing page advertises *"Credits roll over (2x)"* but no cap exists anywhere in the code - `addCredits()` simply adds to the balance. A user can stockpile for six months and burn half a year of COGS in one weekend. The advertised claim is also unimplemented, which is its own problem.
+### The new model
 
-**Recommendations:**
+| Plan | Price | Standard | Pro | COGS | GM | $/image |
+|---|---|---|---|---|---|---|
+| Free | $0 | 10 | 3 | $0.79 | - | acquisition |
+| Starter | $9.99/mo | 60 | 5 | $3.01 | **68%** | $0.154 |
+| Standard | $29.99/mo | 200 | 18 | $10.21 | **65%** | $0.138 |
+| Pro | $79.99/mo | 600 | 60 | $31.44 | **59%** | $0.121 |
 
-- Re-price Pro to **$79-99/month**, or cut it to 500 Std + 120 Pro at $59.99. Target 65-70% gross margin on every tier. SaaS at 34% gross margin cannot fund acquisition.
-- **Add annual plans at 30-35% off.** You currently have none. Competitors lead with annual pricing (Photoroom's headline $7.50/mo is the annual rate). Annual fixes cash flow, halves churn, and is the single easiest revenue lever here.
-- **Implement the advertised 2x rollover cap** or remove the claim.
-- Consider collapsing the dual-credit system (see §8).
+Two properties this has that the old model didn't: **margin no longer collapses as the tier rises** (68/65/59 rather than 44/34/5), and **per-image price falls as volume rises** ($0.154 -> $0.138 -> $0.121), so upgrading is rewarded rather than punished.
+
+Standard came *down* from $39.99 to $29.99. It was the "most popular" tier and was priced above the market while running 34% margin - a bad combination. At $29.99 with a tighter allocation it earns more per pound of COGS and reads better against Pebblely's $19 tier.
+
+The arithmetic now lives in `src/config/constants.ts` as `planCogs()` and `planGrossMargin()`, with the unit costs beside them. If Google changes image pricing, that is the one file to revisit.
+
+### Annual plans
+
+Added at 10x the monthly rate - **two months free**, the most legible annual offer and the industry norm. Starter $99, Standard $299, Pro $799.
+
+The credit model was the real decision. Granting twelve months up front is simple and cash-positive but hands one subscriber a year of API cost on day one. Dripping monthly is correct, but `invoice.payment_succeeded` only fires once a year on annual billing, and Cloudflare Pages has no cron trigger.
+
+Resolved with **lazy accrual**: `next_credit_grant_at` on the user row, checked on authenticated requests, granting one month at a time. No scheduled job, no new infrastructure, self-healing if the site is idle. A conditional `UPDATE ... WHERE next_credit_grant_at = ?` makes concurrent requests grant at most once, and grants never run past `subscription_period_end`. Monthly subscribers are deliberately excluded - their top-up already arrives by webhook, and running both paths would double-grant.
+
+Verified against a local D1: a subscriber two months overdue received exactly three months and no more on repeat requests; a monthly subscriber received nothing; and a grant dated after the paid period ended was refused.
+
+### Still open
+
+- **The advertised "credits roll over (2x)" cap was never implemented.** No cap exists anywhere in the code - credits accumulate without limit. The claim has been corrected to "unused credits carry over", which is what actually happens. If you want a real cap, it needs building.
+- **Pro remains labelled Beta**, takes 2-5 minutes against Standard's 25 seconds, and auto-falls-back after two consecutive failures. It is now the $79.99 tier, which makes stabilising it more urgent, not less.
 
 ---
 
@@ -264,11 +279,15 @@ Split it: `routes/`, `pages/`, `lib/`, `api/`. Not glamorous, but every week it 
 9. 7-day money-back guarantee, surfaced on `/pricing` and in the paywall modal
 10. Remove unsubstantiated `aggregateRating` schema and the two invented testimonials
 11. First-run welcome panel on `/app`
-12. `og:image` and full social card tags on every non-blog page, with a purpose-built 1200x630 image
-13. Branded 404 and 500 pages replacing Hono's 13-byte plain-text default
-14. Testimonial logo optimised from 571KB to 14.6KB
-15. Canonicals added to `/get-started` and `/tools/remove-background`
-16. FAQ, Terms summary and the checkout confirmation modal brought in line with the new refund policy
+12. Repriced every tier for a defensible margin ladder, with the arithmetic living in `constants.ts`
+13. Annual plans at two months free, with lazy monthly credit accrual
+14. Anonymous try-before-signup on the homepage, rate limited three ways
+15. Fixed three latent runtime bugs surfaced by adding `@cloudflare/workers-types` to tsconfig
+16. `og:image` and full social card tags on every non-blog page, with a purpose-built 1200x630 image
+17. Branded 404 and 500 pages replacing Hono's 13-byte plain-text default
+18. Testimonial logo optimised from 571KB to 14.6KB
+19. Canonicals added to `/get-started` and `/tools/remove-background`
+20. FAQ, Terms summary and the checkout confirmation modal brought in line with the new refund policy
 
 ### Needs you, not code
 - **Register the new GA4 events as conversions** in the GA4 UI. The code emits them; GA4 will not count them until configured.
@@ -277,18 +296,25 @@ Split it: `routes/`, `pages/`, `lib/`, `api/`. Not glamorous, but every week it 
 - **Collect two real named testimonials.** The section is honest now but thinner.
 - **Supply one genuine rough phone photo** of a real product so the "try our sample" button can be built.
 
-### Next - the offer (needs Stripe products, so not built here)
-- **Annual plans at 30-35% off.** You have none; competitors lead with them (Photoroom's headline $7.50/mo is the annual rate). Annual fixes cash flow and roughly halves churn. Needs new Stripe prices, plus a decision: grant 12x credits upfront (simple, cash-positive, risks a stockpile-and-churn user) or drip monthly (correct, but needs a scheduled job because `invoice.payment_succeeded` only fires annually). **Recommendation: drip monthly.**
-- **Re-price Pro.** At $59.99 with 800 Standard + 175 Pro it clears about 5% gross margin. Either $79-99/month at current credits, or hold $59.99 and cut to ~500 Standard + 120 Pro. Needs a new Stripe price either way.
-- **Implement the advertised "credits roll over (2x)" cap**, or drop the claim. Today credits accumulate without limit, so a stockpiler can burn a year of COGS in a weekend.
-- **Stabilise or stop selling Pro.** It is marked Beta, takes 2-5 minutes against Standard's 25 seconds, and auto-falls-back after two failures. A 50% premium on the least reliable path is not defensible.
+### Needs new Stripe products before deploy
+The plan prices changed, so the old Stripe price objects carry the wrong amounts. Subscription price IDs are now read from the environment and checkout **fails loudly with a 503** rather than quietly charging the old price. Create these six prices and set the secrets:
+
+| Secret | Product |
+|---|---|
+| `STRIPE_PRICE_STARTER_MONTHLY` | $9.99/month (optional - the existing $9.99 price still works) |
+| `STRIPE_PRICE_STANDARD_MONTHLY` | $29.99/month |
+| `STRIPE_PRICE_PRO_MONTHLY` | $79.99/month |
+| `STRIPE_PRICE_STARTER_ANNUAL` | $99/year |
+| `STRIPE_PRICE_STANDARD_ANNUAL` | $299/year |
+| `STRIPE_PRICE_PRO_ANNUAL` | $799/year |
+
+Also run migration `0006_annual_subscriptions.sql`, or let `ensureDatabase()` add the columns on first request - it carries the same changes idempotently.
 
 ### Then - growth and structure
-- **Restore anonymous try-before-signup** (3 free variations, then gate). Highest-leverage remaining conversion change. Needs rate limiting first, since anonymous generation spends real Gemini budget.
 - **Recurring free allowance** - 10 Standard credits monthly - to give lapsed users a reason to return.
 - **Ship a Shopify app.** Where competitors get their volume, with billing and trust built in.
 - **Seller-community distribution** - eBay/Etsy/Vinted groups and subreddits.
-- **Collapse the dual-credit system** to a single currency.
+- **Collapse the dual-credit system** to a single currency. Deferred deliberately: it is a data migration across `users`, `credit_transactions` and every pricing surface, and it deserves its own PR. The plan: one balance, Standard generations cost 1 credit, Pro cost 3. Existing balances convert as `cheaper + (better * 3)`. This removes the two-currency mental model that caused the free-tier arithmetic failure in §4, and removes the "Pro plan gives you Pro credits" naming collision.
 - **Replace the Tailwind CDN** with a build-time stylesheet; migrate generated images from base64-in-D1 to R2.
 - **Split `index.tsx`.**
 
