@@ -1,28 +1,9 @@
 // Info Page Templates (FAQ, About, Contact)
 
 import { SIGNUP_CREDITS_TOTAL, IMAGES_PER_SHOOT } from './config/constants';
+import { GTM_HEAD, GTM_BODY } from './config/analytics';
 
 // Google Tag Manager + Google Analytics snippets
-const GTM_HEAD = `<!-- Google Tag Manager -->
-<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
-new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
-j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
-'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
-})(window,document,'script','dataLayer','GTM-PNKMSPJN');</script>
-<!-- End Google Tag Manager -->
-<!-- Google tag (gtag.js) -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-FJR6WVMLHE"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-  gtag('config', 'G-FJR6WVMLHE');
-</script>`;
-
-const GTM_BODY = `<!-- Google Tag Manager (noscript) -->
-<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-PNKMSPJN"
-height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
-<!-- End Google Tag Manager (noscript) -->`;
 
 const FOOTER_HTML = `
   <footer class="bg-gray-900 text-white py-12 mt-20">
@@ -101,7 +82,7 @@ export function getFaqPage(): string {
         "name": "Do credits expire?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "Subscription credits reset each billing cycle and don't roll over. Top-up credits don't expire as long as your account remains active."
+          "text": "No. Credits do not expire and unused credits carry over. Each month your plan adds a fresh allocation on top of whatever you have left, and top-up credits last as long as your account is active."
         }
       },
       {
@@ -212,7 +193,7 @@ export function getFaqPage(): string {
             <span class="faq-icon transition-transform">▼</span>
           </div>
           <div class="faq-answer px-4 pb-4 text-gray-600">
-            <p>Subscription credits reset each billing cycle and don't roll over. Top-up credits don't expire as long as your account is active.</p>
+            <p><strong>No.</strong> Credits do not expire and unused credits carry over. Each month your plan adds a fresh allocation on top of whatever you have left, and top-up credits last as long as your account is active.</p>
           </div>
         </div>
         <div class="faq-item">

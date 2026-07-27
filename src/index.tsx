@@ -5,6 +5,7 @@ import { getPrivacyPage, getTermsPage, getRefundsPage, getCookiesPage } from './
 import { getFaqPage, getAboutPage, getContactPage } from './info-pages'
 import { getBlogIndexPage, getBlogPostPage, getAllBlogPosts, getBlogPostMarkdown, getBlogMarkdownIndex } from './blog-pages'
 import { CREDITS, PRICING, SIGNUP_CREDITS_TOTAL, REFERRAL_CREDITS_TOTAL, IMAGES_PER_SHOOT } from './config/constants'
+import { GTM_HEAD, GTM_BODY } from './config/analytics';
 
 
 // Open Graph / Twitter card tags. Every non-blog page previously declared
@@ -27,39 +28,6 @@ function socialTags(opts: { title: string; description: string; url: string; typ
 }
 
 // Google Tag Manager + Google Analytics snippets
-const GTM_HEAD = `<!-- Google Tag Manager -->
-<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
-new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
-j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
-'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
-})(window,document,'script','dataLayer','GTM-PNKMSPJN');</script>
-<!-- End Google Tag Manager -->
-<!-- Google tag (gtag.js) -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-FJR6WVMLHE"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-  gtag('config', 'G-FJR6WVMLHE');
-
-  // Funnel tracking. Previously only 'purchase' reached GA4, which meant every
-  // stage before payment was invisible and drop-off could not be diagnosed.
-  // Safe to call before gtag.js finishes loading - dataLayer queues the hit.
-  window.ssTrack = function (eventName, params) {
-    try {
-      window.dataLayer = window.dataLayer || [];
-      if (typeof gtag === 'function') gtag('event', eventName, params || {});
-      window.dataLayer.push(Object.assign({ event: eventName }, params || {}));
-    } catch (e) {
-      // Never let analytics break the app
-    }
-  };
-</script>`;
-
-const GTM_BODY = `<!-- Google Tag Manager (noscript) -->
-<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-PNKMSPJN"
-height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
-<!-- End Google Tag Manager (noscript) -->`;
 
 type Bindings = {
   TESCO_DB: D1Database;
@@ -4692,12 +4660,14 @@ app.get('/api/auth/google/callback', async (c) => {
   
   // If plan selected, redirect to Stripe checkout
   if (plan === 'starter' || plan === 'standard' || plan === 'pro') {
-    return c.redirect(`/pricing?plan=${plan}&checkout=1`);
+    return c.redirect(`/pricing?plan=${plan}&checkout=1${isNewUser ? '&signup=google' : ''}`);
   }
   
-  // Default redirect to app (not homepage)
+  // Default redirect to app (not homepage). signup=google lets the landing page
+  // fire the sign_up event - the callback itself is server-side and cannot.
   const finalRedirect = redirectTo && redirectTo !== '/' ? redirectTo : '/app';
-  return c.redirect(finalRedirect + '?welcome=1');
+  const sep = finalRedirect.includes('?') ? '&' : '?';
+  return c.redirect(finalRedirect + sep + 'welcome=1' + (isNewUser ? '&signup=google' : '&login=google'));
 });
 
 // ============================================================================
@@ -5003,7 +4973,7 @@ app.post('/api/billing/create-checkout', async (c) => {
     mode: mode,
     'line_items[0][price]': priceId,
     'line_items[0][quantity]': 1,
-    success_url: `${origin}/dashboard?checkout=success&type=${type}`,
+    success_url: `${origin}/dashboard?checkout=success&type=${type}&plan=${encodeURIComponent(plan || '')}&interval=${billingInterval}&amount=${encodeURIComponent(String(amount || ''))}`,
     cancel_url: `${origin}/pricing?checkout=canceled`,
     client_reference_id: user.id,
     'metadata[user_id]': user.id,
@@ -13912,6 +13882,19 @@ function getHomePage(user?: User) {
       if (panel) panel.style.display = 'none';
       try { localStorage.setItem(WELCOME_DISMISSED_KEY, '1'); } catch (e) {}
     }
+    // Google OAuth completes with a server-side redirect, so the sign_up and
+    // login events have to be fired here from the query string instead.
+    (function trackOAuthArrival() {
+      try {
+        const p = new URLSearchParams(window.location.search);
+        if (p.get('signup') === 'google' && window.ssTrack) {
+          window.ssTrack('sign_up', { method: 'google', plan: 'free' });
+        } else if (p.get('login') === 'google' && window.ssTrack) {
+          window.ssTrack('login', { method: 'google' });
+        }
+      } catch (e) {}
+    })();
+
     function maybeShowWelcome() {
       const panel = document.getElementById('welcome-panel');
       if (!panel) return;
@@ -19294,8 +19277,23 @@ function getPricingPage(user?: User) {
       if (window.ssTrack) window.ssTrack('billing_interval_changed', { interval: billingInterval });
     }
 
+    const PLAN_PRICES = {
+      month: { starter: ${PRICING.STARTER}, standard: ${PRICING.STANDARD}, pro: ${PRICING.PRO} },
+      year:  { starter: ${PRICING.STARTER_ANNUAL}, standard: ${PRICING.STANDARD_ANNUAL}, pro: ${PRICING.PRO_ANNUAL} }
+    };
+
     function startCheckout(plan) {
-      if (window.ssTrack) window.ssTrack('begin_checkout', { plan: plan, interval: billingInterval, item_category: 'subscription' });
+      if (window.ssTrack) {
+        const value = (PLAN_PRICES[billingInterval] || {})[plan];
+        window.ssTrack('begin_checkout', {
+          plan: plan,
+          interval: billingInterval,
+          item_category: 'subscription',
+          currency: 'USD',
+          value: value,
+          items: [{ item_id: plan + '_' + billingInterval, item_name: 'ShopShot ' + plan, item_category: 'subscription', price: value, quantity: 1 }]
+        });
+      }
       ${!user ? 'window.location.href = "/register?plan=" + encodeURIComponent(plan) + "&interval=" + encodeURIComponent(billingInterval); return;' : ''}
       showCheckoutModal('subscription', plan, null, null);
     }
@@ -19323,7 +19321,13 @@ function getPricingPage(user?: User) {
     }
     
     function startPackCheckout(creditType, amount) {
-      if (window.ssTrack) window.ssTrack('begin_checkout', { credit_type: creditType, value: amount, item_category: 'credit_pack' });
+      if (window.ssTrack) window.ssTrack('begin_checkout', {
+        credit_type: creditType,
+        item_category: 'credit_pack',
+        currency: 'USD',
+        value: amount,
+        items: [{ item_id: 'pack_' + creditType + '_' + amount, item_name: 'Credit pack', item_category: 'credit_pack', price: amount, quantity: 1 }]
+      });
       ${!user ? 'window.location.href = "/register?redirect=" + encodeURIComponent("/pricing"); return;' : ''}
       showCheckoutModal('pack', null, creditType, amount);
     }
@@ -19349,6 +19353,19 @@ function getPricingPage(user?: User) {
         throw new Error(data.error || 'Failed to create checkout session');
       }
     }
+
+    // Google OAuth signups with plan intent land here, so the sign_up event
+    // has to fire from this page too.
+    ${user ? `
+    (function trackOAuthArrival() {
+      try {
+        const p = new URLSearchParams(window.location.search);
+        if (p.get('signup') === 'google' && window.ssTrack) {
+          window.ssTrack('sign_up', { method: 'google', plan: p.get('plan') || 'free' });
+        }
+      } catch (e) {}
+    })();
+    ` : ''}
 
     // Resume a purchase the visitor started before signing up.
     // Google OAuth signups with a plan land here as /pricing?plan=X&checkout=1
@@ -19725,32 +19742,52 @@ function getDashboardPage(user: User) {
     }
     loadHistory();
     
-    // Google Ads Conversion Tracking - fires on successful purchase
+    // Purchase tracking. This previously fired only 'purchase_complete' and a
+    // Google Ads conversion, never GA4's standard 'purchase' event, and it
+    // hard-coded GBP on a site that prices in USD with no value at all - so no
+    // revenue was ever recorded.
     (function() {
       const urlParams = new URLSearchParams(window.location.search);
-      if (urlParams.get('checkout') === 'success') {
-        const purchaseType = urlParams.get('type') || 'unknown';
-        
-        // Fire Google Ads conversion event
-        if (typeof gtag !== 'undefined') {
-          gtag('event', 'ads_conversion_PURCHASE_1', {
-            'transaction_type': purchaseType,
-            'currency': 'GBP'
-          });
-          console.log('Google Ads conversion tracked:', purchaseType);
-        }
-        
-        // Also push to dataLayer for GTM
-        window.dataLayer = window.dataLayer || [];
-        window.dataLayer.push({
-          'event': 'purchase_complete',
-          'purchase_type': purchaseType
+      if (urlParams.get('checkout') !== 'success') return;
+
+      const purchaseType = urlParams.get('type') || 'unknown';
+      const plan = urlParams.get('plan') || '';
+      const interval = urlParams.get('interval') === 'year' ? 'year' : 'month';
+      const packAmount = parseFloat(urlParams.get('amount') || '');
+
+      const PLAN_PRICES = {
+        month: { starter: ${PRICING.STARTER}, standard: ${PRICING.STANDARD}, pro: ${PRICING.PRO} },
+        year:  { starter: ${PRICING.STARTER_ANNUAL}, standard: ${PRICING.STANDARD_ANNUAL}, pro: ${PRICING.PRO_ANNUAL} }
+      };
+
+      const isSubscription = purchaseType === 'subscription';
+      const value = isSubscription ? (PLAN_PRICES[interval] || {})[plan] : (isNaN(packAmount) ? undefined : packAmount);
+      const itemId = isSubscription ? (plan + '_' + interval) : ('pack_' + (packAmount || ''));
+      const itemName = isSubscription ? ('ShopShot ' + plan) : 'Credit pack';
+
+      // GA4 standard purchase event, through the same helper as the rest of the
+      // funnel so it is consistent and carries revenue.
+      if (window.ssTrack) {
+        window.ssTrack('purchase', {
+          transaction_id: urlParams.get('session_id') || (itemId + '_' + Date.now()),
+          currency: 'USD',
+          value: value,
+          item_category: isSubscription ? 'subscription' : 'credit_pack',
+          items: [{ item_id: itemId, item_name: itemName, item_category: isSubscription ? 'subscription' : 'credit_pack', price: value, quantity: 1 }]
         });
-        
-        // Clean up URL (remove checkout params) after tracking
-        const cleanUrl = window.location.pathname;
-        window.history.replaceState({}, document.title, cleanUrl);
       }
+
+      // Google Ads conversion. Currency corrected from GBP to USD.
+      if (typeof gtag !== 'undefined') {
+        gtag('event', 'ads_conversion_PURCHASE_1', {
+          'transaction_type': purchaseType,
+          'currency': 'USD',
+          'value': value
+        });
+      }
+
+      // Clean up URL (remove checkout params) after tracking
+      window.history.replaceState({}, document.title, window.location.pathname);
     })();
   </script>
   <script src="/static/referral.js?v=20260207"></script>

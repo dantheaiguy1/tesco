@@ -193,6 +193,25 @@ Verified against a local D1: a subscriber two months overdue received exactly th
 
 ## 7. Website & conversion
 
+### Legal and compliance - added after an external review pass
+
+**The Cookie Policy was factually wrong, and GA4 loaded on the page making the claim.** `getCookiesPage()` stated *"We do NOT use analytics or advertising cookies. No behavioral tracking occurs on the Service"* and promised *"If we add analytics cookies in the future: we will implement an opt-in consent banner"*. Meanwhile `GTM_HEAD` loaded Google Tag Manager and GA4 on every page, including `/cookies` itself. No consent banner existed anywhere in the codebase, and the Privacy Policy's third-party and cookie lists omitted Google entirely. The `ssTrack` funnel work would have increased that collection considerably on deploy.
+
+Under PECR, non-essential analytics cookies need consent before being set. The site was setting them, denying in writing that it set them, and promising a banner it had not built.
+
+Fixed properly rather than by editing the wording:
+- **Google Consent Mode v2**, denied by default, emitted before any Google tag on every page. A consent banner records the choice for six months and re-applies it on later visits.
+- The four duplicated copies of `GTM_HEAD`/`GTM_BODY` (one per page module - the same class of duplication that caused the credit-copy drift in §4) are now a single `src/config/analytics.ts`.
+- Cookie Policy now discloses GA4 and GTM, names the cookies, and describes the consent mechanism. Privacy Policy gains an Analytics section and lists Google under third-party cookies.
+
+**Verified:** the banner renders on first visit and hides on choice, the choice persists across reloads, `consent default … denied` is emitted before any Google tag on all six page types, and `consent update … granted` fires on accept. **Not verified in this environment:** that no `_ga` cookie is actually written before consent - outbound requests to googletagmanager.com are blocked in the sandbox, so gtag.js never executed. The consent signals are correct; confirm the cookie behaviour once on a real deploy.
+
+**Refund policy leftovers.** §1 was rewritten to a 7-day guarantee, but §2 still said refunds happen *"ONLY"* for outages and §7 framed them as *"the rare cases where refunds are issued (prolonged outage)"* - both in the same document, one section apart. §8 justified the CCR waiver partly on the grounds it is *"standard industry practice for SaaS"*, which is not a legal basis, and nowhere said the guarantee survives the waiver. §5 threatened *"debt collection for unpaid balances"* against consumers using a payment-dispute mechanism. All corrected, plus an explicit statement that the guarantee applies whether or not the waiver box is ticked, and that nothing affects Consumer Rights Act 2015 rights.
+
+**Credit expiry contradicted itself across three surfaces.** Terms said credits do not expire while subscribed; the FAQ said subscription credits *"reset each billing cycle and don't roll over"*; the pricing page advertised rollover. Checked against the code: nothing anywhere resets or expires credits - `addCredits()` only ever adds - so the FAQ was the wrong surface. All three now say credits carry over. Terms also claimed free trial credits expire after 30 days, which is not implemented; removed.
+
+Stale dates corrected (Privacy and Terms were dated November 2025 while carrying the new guarantee; footers said © 2025).
+
 ### Trust
 - ~~**Refund policy is hostile.**~~ **Fixed.** It read *"All purchases are final... Unused credits are forfeited upon cancellation. No exceptions."* - on a product the buyer could not properly test first. Replaced with a **7-day money-back guarantee** on the first subscription payment, surfaced on the pricing page and inside the paywall modal where it does the work. Cancellation now keeps credits usable to the end of the paid period. **This is a commercial and legal commitment - have it read before it goes live.**
 - ~~**Testimonials read as partly fabricated.**~~ **Fixed.** One real named customer (Sparklyscotty Gifts, with logo) sat alongside two initial-only entries ("Mike R.", "Sarah K.") with generated gradient avatars and "Verified Customer" badges. Anonymous composites next to a real named review discount the real one. The two invented cards are gone; the section now carries the single real review plus an invitation to submit one. **Go and collect two more real ones** - that is the only fix that actually restores the lost proof.
@@ -246,7 +265,16 @@ You have one channel - SEO - and it is the slowest possible channel in a categor
 
 **Analytics was the blocking issue - now fixed.** GA4 fired exactly one event: purchase. Signup, upload, generation-complete and paywall-hit went to D1 only, so GA4 showed no drop-off, supported no remarketing audiences, and could not optimise any ad spend. Being blind to the funnel is why these defects survived as long as they did.
 
-A `window.ssTrack()` helper now sits in the shared GTM snippet and fires to both `gtag` and `dataLayer`: `sign_up`, `login`, `image_uploaded`, `generation_complete` (with variations requested vs actually rendered, and elapsed seconds), `paywall_hit` (with credit type and balance), `begin_checkout` and `onboarding_started`. **You need to register these as conversions in GA4** - the code emits them, but GA4 will not treat them as conversions until you say so.
+A `window.ssTrack()` helper now sits in the shared analytics module and fires to both `gtag` and `dataLayer`: `sign_up`, `login`, `image_uploaded`, `generation_complete` (variations requested vs actually rendered, elapsed seconds), `paywall_hit` (credit type and balance), `begin_checkout`, `purchase` and `onboarding_started`.
+
+Three gaps in that first pass, found on review and now fixed:
+- **Google sign-ups were invisible.** `ssTrack('sign_up')` existed only on the email registration path, hard-coded to `method: 'email'`. The OAuth callback is a server-side redirect and cannot call it. The callback now flags new accounts in the redirect URL and the landing page fires the event with `method: 'google'`.
+- **`begin_checkout` carried no `value` or `currency`,** so GA4 could not report checkout value on the subscription funnel - the funnel that matters. Both now included, with a GA4-standard `items` array.
+- **`purchase` was never actually fired.** The old code emitted `purchase_complete` to `dataLayer` and a Google Ads conversion, but not GA4's standard `purchase` event - and it hard-coded `currency: 'GBP'` on a site that prices in USD, with no `value` at all. So no revenue was ever recorded, in either system. Now fires a proper `purchase` through `ssTrack` with USD and the real plan or pack value.
+
+**You still need to register these as key events in GA4** - the code emits them, GA4 will not count them until you say so. Note GA4 cannot star an event it has never received, so the order is deploy first, trigger each event once, then star it.
+
+**Check the GTM container before trusting any number.** `ssTrack` fires to `gtag` *and* `dataLayer`, and the page loads both a hardcoded gtag config for `G-FJR6WVMLHE` and the GTM container. If GTM also holds a GA4 tag for the same property, every event lands twice.
 
 **Channel recommendations, in order:**
 
