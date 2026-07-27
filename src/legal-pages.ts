@@ -572,8 +572,8 @@ export function getTermsPage(): string {
         <p>See our full <a href="/refunds">Refund Policy</a>.</p>
         <p><strong>Summary:</strong></p>
         <ul>
-          <li>No refunds except in case of prolonged service outage (>48 hours)</li>
-          <li>Pro-rata refunds may apply for extended technical failures</li>
+          <li>7-day money-back guarantee on your first subscription payment</li>
+          <li>Pro-rata refunds may apply for prolonged service outages (>48 hours)</li>
           <li>Chargebacks/disputes may result in account termination</li>
         </ul>
         

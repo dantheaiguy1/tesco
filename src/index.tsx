@@ -6,6 +6,26 @@ import { getFaqPage, getAboutPage, getContactPage } from './info-pages'
 import { getBlogIndexPage, getBlogPostPage, getAllBlogPosts, getBlogPostMarkdown, getBlogMarkdownIndex } from './blog-pages'
 import { CREDITS, PRICING, SIGNUP_CREDITS_TOTAL, REFERRAL_CREDITS_TOTAL, IMAGES_PER_SHOOT } from './config/constants'
 
+
+// Open Graph / Twitter card tags. Every non-blog page previously declared
+// twitter:card=summary_large_image with no og:image, so shares rendered blank.
+const OG_IMAGE = 'https://www.shopshot.co.uk/static/og-image.jpg';
+function socialTags(opts: { title: string; description: string; url: string; type?: string }) {
+  return `<meta property="og:site_name" content="ShopShot">
+  <meta property="og:title" content="${opts.title}">
+  <meta property="og:description" content="${opts.description}">
+  <meta property="og:url" content="${opts.url}">
+  <meta property="og:type" content="${opts.type || 'website'}">
+  <meta property="og:image" content="${OG_IMAGE}">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Ten AI-generated product photo variations of a single vacuum cleaner, produced by ShopShot">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="${opts.title}">
+  <meta name="twitter:description" content="${opts.description}">
+  <meta name="twitter:image" content="${OG_IMAGE}">`;
+}
+
 // Google Tag Manager + Google Analytics snippets
 const GTM_HEAD = `<!-- Google Tag Manager -->
 <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
@@ -9299,11 +9319,11 @@ function getMarketingPage(user?: User) {
   <title>ShopShot - AI Product Photography for Online Sellers | 10 Pro Shots in 25 Seconds</title>
   <meta name="description" content="Transform any product photo into 10 professional marketplace-ready images in 25 seconds. Export presets for eBay, Amazon, Etsy, Depop. Batch upload 20 products. Free background removal. Start free.">
   <link rel="canonical" href="https://www.shopshot.co.uk/">
-  <meta property="og:title" content="ShopShot - AI Product Photography That Sells">
-  <meta property="og:description" content="Turn any product photo into 10 professional shots in 25 seconds. Export-ready for eBay, Amazon, Etsy, Depop & more.">
-  <meta property="og:url" content="https://www.shopshot.co.uk/">
-  <meta property="og:type" content="website">
-  <meta name="twitter:card" content="summary_large_image">
+  ${socialTags({
+    title: 'ShopShot - AI Product Photography That Sells',
+    description: 'Turn any product photo into 10 professional shots in 25 seconds. Export-ready for eBay, Amazon, Etsy, Depop & more.',
+    url: 'https://www.shopshot.co.uk/'
+  })}
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png">
@@ -17177,6 +17197,12 @@ function getGetStartedPage() {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Get Started - ShopShot</title>
+  <link rel="canonical" href="https://www.shopshot.co.uk/get-started">
+  ${socialTags({
+    title: 'Get Started with ShopShot - Free Credits, No Card',
+    description: 'Create an account and generate a full set of 10 professional product photos free. No credit card required.',
+    url: 'https://www.shopshot.co.uk/get-started'
+  })}
   <link rel="icon" type="image/x-icon" href="/favicon.ico"><link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
@@ -17889,6 +17915,11 @@ function getPricingPage(user?: User) {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Pricing - ShopShot</title>
   <link rel="canonical" href="https://www.shopshot.co.uk/pricing">
+  ${socialTags({
+    title: 'ShopShot Pricing - Plans from $9.99/month',
+    description: 'Start free with credits for a complete 10-shot set. Paid plans from $9.99/month with a 7-day money-back guarantee. Cancel anytime.',
+    url: 'https://www.shopshot.co.uk/pricing'
+  })}
   <link rel="icon" type="image/x-icon" href="/favicon.ico"><link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
@@ -18444,19 +18475,19 @@ function getPricingPage(user?: User) {
     <div style="background:white;border-radius:16px;max-width:480px;margin:20px;padding:24px;box-shadow:0 25px 50px rgba(0,0,0,0.25);">
       <h3 style="font-size:20px;font-weight:700;color:#1F2937;margin-bottom:16px;">Confirm Your Purchase</h3>
       
-      <div style="background:#FEF3C7;border:2px solid #F59E0B;border-radius:8px;padding:16px;margin-bottom:16px;">
-        <p style="font-weight:700;color:#92400E;margin-bottom:8px;">⚠️ Important - Read Before Purchase</p>
-        <ul style="font-size:14px;color:#92400E;list-style:none;padding-left:0;line-height:1.8;">
-          <li>✓ Subscription auto-renews monthly (cancel anytime)</li>
+      <div style="background:#ECFDF5;border:2px solid #6EE7B7;border-radius:8px;padding:16px;margin-bottom:16px;">
+        <p style="font-weight:700;color:#065F46;margin-bottom:8px;">7-Day Money-Back Guarantee</p>
+        <ul style="font-size:14px;color:#047857;list-style:none;padding-left:0;line-height:1.8;">
+          <li>✓ <strong>Full refund on your first payment</strong> - just email us within 7 days</li>
           <li>✓ Credits delivered instantly</li>
-          <li>✓ <strong>All sales final - no refunds</strong> (except 48h+ outage)</li>
-          <li>✓ Test with ${SIGNUP_CREDITS_TOTAL} free credits before buying</li>
+          <li>✓ Auto-renews monthly, cancel anytime from your account</li>
+          <li>✓ Credits stay usable until the end of your paid period</li>
         </ul>
       </div>
       
       <label style="display:flex;align-items:flex-start;gap:10px;font-size:13px;color:#4B5563;cursor:pointer;line-height:1.5;margin-bottom:20px;">
         <input type="checkbox" id="waiver_consent" style="margin-top:3px;width:18px;height:18px;accent-color:#7C3AED;">
-        <span>I have tested ShopShot with free credits. I agree to immediate access and waive my 14-day cancellation right (Consumer Contracts Regulations 2013). I understand all purchases are final per the <a href="/refunds" style="color:#7C3AED;text-decoration:underline;">Refund Policy</a>.</span>
+        <span>I want immediate access to my credits, and I agree to waive my 14-day cancellation right (Consumer Contracts Regulations 2013). My first payment stays covered by the 7-day guarantee in the <a href="/refunds" style="color:#7C3AED;text-decoration:underline;">Refund Policy</a>.</span>
       </label>
       
       <div style="display:flex;gap:12px;">
@@ -24708,6 +24739,12 @@ function getBackgroundRemovalPage(user?: User) {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Free AI Background Remover - ShopShot</title>
+  <link rel="canonical" href="https://www.shopshot.co.uk/tools/remove-background">
+  ${socialTags({
+    title: 'Free AI Background Remover for Product Photos',
+    description: 'Remove backgrounds from product photos instantly with AI. Free on every ShopShot plan, including the free tier. Uses no credits.',
+    url: 'https://www.shopshot.co.uk/tools/remove-background'
+  })}
   <meta name="description" content="Remove backgrounds from product photos instantly using AI. Free tool by ShopShot - upload your image and get a clean white background in seconds.">
   <link rel="icon" type="image/x-icon" href="/favicon.ico"><link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <link rel="manifest" href="/manifest.json">
@@ -25079,5 +25116,82 @@ function getAccountPage(user: User) {
 </body>
 </html>`
 }
+
+// ============================================================================
+// 404 / ERROR HANDLING
+// ============================================================================
+// Previously an unmatched route returned Hono's bare "404 Not Found" text with
+// no navigation, so any stale link or mistyped URL was a dead end.
+
+function getErrorPage(status: number, heading: string, message: string) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${heading} - ShopShot</title>
+  <meta name="robots" content="noindex">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  ${GTM_HEAD}
+  <style>
+    * { font-family: 'Inter', system-ui, sans-serif; box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #FAFBFC; color: #1F2937; min-height: 100vh; display: flex; flex-direction: column; }
+    .wrap { flex: 1; display: flex; align-items: center; justify-content: center; padding: 48px 24px; }
+    .card { max-width: 520px; text-align: center; }
+    .code { font-size: 72px; font-weight: 900; line-height: 1;
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      -webkit-background-clip: text; background-clip: text; color: transparent; }
+    h1 { font-size: 26px; font-weight: 800; margin: 12px 0 8px; }
+    p { color: #6B7280; font-size: 16px; line-height: 1.6; margin-bottom: 28px; }
+    .actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-bottom: 32px; }
+    .btn { padding: 12px 24px; border-radius: 10px; font-size: 15px; font-weight: 600; text-decoration: none; }
+    .btn-primary { background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%); color: white; }
+    .btn-secondary { background: white; color: #374151; border: 1px solid #E5E7EB; }
+    .links { border-top: 1px solid #E5E7EB; padding-top: 24px; }
+    .links-title { font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: #9CA3AF; font-weight: 700; margin-bottom: 12px; }
+    .links a { color: #3B82F6; text-decoration: none; font-size: 15px; margin: 0 10px; line-height: 2; }
+    .links a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  ${GTM_BODY}
+  <div class="wrap">
+    <div class="card">
+      <div class="code">${status}</div>
+      <h1>${heading}</h1>
+      <p>${message}</p>
+      <div class="actions">
+        <a href="/" class="btn btn-primary">Back to home</a>
+        <a href="/app" class="btn btn-secondary">Open the app</a>
+      </div>
+      <div class="links">
+        <div class="links-title">Popular pages</div>
+        <a href="/pricing">Pricing</a>
+        <a href="/blog">Blog</a>
+        <a href="/faq">FAQ</a>
+        <a href="/tools/remove-background">Free background remover</a>
+        <a href="/contact">Contact</a>
+      </div>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+app.notFound((c) => {
+  return c.html(
+    getErrorPage(404, 'Page not found', "That page doesn't exist, or it may have moved. The links below should get you where you were going."),
+    404
+  );
+});
+
+app.onError((err, c) => {
+  console.error('[Unhandled]', err);
+  return c.html(
+    getErrorPage(500, 'Something went wrong', 'We hit an unexpected error. It has been logged. Please try again, or contact support if it keeps happening.'),
+    500
+  );
+});
 
 export default app

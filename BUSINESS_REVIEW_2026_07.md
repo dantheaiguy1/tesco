@@ -189,9 +189,20 @@ Three problems:
 - The `WELCOME20` code is hard-coded into the paywall modal UI. `allow_promotion_codes` is enabled in Stripe, but nothing in this repo verifies the coupon exists - worth confirming in the Stripe dashboard, because a promoted code that errors at checkout is worse than no code.
 - No urgency, no scarcity, no social proof counters ("X images generated this week"), no live example gallery that updates.
 
+### Second-pass findings (full site sweep, all 21 routes)
+
+All 73 sitemap URLs return 200 and TTFB is healthy at 0.2-0.6s off the Cloudflare edge. Four further issues surfaced, all now fixed:
+
+- **No `og:image` on any non-blog page.** The homepage, `/pricing`, `/get-started`, `/faq`, `/about` and the background-removal tool all declared `twitter:card="summary_large_image"` with no image to go in it. Every share of this site on X, LinkedIn, Facebook, WhatsApp or Slack rendered a blank card. For a product whose entire pitch is visual, that is the most persuasive asset you own failing to appear at the exact moment someone recommends you. Fixed with a shared `socialTags()` helper and a purpose-built 1200x630 card (`/static/og-image.jpg`) showing a real ten-variation result grid. Blog posts already had images and are unaffected.
+- **The 404 page was 13 bytes of plain text.** Hono's default `404 Not Found`, with no navigation, no branding, no recovery. Every stale inbound link, mistyped URL and old shared address hit a dead end. Replaced with a branded page carrying links to the main pages, plus a matching 500 handler on `app.onError`.
+- **A 571KB logo rendered at 56x56px.** `sparklyscotty-logo.png` was a 968x1024 PNG - 40% of the homepage's entire 1.4MB image payload - displayed as a 56px avatar. Downscaled to 168px and palette-optimised: **571KB to 14.6KB**, a 557KB saving on the most important page on the site.
+- **Missing canonicals** on `/get-started` and `/tools/remove-background`. Added.
+
+The `/faq` page also still promised "15 free credits" and answered "Can I get a refund?" with *"No. All sales are final and no refunds are issued under any circumstances"* - including inside its `FAQPage` JSON-LD, so that answer was being served to Google as structured data. Both corrected, along with the same claim in the Terms summary and in the checkout confirmation modal, where an amber "⚠️ Important - Read Before Purchase / All sales final - no refunds" warning was the last thing a buyer saw before clicking pay. That box is now the guarantee.
+
 ### Performance
 - **Tailwind is loaded via `cdn.tailwindcss.com` on every page.** That is the in-browser JIT compiler - 300KB+ of render-blocking JS plus a flash of unstyled content. Google's own docs say not to use it in production. This is hurting Core Web Vitals and therefore rankings, on a site whose only acquisition channel is SEO.
-- Homepage is 68KB of HTML before that CDN request. Example images are unoptimised JPEGs at 40-75KB each (the blog already has WebP - the marketing pages don't).
+- Homepage is 68KB of HTML before that CDN request. After the logo fix the image payload is ~860KB; the remaining example images are unoptimised JPEGs at 40-110KB each. The blog already ships WebP - the marketing pages don't. Converting them would save roughly another 400KB.
 - **Generated images are stored as base64 in D1**, not R2. This bloats rows, slows the history and results pages, and D1 has row-size limits that this will hit at volume. R2 buckets are already bound and unused for this.
 
 ---
@@ -253,6 +264,11 @@ Split it: `routes/`, `pages/`, `lib/`, `api/`. Not glamorous, but every week it 
 9. 7-day money-back guarantee, surfaced on `/pricing` and in the paywall modal
 10. Remove unsubstantiated `aggregateRating` schema and the two invented testimonials
 11. First-run welcome panel on `/app`
+12. `og:image` and full social card tags on every non-blog page, with a purpose-built 1200x630 image
+13. Branded 404 and 500 pages replacing Hono's 13-byte plain-text default
+14. Testimonial logo optimised from 571KB to 14.6KB
+15. Canonicals added to `/get-started` and `/tools/remove-background`
+16. FAQ, Terms summary and the checkout confirmation modal brought in line with the new refund policy
 
 ### Needs you, not code
 - **Register the new GA4 events as conversions** in the GA4 UI. The code emits them; GA4 will not count them until configured.

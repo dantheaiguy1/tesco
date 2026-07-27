@@ -1,5 +1,7 @@
 // Info Page Templates (FAQ, About, Contact)
 
+import { SIGNUP_CREDITS_TOTAL, IMAGES_PER_SHOOT } from './config/constants';
+
 // Google Tag Manager + Google Analytics snippets
 const GTM_HEAD = `<!-- Google Tag Manager -->
 <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
@@ -107,7 +109,7 @@ export function getFaqPage(): string {
         "name": "Can I get a refund?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "We offer 15 free credits to test the service before purchasing. Due to the instant delivery of digital credits and AI processing costs, all sales are final. No refunds are provided except in cases of extended service outages (48+ hours)."
+          "text": "Yes. Your first subscription payment is covered by a 7-day money-back guarantee - email support@shopshot.co.uk within 7 days and we will refund it in full, no reason needed. Every new account also gets ${SIGNUP_CREDITS_TOTAL} free credits, enough for a complete ${IMAGES_PER_SHOOT}-shot set, so you can test the service before paying anything."
         }
       },
       {
@@ -228,7 +230,7 @@ export function getFaqPage(): string {
             <span class="faq-icon transition-transform">▼</span>
           </div>
           <div class="faq-answer px-4 pb-4 text-gray-600">
-            <p><strong>No.</strong> All sales are final and no refunds are issued under any circumstances. We offer 15 free credits so you can test the service before purchasing. See our <a href="/refunds" class="text-blue-600 hover:underline">Refund Policy</a> for full details.</p>
+            <p><strong>Yes.</strong> Your first subscription payment comes with a <strong>7-day money-back guarantee</strong> - email <a href="mailto:support@shopshot.co.uk" class="text-blue-600 hover:underline">support@shopshot.co.uk</a> within 7 days and we will refund it in full, no reason needed. Every new account also gets ${SIGNUP_CREDITS_TOTAL} free credits - enough for a complete ${IMAGES_PER_SHOOT}-shot set - so you can test everything before paying. See our <a href="/refunds" class="text-blue-600 hover:underline">Refund Policy</a> for full details.</p>
           </div>
         </div>
       </div>
@@ -457,7 +459,7 @@ export function getAboutPage(): string {
     
     <section class="text-center bg-gray-900 rounded-2xl p-12">
       <h2 class="text-2xl font-bold text-white mb-4">Ready to transform your product photos?</h2>
-      <p class="text-gray-400 mb-6">Start with 15 free credits. No credit card required.</p>
+      <p class="text-gray-400 mb-6">Start with ${SIGNUP_CREDITS_TOTAL} free credits - a complete ${IMAGES_PER_SHOOT}-shot set. No credit card required.</p>
       <a href="/register" class="inline-block bg-blue-600 text-white px-8 py-4 rounded-xl font-bold text-lg hover:bg-blue-700 transition">
         Get Started Free →
       </a>

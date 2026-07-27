@@ -1534,7 +1534,7 @@ export const blogPosts: BlogPost[] = [
       <p><strong>A/B Testing (Monthly):</strong> Try different image styles on underperforming products.</p>
       
       <blockquote>
-        <p>Generate 500 product photos this week. Start with 15 free ShopShot credits to test the workflow.</p>
+        <p>Generate 500 product photos this week. Start with ${SIGNUP_CREDITS_TOTAL} free ShopShot credits to test the workflow.</p>
       </blockquote>
     `
   },
