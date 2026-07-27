@@ -4547,7 +4547,7 @@ app.get('/api/auth/google/callback', async (c) => {
   );
   
   // If plan selected, redirect to Stripe checkout
-  if (plan === 'standard' || plan === 'pro') {
+  if (plan === 'starter' || plan === 'standard' || plan === 'pro') {
     return c.redirect(`/pricing?plan=${plan}&checkout=1`);
   }
   
@@ -10117,7 +10117,7 @@ function getMarketingPage(user?: User) {
         <span class="showcase-tag tag-free">FREE TOOL</span>
         <div class="showcase-icon">&#x2702;&#xFE0F;</div>
         <h3>Background Removal</h3>
-        <p>Remove any background from your product photos instantly. Free to use, no account needed. Perfect for white-background listings.</p>
+        <p>Remove any background from your product photos instantly. Free with your account, costs no credits. Perfect for white-background listings.</p>
       </div>
 
       <!-- Card 6: Referral Programme -->
@@ -10246,10 +10246,10 @@ function getMarketingPage(user?: User) {
       </div>
       <div class="feature-section-content">
         <h2>Free Background Removal</h2>
-        <p>Need a quick clean background? Our AI-powered background removal tool is completely free. No signup required.</p>
+        <p>Need a quick clean background? Our AI-powered background removal tool is free with any account, including the free tier.</p>
         <ul class="feature-bullets">
           <li>AI-powered instant background removal</li>
-          <li>No account needed - completely free</li>
+          <li>Free on every plan - uses no credits</li>
           <li>Download with transparent or white background</li>
           <li>Perfect for eBay/Amazon white-bg requirements</li>
         </ul>
@@ -17014,7 +17014,7 @@ function getRegisterPage() {
           showVerificationScreen();
         } else if (data.success) {
           // Direct login (shouldn't happen with email verification)
-          window.location.href = redirectTo || '/?welcome=1';
+          window.location.href = redirectTo || '/app?welcome=1';
         } else {
           errEl.textContent = data.error || 'Registration failed';
           errEl.classList.add('show');
@@ -17098,7 +17098,7 @@ function getRegisterPage() {
         
         if (data.success) {
           // If paid plan, go to checkout
-          if (selectedPlan === 'standard' || selectedPlan === 'pro') {
+          if (selectedPlan === 'starter' || selectedPlan === 'standard' || selectedPlan === 'pro') {
             btn.textContent = 'Redirecting to payment...';
             const checkoutRes = await fetch('/api/billing/create-checkout', {
               method: 'POST',
@@ -17112,7 +17112,7 @@ function getRegisterPage() {
               window.location.href = '/pricing?signup=success&checkout=failed';
             }
           } else {
-            window.location.href = redirectTo || '/?welcome=1';
+            window.location.href = redirectTo || '/app?welcome=1';
           }
         } else {
           errEl.textContent = data.error || 'Verification failed';
@@ -18159,7 +18159,7 @@ function getPricingPage(user?: User) {
           <li>Cancel anytime</li>
         </ul>
         
-        <button class="plan-btn plan-btn-primary" onclick="startCheckout('starter')" ${!user ? 'disabled title="Please sign up first"' : isStarter ? 'disabled' : ''}>
+        <button class="plan-btn plan-btn-primary" onclick="startCheckout('starter')" ${isStarter ? 'disabled' : ''}>
           ${isStarter ? 'Current Plan' : 'Get Starter'}
         </button>
       </div>
@@ -18194,7 +18194,7 @@ function getPricingPage(user?: User) {
           <li>Credits roll over (2x)</li>
         </ul>
         
-        <button class="plan-btn plan-btn-primary" onclick="startCheckout('standard')" ${!user ? 'disabled title="Please sign up first"' : isStandard ? 'disabled' : ''}>
+        <button class="plan-btn plan-btn-primary" onclick="startCheckout('standard')" ${isStandard ? 'disabled' : ''}>
           ${isStandard ? 'Current Plan' : 'Get Standard'}
         </button>
       </div>
@@ -18229,7 +18229,7 @@ function getPricingPage(user?: User) {
           <li>Priority support</li>
         </ul>
         
-        <button class="plan-btn plan-btn-pro" onclick="startCheckout('pro')" ${!user ? 'disabled title="Please sign up first"' : isPro ? 'disabled' : ''}>
+        <button class="plan-btn plan-btn-pro" onclick="startCheckout('pro')" ${isPro ? 'disabled' : ''}>
           ${isPro ? 'Current Plan' : 'Get Pro'}
         </button>
       </div>
@@ -18529,7 +18529,7 @@ function getPricingPage(user?: User) {
     }
     
     function startCheckout(plan) {
-      ${!user ? 'window.location.href = "/register"; return;' : ''}
+      ${!user ? 'window.location.href = "/register?plan=" + encodeURIComponent(plan); return;' : ''}
       showCheckoutModal('subscription', plan, null, null);
     }
     
@@ -18556,7 +18556,7 @@ function getPricingPage(user?: User) {
     }
     
     function startPackCheckout(creditType, amount) {
-      ${!user ? 'window.location.href = "/register"; return;' : ''}
+      ${!user ? 'window.location.href = "/register?redirect=" + encodeURIComponent("/pricing"); return;' : ''}
       showCheckoutModal('pack', null, creditType, amount);
     }
     
@@ -18581,6 +18581,18 @@ function getPricingPage(user?: User) {
         throw new Error(data.error || 'Failed to create checkout session');
       }
     }
+
+    // Resume a purchase the visitor started before signing up.
+    // Google OAuth signups with a plan land here as /pricing?plan=X&checkout=1
+    ${user ? `
+    (function resumePendingCheckout() {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('checkout') !== '1') return;
+      const plan = params.get('plan');
+      if (!['starter', 'standard', 'pro'].includes(plan)) return;
+      startCheckout(plan);
+    })();
+    ` : ''}
   </script>
 
   <!-- Footer -->
@@ -24747,8 +24759,8 @@ function getBackgroundRemovalPage(user?: User) {
         <span class="bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent">Instantly with AI</span>
       </h1>
       <p class="text-lg text-brand-gray max-w-xl mx-auto">
-        Upload any product photo and get a clean white background in seconds. 
-        No signup required for your first removal.
+        Upload any product photo and get a clean white background in seconds.
+        Free on every plan, including the free tier - uses no credits.
       </p>
     </div>
 
@@ -24820,6 +24832,12 @@ function getBackgroundRemovalPage(user?: User) {
     }
     
     async function processBgImage(file) {
+      ${!isLoggedIn ? `
+      // The API requires an account. Send the visitor to signup and bring them
+      // straight back here rather than failing with a raw error.
+      window.location.href = '/register?redirect=' + encodeURIComponent('/tools/remove-background');
+      return;
+      ` : ''}
       const reader = new FileReader();
       reader.onload = async (e) => {
         const imageData = e.target.result;
