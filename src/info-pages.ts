@@ -1,26 +1,9 @@
 // Info Page Templates (FAQ, About, Contact)
 
-// Google Tag Manager + Google Analytics snippets
-const GTM_HEAD = `<!-- Google Tag Manager -->
-<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
-new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
-j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
-'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
-})(window,document,'script','dataLayer','GTM-PNKMSPJN');</script>
-<!-- End Google Tag Manager -->
-<!-- Google tag (gtag.js) -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-FJR6WVMLHE"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-  gtag('config', 'G-FJR6WVMLHE');
-</script>`;
+import { SIGNUP_CREDITS_TOTAL, IMAGES_PER_SHOOT } from './config/constants';
+import { GTM_HEAD, GTM_BODY } from './config/analytics';
 
-const GTM_BODY = `<!-- Google Tag Manager (noscript) -->
-<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-PNKMSPJN"
-height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
-<!-- End Google Tag Manager (noscript) -->`;
+// Google Tag Manager + Google Analytics snippets
 
 const FOOTER_HTML = `
   <footer class="bg-gray-900 text-white py-12 mt-20">
@@ -99,7 +82,7 @@ export function getFaqPage(): string {
         "name": "Do credits expire?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "Subscription credits reset each billing cycle and don't roll over. Top-up credits don't expire as long as your account remains active."
+          "text": "No. Credits do not expire and unused credits carry over. Each month your plan adds a fresh allocation on top of whatever you have left, and top-up credits last as long as your account is active."
         }
       },
       {
@@ -107,7 +90,7 @@ export function getFaqPage(): string {
         "name": "Can I get a refund?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "We offer 15 free credits to test the service before purchasing. Due to the instant delivery of digital credits and AI processing costs, all sales are final. No refunds are provided except in cases of extended service outages (48+ hours)."
+          "text": "Yes. Your first subscription payment is covered by a 7-day money-back guarantee - email support@shopshot.co.uk within 7 days and we will refund it in full, no reason needed. Every new account also gets ${SIGNUP_CREDITS_TOTAL} free credits, enough for a complete ${IMAGES_PER_SHOOT}-shot set, so you can test the service before paying anything."
         }
       },
       {
@@ -210,7 +193,7 @@ export function getFaqPage(): string {
             <span class="faq-icon transition-transform">▼</span>
           </div>
           <div class="faq-answer px-4 pb-4 text-gray-600">
-            <p>Subscription credits reset each billing cycle and don't roll over. Top-up credits don't expire as long as your account is active.</p>
+            <p><strong>No.</strong> Credits do not expire and unused credits carry over. Each month your plan adds a fresh allocation on top of whatever you have left, and top-up credits last as long as your account is active.</p>
           </div>
         </div>
         <div class="faq-item">
@@ -228,7 +211,7 @@ export function getFaqPage(): string {
             <span class="faq-icon transition-transform">▼</span>
           </div>
           <div class="faq-answer px-4 pb-4 text-gray-600">
-            <p><strong>No.</strong> All sales are final and no refunds are issued under any circumstances. We offer 15 free credits so you can test the service before purchasing. See our <a href="/refunds" class="text-blue-600 hover:underline">Refund Policy</a> for full details.</p>
+            <p><strong>Yes.</strong> Your first subscription payment comes with a <strong>7-day money-back guarantee</strong> - email <a href="mailto:support@shopshot.co.uk" class="text-blue-600 hover:underline">support@shopshot.co.uk</a> within 7 days and we will refund it in full, no reason needed. Every new account also gets ${SIGNUP_CREDITS_TOTAL} free credits - enough for a complete ${IMAGES_PER_SHOOT}-shot set - so you can test everything before paying. See our <a href="/refunds" class="text-blue-600 hover:underline">Refund Policy</a> for full details.</p>
           </div>
         </div>
       </div>
@@ -457,7 +440,7 @@ export function getAboutPage(): string {
     
     <section class="text-center bg-gray-900 rounded-2xl p-12">
       <h2 class="text-2xl font-bold text-white mb-4">Ready to transform your product photos?</h2>
-      <p class="text-gray-400 mb-6">Start with 15 free credits. No credit card required.</p>
+      <p class="text-gray-400 mb-6">Start with ${SIGNUP_CREDITS_TOTAL} free credits - a complete ${IMAGES_PER_SHOOT}-shot set. No credit card required.</p>
       <a href="/register" class="inline-block bg-blue-600 text-white px-8 py-4 rounded-xl font-bold text-lg hover:bg-blue-700 transition">
         Get Started Free →
       </a>

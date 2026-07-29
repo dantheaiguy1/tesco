@@ -3,23 +3,28 @@
 // ============================================================================
 
 export const CREDITS = {
-  // Signup bonus (free tier) - reduced to encourage upgrades
-  SIGNUP_CHEAPER: 5,          // Free cheaper credits on registration
-  SIGNUP_BETTER: 3,           // Free better credits on registration
-  
+  // Signup bonus (free tier).
+  // MUST be >= the 10 credits a full shoot costs, otherwise a free user can
+  // never see a completed set and hits the paywall mid-generation.
+  SIGNUP_CHEAPER: 10,         // Free cheaper credits on registration - exactly one full shoot
+  SIGNUP_BETTER: 3,           // Free better credits on registration - a taste of Pro quality
+
   // Per-image costs (always 1 credit of the appropriate type)
   PER_IMAGE: 1,
   
   // 360° Video generation cost (uses cheaper credits)
   VIDEO_360: 40,              // 40 credits for 8-second 360° spin video
   
-  // Subscription allocations
-  STARTER_CHEAPER: 100,       // Starter plan: 100 standard credits/month (~10 shoots)
-  STARTER_BETTER: 10,         // Starter plan: 10 pro credits/month (~1 shoot)
-  STANDARD_CHEAPER: 500,      // Standard plan: 500 standard credits/month (~50 shoots)
-  STANDARD_BETTER: 45,        // Standard plan: 45 pro credits/month
-  PRO_CHEAPER: 800,           // Pro plan: 800 standard credits/month
-  PRO_BETTER: 175,            // Pro plan: 175 pro credits/month
+  // Subscription allocations (per month, on both monthly and annual billing).
+  // Sized against COGS so gross margin stays healthy at 100% utilisation - see
+  // UNIT_ECONOMICS below. Pro credits cost 3.4x Standard, so they are a
+  // deliberate garnish on the lower tiers rather than a giveaway.
+  STARTER_CHEAPER: 60,        // Starter: 60 standard credits/month (6 shoots)
+  STARTER_BETTER: 5,          // Starter: 5 pro credits/month
+  STANDARD_CHEAPER: 200,      // Standard: 200 standard credits/month (20 shoots)
+  STANDARD_BETTER: 18,        // Standard: 18 pro credits/month
+  PRO_CHEAPER: 600,           // Pro: 600 standard credits/month (60 shoots)
+  PRO_BETTER: 60,             // Pro: 60 pro credits/month
   
   // Referral credits (both referrer and referred user get these)
   REFERRAL_CHEAPER: 5,        // 5 standard credits per successful referral
@@ -45,15 +50,62 @@ export const CREDITS = {
 export const PRICING = {
   // Subscriptions (monthly) - USD
   STARTER: 9.99,
-  STANDARD: 39.99,
-  PRO: 59.99,
-  
+  STANDARD: 29.99,
+  PRO: 79.99,
+
+  // Subscriptions (annual, billed once) - USD.
+  // Priced at 10x the monthly rate: "two months free", the most legible annual
+  // offer and the industry norm. Credits still accrue monthly (see
+  // accrueSubscriptionCredits) so an annual subscriber cannot draw twelve
+  // months of COGS in week one.
+  STARTER_ANNUAL: 99.00,
+  STANDARD_ANNUAL: 299.00,
+  PRO_ANNUAL: 799.00,
+
   // Credit packs
   PACK_25: 25.00,
   PACK_50: 50.00,
   PACK_75: 75.00,
   PACK_100: 100.00,
 }
+
+// Months of allocation you pay for on an annual plan. 10 of 12 = 16.7% off.
+export const ANNUAL_MONTHS_CHARGED = 10;
+export const ANNUAL_DISCOUNT_PCT = Math.round((1 - ANNUAL_MONTHS_CHARGED / 12) * 100);
+
+// ============================================================================
+// UNIT ECONOMICS - the basis for every number above
+// ============================================================================
+// Keep these current. If Google changes image pricing, the plan allocations
+// need revisiting, and this is the only place that records why they are what
+// they are.
+export const UNIT_COST_USD = {
+  CHEAPER_IMAGE: 0.039,       // gemini-2.5-flash-image
+  BETTER_IMAGE: 0.134,        // gemini-3-pro-image-preview
+  STRIPE_PCT: 0.029,
+  STRIPE_FIXED: 0.30,
+};
+
+/** Monthly COGS of a plan's full allocation, at 100% utilisation. */
+export function planCogs(cheaper: number, better: number): number {
+  return cheaper * UNIT_COST_USD.CHEAPER_IMAGE + better * UNIT_COST_USD.BETTER_IMAGE;
+}
+
+/** Gross margin of a plan at 100% utilisation, after Stripe fees. */
+export function planGrossMargin(priceUsd: number, cheaper: number, better: number, months = 1): number {
+  const net = priceUsd - (priceUsd * UNIT_COST_USD.STRIPE_PCT + UNIT_COST_USD.STRIPE_FIXED);
+  const cogs = planCogs(cheaper, better) * months;
+  return (net - cogs) / net;
+}
+
+// At 100% utilisation, after Stripe fees:
+//   Free      13 credits one-off              COGS $0.79   (acquisition cost)
+//   Starter   $9.99   60 std +  5 pro         COGS $3.01   GM ~68%   $0.154/image
+//   Standard  $29.99 200 std + 18 pro         COGS $10.21  GM ~65%   $0.138/image
+//   Pro       $79.99 600 std + 60 pro         COGS $31.44  GM ~59%   $0.121/image
+// Per-image price falls as the tier rises, so volume is rewarded, while margin
+// stays in a defensible band instead of collapsing to 5% at the top as it did
+// under the previous $59.99 / 800+175 Pro plan.
 
 // ============================================================================
 // MARKETPLACE EXPORT PRESETS
@@ -279,3 +331,11 @@ export const BATCH_CONFIG = {
   MAX_FILE_SIZE_MB: 20,
   SUPPORTED_FORMATS: ['image/jpeg', 'image/png', 'image/webp'],
 }
+
+// ============================================================================
+// DERIVED VALUES - use these in copy so marketing text can never drift
+// from the actual grant again.
+// ============================================================================
+export const SIGNUP_CREDITS_TOTAL = CREDITS.SIGNUP_CHEAPER + CREDITS.SIGNUP_BETTER;
+export const REFERRAL_CREDITS_TOTAL = CREDITS.REFERRAL_CHEAPER + CREDITS.REFERRAL_BETTER;
+export const IMAGES_PER_SHOOT = 10;

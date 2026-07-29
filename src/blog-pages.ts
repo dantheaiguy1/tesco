@@ -1,26 +1,9 @@
 // Blog Page Templates for ShopShot
 
-// Google Tag Manager + Google Analytics snippets
-const GTM_HEAD = `<!-- Google Tag Manager -->
-<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
-new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
-j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
-'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
-})(window,document,'script','dataLayer','GTM-PNKMSPJN');</script>
-<!-- End Google Tag Manager -->
-<!-- Google tag (gtag.js) -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-FJR6WVMLHE"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-  gtag('config', 'G-FJR6WVMLHE');
-</script>`;
+import { SIGNUP_CREDITS_TOTAL } from './config/constants';
+import { GTM_HEAD, GTM_BODY } from './config/analytics';
 
-const GTM_BODY = `<!-- Google Tag Manager (noscript) -->
-<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-PNKMSPJN"
-height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
-<!-- End Google Tag Manager (noscript) -->`;
+// Google Tag Manager + Google Analytics snippets
 
 // Promo banner for blog pages - links to homepage with SEO-optimized anchor
 const BLOG_PROMO_BANNER = `
@@ -33,7 +16,7 @@ const BLOG_PROMO_BANNER = `
       </svg>
       <div class="text-center md:text-left">
         <p class="text-lg md:text-xl font-bold">Turn 1 photo into 10 pro variations in 25 seconds</p>
-        <p class="text-sm text-blue-100">15 free credits waiting. No credit card. Test it now.</p>
+        <p class="text-sm text-blue-100">${SIGNUP_CREDITS_TOTAL} free credits waiting. No credit card. Test it now.</p>
       </div>
       <span class="bg-white text-blue-600 px-6 py-2 rounded-lg font-semibold hover:bg-gray-100 transition-colors flex-shrink-0 hidden md:inline-block">Start Free</span>
       <button class="absolute top-2 right-2 text-white/60 hover:text-white p-1" onclick="event.preventDefault(); this.closest('a').style.display='none';" aria-label="Close banner">
@@ -1475,7 +1458,7 @@ export const blogPosts: BlogPost[] = [
       <p><strong>Use a Professional Photographer When:</strong> You're doing hero shots for a major campaign, your product is truly high-end luxury (£500+ price point), you're shooting for billboard ads.</p>
       
       <blockquote>
-        <p>Try ShopShot free and generate 10 professional product photos in 25 seconds. 15 free credits, no card required.</p>
+        <p>Try ShopShot free and generate 10 professional product photos in 25 seconds. ${SIGNUP_CREDITS_TOTAL} free credits, no card required.</p>
       </blockquote>
     `
   },
@@ -1532,7 +1515,7 @@ export const blogPosts: BlogPost[] = [
       <p><strong>A/B Testing (Monthly):</strong> Try different image styles on underperforming products.</p>
       
       <blockquote>
-        <p>Generate 500 product photos this week. Start with 15 free ShopShot credits to test the workflow.</p>
+        <p>Generate 500 product photos this week. Start with ${SIGNUP_CREDITS_TOTAL} free ShopShot credits to test the workflow.</p>
       </blockquote>
     `
   },
@@ -1592,7 +1575,7 @@ export const blogPosts: BlogPost[] = [
       <p>AI can generate lifestyle contexts without photoshoots: your skincare product on a bathroom counter, your electronics on a modern desk, your kitchen gadget in a cooking scene.</p>
       
       <blockquote>
-        <p>Create Amazon-compliant product photos in 25 seconds. Try ShopShot free with 15 credits.</p>
+        <p>Create Amazon-compliant product photos in 25 seconds. Try ShopShot free with ${SIGNUP_CREDITS_TOTAL} credits.</p>
       </blockquote>
     `
   },
@@ -1723,7 +1706,7 @@ export const blogPosts: BlogPost[] = [
       <p>Feed posts: 1080x1080px (square) or 1080x1350px (portrait). Stories/Reels: 1080x1920px (vertical).</p>
       
       <blockquote>
-        <p>Skip the equipment and editing. Generate professional product photos with ShopShot AI. 15 free credits to test.</p>
+        <p>Skip the equipment and editing. Generate professional product photos with ShopShot AI. ${SIGNUP_CREDITS_TOTAL} free credits to test.</p>
       </blockquote>
     `
   },
@@ -1761,7 +1744,7 @@ export const blogPosts: BlogPost[] = [
       <h2>Step-by-Step: AI Workflow with ShopShot</h2>
       <ol>
         <li><strong>Gather Base Photos:</strong> Batch photography sessions. Set up near window, white surface, shoot 30-40 products per hour.</li>
-        <li><strong>Sign Up:</strong> 15 free credits to test, no card required.</li>
+        <li><strong>Sign Up:</strong> ${SIGNUP_CREDITS_TOTAL} free credits to test, no card required.</li>
         <li><strong>Upload Photos:</strong> Drag and drop. Handles batch uploads of 80+ images.</li>
         <li><strong>Select Variations:</strong> Pure white, lifestyle kitchen, lifestyle office, outdoor natural, gradient blue, seasonal Christmas, etc.</li>
         <li><strong>Generate:</strong> Click button. 25 seconds per product.</li>
@@ -1865,7 +1848,7 @@ export const blogPosts: BlogPost[] = [
       </ul>
       
       <blockquote>
-        <p>Create perfect white background images in 25 seconds. Try ShopShot free with 15 credits.</p>
+        <p>Create perfect white background images in 25 seconds. Try ShopShot free with ${SIGNUP_CREDITS_TOTAL} credits.</p>
       </blockquote>
     `
   },
@@ -1930,7 +1913,7 @@ export const blogPosts: BlogPost[] = [
       <p><strong>Key finding:</strong> Traditional shots converted 0.2% higher, but AI delivered 95% of the conversion power at 4% of the cost.</p>
       
       <blockquote>
-        <p>Create your first lifestyle photo in 30 seconds. ShopShot offers 15 credits to test AI lifestyle generation - no card required.</p>
+        <p>Create your first lifestyle photo in 30 seconds. ShopShot offers ${SIGNUP_CREDITS_TOTAL} credits to test AI lifestyle generation - no card required.</p>
       </blockquote>
     `
   },
@@ -1997,7 +1980,7 @@ export const blogPosts: BlogPost[] = [
       <p>Turntable converted 0.2% higher, but AI delivered 95% of quality at 1/20th the time and cost.</p>
       
       <blockquote>
-        <p>Create your first 360 product spin in 60 seconds. ShopShot offers 15 credits to test - no equipment required.</p>
+        <p>Create your first 360 product spin in 60 seconds. ShopShot offers ${SIGNUP_CREDITS_TOTAL} credits to test - no equipment required.</p>
       </blockquote>
     `
   },
@@ -2081,7 +2064,7 @@ export const blogPosts: BlogPost[] = [
       <p>AI-generated images performed better while saving 90% of time.</p>
       
       <blockquote>
-        <p>Create Instagram & TikTok product images in 2 minutes. ShopShot offers 15 credits to test platform-specific image generation.</p>
+        <p>Create Instagram & TikTok product images in 2 minutes. ShopShot offers ${SIGNUP_CREDITS_TOTAL} credits to test platform-specific image generation.</p>
       </blockquote>
     `
   },
@@ -2143,7 +2126,7 @@ export const blogPosts: BlogPost[] = [
       <p>The bottom line: AI product photography isn't a nice-to-have anymore. It's infrastructure. If your competitors are generating 10 professional variations per product in 25 seconds and you're still booking studio time, you're not competing on a level playing field.</p>
 
       <blockquote>
-        <p>Stay ahead of every trend. ShopShot includes batch processing, brand colours, 360° video, style presets, and customisable shot types - all in one platform. Try it free with 15 credits.</p>
+        <p>Stay ahead of every trend. ShopShot includes batch processing, brand colours, 360° video, style presets, and customisable shot types - all in one platform. Try it free with ${SIGNUP_CREDITS_TOTAL} credits.</p>
       </blockquote>
     `
   },
@@ -2277,7 +2260,7 @@ export const blogPosts: BlogPost[] = [
       </ol>
 
       <blockquote>
-        <p>ShopShot makes brand consistency automatic. Set your colours once, pick a style preset, and every product you process matches your brand identity. Try it free with 15 credits.</p>
+        <p>ShopShot makes brand consistency automatic. Set your colours once, pick a style preset, and every product you process matches your brand identity. Try it free with ${SIGNUP_CREDITS_TOTAL} credits.</p>
       </blockquote>
     `
   },
@@ -2397,7 +2380,7 @@ export const blogPosts: BlogPost[] = [
       </ol>
 
       <blockquote>
-        <p>ShopShot includes a free standalone background removal tool at shopshot.co.uk/tools/remove-background. For full product photography with AI-generated scenes, try the main app free with 15 credits.</p>
+        <p>ShopShot includes a free standalone background removal tool at shopshot.co.uk/tools/remove-background. For full product photography with AI-generated scenes, try the main app free with ${SIGNUP_CREDITS_TOTAL} credits.</p>
       </blockquote>
     `
   },
@@ -2533,7 +2516,7 @@ export const blogPosts: BlogPost[] = [
       <p>If you're an e-commerce seller with more than 20 products, AI product photography should be your primary tool for catalogue imagery. It's not a compromise - it's a strategic advantage. Then allocate the money you saved toward professional photography for your hero products and brand campaigns.</p>
 
       <blockquote>
-        <p>See the quality for yourself. Upload any product photo to ShopShot and get 10 professional variations in 25 seconds. 15 free credits, no credit card required.</p>
+        <p>See the quality for yourself. Upload any product photo to ShopShot and get 10 professional variations in 25 seconds. ${SIGNUP_CREDITS_TOTAL} free credits, no credit card required.</p>
       </blockquote>
     `
   },
@@ -2602,7 +2585,7 @@ export const blogPosts: BlogPost[] = [
       </ol>
 
       <blockquote>
-        <p>ShopShot offers 10 style presets you can apply to every product image. Set it once, and every generation matches your brand's visual identity. Explore presets with 15 free credits.</p>
+        <p>ShopShot offers 10 style presets you can apply to every product image. Set it once, and every generation matches your brand's visual identity. Explore presets with ${SIGNUP_CREDITS_TOTAL} free credits.</p>
       </blockquote>
     `
   },
@@ -2666,7 +2649,7 @@ export const blogPosts: BlogPost[] = [
       </ol>
 
       <blockquote>
-        <p>Every ShopShot generation includes scale reference, texture detail, lifestyle context, and multi-angle views by default. Turn your return-causing product photos into return-preventing ones. Try free with 15 credits.</p>
+        <p>Every ShopShot generation includes scale reference, texture detail, lifestyle context, and multi-angle views by default. Turn your return-causing product photos into return-preventing ones. Try free with ${SIGNUP_CREDITS_TOTAL} credits.</p>
       </blockquote>
     `
   },
@@ -2745,7 +2728,7 @@ export const blogPosts: BlogPost[] = [
       </ul>
 
       <blockquote>
-        <p>ShopShot was built for small businesses. 15 free credits to start, plans from £9.99/month. Professional product photography shouldn't require a professional budget. Try it today.</p>
+        <p>ShopShot was built for small businesses. ${SIGNUP_CREDITS_TOTAL} free credits to start, plans from £9.99/month. Professional product photography shouldn't require a professional budget. Try it today.</p>
       </blockquote>
     `
   },
@@ -2843,7 +2826,7 @@ export const blogPosts: BlogPost[] = [
       </ul>
 
       <blockquote>
-        <p>One upload, every platform covered. ShopShot generates marketplace-ready images that meet Amazon, Etsy, eBay, and Shopify requirements. Try it free with 15 credits.</p>
+        <p>One upload, every platform covered. ShopShot generates marketplace-ready images that meet Amazon, Etsy, eBay, and Shopify requirements. Try it free with ${SIGNUP_CREDITS_TOTAL} credits.</p>
       </blockquote>
     `
   }
@@ -3040,7 +3023,7 @@ export function getBlogIndexPage(): string {
   <section class="bg-gray-900 text-white py-16">
     <div class="max-w-4xl mx-auto px-4 text-center">
       <h2 class="text-3xl font-bold mb-4">Ready to Transform Your Product Photos?</h2>
-      <p class="text-gray-300 mb-8">Get 15 free credits and see the difference AI-powered photography makes.</p>
+      <p class="text-gray-300 mb-8">Get ${SIGNUP_CREDITS_TOTAL} free credits and see the difference AI-powered photography makes.</p>
       <a href="/register" class="inline-block bg-purple-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-purple-700">Start Free - No Credit Card</a>
     </div>
   </section>

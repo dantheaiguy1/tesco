@@ -1,27 +1,10 @@
 // Legal Page Templates - Privacy, Terms, Refunds, Cookies
-// Last Updated: November 28, 2025
+// Last Updated: July 27, 2026
+
+import { CREDITS, SIGNUP_CREDITS_TOTAL, IMAGES_PER_SHOOT } from './config/constants';
+import { GTM_HEAD, GTM_BODY } from './config/analytics';
 
 // Google Tag Manager + Google Analytics snippets
-const GTM_HEAD = `<!-- Google Tag Manager -->
-<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
-new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
-j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
-'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
-})(window,document,'script','dataLayer','GTM-PNKMSPJN');</script>
-<!-- End Google Tag Manager -->
-<!-- Google tag (gtag.js) -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-FJR6WVMLHE"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-  gtag('config', 'G-FJR6WVMLHE');
-</script>`;
-
-const GTM_BODY = `<!-- Google Tag Manager (noscript) -->
-<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-PNKMSPJN"
-height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
-<!-- End Google Tag Manager (noscript) -->`;
 
 const LEGAL_FOOTER_HTML = `
   <footer class="bg-gray-900 text-white py-12 mt-20">
@@ -60,7 +43,7 @@ const LEGAL_FOOTER_HTML = `
       </div>
     </div>
     <div class="border-t border-gray-800 mt-8 pt-8 text-center text-sm text-gray-400">
-      <p>&copy; 2025 ShopShot Ltd. All rights reserved.</p>
+      <p>&copy; 2025-2026 ShopShot Ltd. All rights reserved.</p>
       <p class="mt-1">Registered in England | Burwash, East Sussex</p>
     </div>
   </footer>
@@ -126,7 +109,7 @@ export function getPrivacyPage(): string {
   <main class="max-w-4xl mx-auto px-4 py-12">
     <div class="bg-white rounded-xl border border-gray-200 p-8 md:p-12">
       <h1 class="text-3xl font-bold text-gray-900 mb-2">Privacy Policy</h1>
-      <p class="text-gray-500 mb-8">Last Updated: November 28, 2025</p>
+      <p class="text-gray-500 mb-8">Last Updated: July 27, 2026</p>
       
       <div class="legal-content text-gray-600">
         <p>ShopShot Ltd ("we," "us," or "our") operates www.shopshot.co.uk (the "Service"). This Privacy Policy explains how we collect, use, and protect your personal information.</p>
@@ -245,6 +228,14 @@ export function getPrivacyPage(): string {
           <li><strong>Cloudflare</strong> (hosting, security, database)</li>
           <li>Provides secure data storage and content delivery</li>
         </ul>
+
+        <h3>Analytics:</h3>
+        <ul>
+          <li><strong>Google Analytics 4</strong> and <strong>Google Tag Manager</strong> (usage measurement)</li>
+          <li>Receives page views and product events such as sign-up, upload and generation completion, along with device type and country-level location</li>
+          <li><strong>Only after you accept analytics cookies.</strong> Analytics storage is denied by default and no analytics cookie is set until you consent</li>
+          <li>Subject to <a href="https://policies.google.com/privacy" target="_blank">Google's privacy policy</a></li>
+        </ul>
         
         <div class="warning-box">
           <p class="font-semibold text-gray-900 mb-2">International Data Transfers:</p>
@@ -311,12 +302,14 @@ export function getPrivacyPage(): string {
         <ul>
           <li>Session authentication (keeps you logged in)</li>
           <li>Security (prevents CSRF attacks)</li>
+          <li>Remembering your cookie choice</li>
         </ul>
-        
+
         <p>Third-party cookies may be set by:</p>
         <ul>
           <li>Stripe (payment processing)</li>
           <li>Cloudflare (security and performance)</li>
+          <li><strong>Google Analytics</strong> (usage measurement) - only if you accept analytics cookies</li>
         </ul>
         
         <p>You can disable cookies in your browser settings, but this may affect Service functionality.</p>
@@ -390,7 +383,7 @@ export function getTermsPage(): string {
   <main class="max-w-4xl mx-auto px-4 py-12">
     <div class="bg-white rounded-xl border border-gray-200 p-8 md:p-12">
       <h1 class="text-3xl font-bold text-gray-900 mb-2">Terms of Service</h1>
-      <p class="text-gray-500 mb-8">Last Updated: November 28, 2025</p>
+      <p class="text-gray-500 mb-8">Last Updated: July 27, 2026</p>
       
       <div class="legal-content text-gray-600">
         <p>These Terms of Service ("Terms") govern your use of ShopShot ("Service") operated by ShopShot Ltd ("we," "us," or "our"), a company registered in England.</p>
@@ -432,9 +425,8 @@ export function getTermsPage(): string {
         <h3>Credit Rules:</h3>
         <ul>
           <li>Credits are non-refundable once used</li>
-          <li>Credits do not expire while your subscription is active</li>
-          <li>Free trial credits expire after 30 days</li>
-          <li>Unused credits are forfeited upon subscription cancellation</li>
+          <li>Credits do not expire, and unused credits carry over while your subscription is active</li>
+          <li>Credits remain usable until the end of your paid billing period after cancellation</li>
         </ul>
         
         <h2>4. Subscriptions & Billing</h2>
@@ -570,8 +562,8 @@ export function getTermsPage(): string {
         <p>See our full <a href="/refunds">Refund Policy</a>.</p>
         <p><strong>Summary:</strong></p>
         <ul>
-          <li>No refunds except in case of prolonged service outage (>48 hours)</li>
-          <li>Pro-rata refunds may apply for extended technical failures</li>
+          <li>7-day money-back guarantee on your first subscription payment</li>
+          <li>Pro-rata refunds may apply for prolonged service outages (>48 hours)</li>
           <li>Chargebacks/disputes may result in account termination</li>
         </ul>
         
@@ -663,36 +655,38 @@ export function getRefundsPage(): string {
   <main class="max-w-4xl mx-auto px-4 py-12">
     <div class="bg-white rounded-xl border border-gray-200 p-8 md:p-12">
       <h1 class="text-3xl font-bold text-gray-900 mb-2">Refund Policy</h1>
-      <p class="text-gray-500 mb-8">Last Updated: November 28, 2025</p>
-      
+      <p class="text-gray-500 mb-8">Last Updated: July 27, 2026</p>
+
       <div class="legal-content text-gray-600">
-        <div class="danger-box">
-          <p class="font-semibold text-red-800">ShopShot Ltd operates a strict no-refund policy for digital products. Please read carefully before purchasing.</p>
+        <div class="success-box">
+          <p class="font-semibold">7-Day Money-Back Guarantee. If your first subscription payment doesn't work out, email us within 7 days and we'll refund it in full. No forms, no questions.</p>
         </div>
-        
-        <h2>1. No Refunds for Digital Goods</h2>
-        <p><strong>All purchases are final.</strong></p>
-        
-        <p>Once credits are delivered to your account, they are non-refundable under any circumstances, including:</p>
+
+        <h2>1. 7-Day Money-Back Guarantee</h2>
+        <p>We would rather you tried ShopShot properly than hesitated over whether you could get your money back.</p>
+
+        <p><strong>Your first subscription payment is fully refundable for 7 days.</strong> Email <a href="mailto:support@shopshot.co.uk">support@shopshot.co.uk</a> from the address on your account and we will process it. You do not need to give a reason.</p>
+
+        <p>The guarantee covers:</p>
         <ul>
-          <li>❌ Change of mind</li>
-          <li>❌ Unused credits</li>
-          <li>❌ Dissatisfaction with generated images</li>
-          <li>❌ Technical issues on your end (browser compatibility, internet connection)</li>
-          <li>❌ Misunderstanding of how the Service works</li>
+          <li>✅ Your first payment on any subscription plan</li>
+          <li>✅ Change of mind, image quality, or the Service not suiting your products</li>
         </ul>
-        
+
+        <p>The guarantee does not cover:</p>
+        <ul>
+          <li>Renewal payments after your first month - cancel before the renewal date instead</li>
+          <li>One-off credit packs where more than 25% of the credits have been used</li>
+          <li>Accounts that have previously claimed the guarantee</li>
+        </ul>
+
         <div class="info-box">
-          <p class="font-semibold mb-2">Why No Refunds?</p>
-          <ul>
-            <li>Digital products are delivered instantly</li>
-            <li>Credits can be used immediately</li>
-            <li>Refund abuse is common in digital services</li>
-          </ul>
+          <p class="font-semibold mb-2">Outside the guarantee window?</p>
+          <p>Email us anyway. If something went genuinely wrong we will sort it out - the sections below describe our formal obligations, not the limit of what we are willing to do.</p>
         </div>
-        
-        <h2>2. Exception: Prolonged Service Outage</h2>
-        <p>We will issue pro-rata refunds <strong>ONLY</strong> if:</p>
+
+        <h2>2. Additional Cover: Prolonged Service Outage</h2>
+        <p>Separately from, and in addition to, the guarantee in Section 1, we will issue pro-rata refunds at any point in your subscription if:</p>
         <ul>
           <li>✅ The Service is completely unavailable for more than 48 consecutive hours</li>
           <li>✅ The outage is caused by our infrastructure (not third-party providers)</li>
@@ -711,32 +705,24 @@ export function getRefundsPage(): string {
         </ul>
         
         <h2>3. Free Trial</h2>
-        <p>We offer <strong>15 free credits</strong> for new users to test the Service before purchasing.</p>
-        
-        <p>Use the free trial to:</p>
+        <p>Every new account receives <strong>${SIGNUP_CREDITS_TOTAL} free credits</strong> (${CREDITS.SIGNUP_CHEAPER} Standard and ${CREDITS.SIGNUP_BETTER} Pro) - enough to generate a complete ${IMAGES_PER_SHOOT}-shot set before you pay anything. No card required.</p>
+
+        <p>Use the free credits to:</p>
         <ul>
-          <li>Test image quality</li>
+          <li>Test image quality on your own products</li>
           <li>Understand how credits work</li>
           <li>Ensure the Service meets your needs</li>
         </ul>
-        
-        <div class="warning-box">
-          <p><strong>No refunds will be issued for:</strong></p>
-          <ul>
-            <li>Complaints that could have been identified during the free trial</li>
-            <li>"I didn't know it worked this way" (free trial exists for this reason)</li>
-          </ul>
-        </div>
-        
+
         <h2>4. Subscription Cancellation</h2>
-        <p>You can cancel your subscription anytime, but:</p>
+        <p>You can cancel your subscription at any time from Account Settings.</p>
         <ul>
           <li>Cancellation takes effect at the end of the current billing period</li>
-          <li>No refunds for partial months</li>
-          <li>Unused credits are forfeited upon cancellation</li>
-          <li><strong>No exceptions</strong></li>
+          <li>You keep full access, and your credits stay usable, until that period ends</li>
+          <li>Partial months are not refunded outside the 7-day guarantee in Section 1</li>
+          <li>Credits remaining when the paid period ends are not carried into the free tier</li>
         </ul>
-        
+
         <h3>How to Cancel:</h3>
         <ul>
           <li>Log into your account > Account Settings > Manage Subscription</li>
@@ -744,13 +730,9 @@ export function getRefundsPage(): string {
         </ul>
         
         <h2>5. Chargebacks & Payment Disputes</h2>
-        <div class="danger-box">
-          <p><strong>Filing a chargeback instead of contacting support will result in:</strong></p>
-          <ul>
-            <li>Immediate account termination</li>
-            <li>Permanent ban from the Service</li>
-            <li>Debt collection for unpaid balances</li>
-          </ul>
+        <div class="info-box">
+          <p>Please email us before raising a chargeback. Between the 7-day guarantee and the outage cover above, almost every concern can be resolved faster directly with us than through your bank.</p>
+          <p class="mt-2">Where we believe a chargeback has been raised fraudulently, we may suspend the account while we investigate. Raising a genuine payment dispute with your bank or card issuer is your right and we will not penalise you for it.</p>
         </div>
         
         <h3>Proper Dispute Process:</h3>
@@ -769,7 +751,7 @@ export function getRefundsPage(): string {
         </ul>
         
         <h2>7. Refund Processing Time</h2>
-        <p>For the rare cases where refunds are issued (prolonged outage):</p>
+        <p>For any refund issued under this policy, whether under the Section 1 guarantee or the Section 2 outage cover:</p>
         <ul>
           <li>Refunds processed within 7-10 business days</li>
           <li>Refunds issued to the original payment method</li>
@@ -787,12 +769,13 @@ export function getRefundsPage(): string {
         <p>This waiver is presented clearly at checkout:</p>
         <p><em>☑️ "I agree to immediate access to credits and waive my 14-day cancellation right (Consumer Contracts Regulations 2013)"</em></p>
         
-        <p>This waiver is legally enforceable because:</p>
-        <ul>
-          <li>Digital content is delivered immediately</li>
-          <li>You explicitly consent at purchase</li>
-          <li>Standard industry practice for SaaS/digital goods</li>
-        </ul>
+        <p>The waiver applies because the digital content is supplied immediately and you give express consent and acknowledgement at the point of purchase, as the Regulations require.</p>
+
+        <div class="success-box">
+          <p><strong>The Section 1 guarantee applies whether or not you tick that box.</strong> Waiving the statutory cooling-off period does not remove your 7-day money-back guarantee - that is a separate promise we make to you, and nothing in this policy overrides it.</p>
+        </div>
+
+        <p>Nothing in this policy affects any right you have under the Consumer Rights Act 2015 where the Service is not as described, not of satisfactory quality, or not fit for purpose.</p>
         
         <h2>9. Questions</h2>
         <p>If you have concerns about a purchase:</p>
@@ -808,7 +791,7 @@ export function getRefundsPage(): string {
           <li>Detailed explanation of issue</li>
         </ul>
         
-        <p>We will review each case, but please note: <strong>the no-refund policy stands</strong> unless service outage criteria are met.</p>
+        <p>We will review each case on its facts, alongside the 7-day guarantee in Section 1 and the outage terms in Section 2.</p>
         
         <h2>10. Contact</h2>
         <div class="info-box">
@@ -847,7 +830,7 @@ export function getCookiesPage(): string {
   <main class="max-w-4xl mx-auto px-4 py-12">
     <div class="bg-white rounded-xl border border-gray-200 p-8 md:p-12">
       <h1 class="text-3xl font-bold text-gray-900 mb-2">Cookie Policy</h1>
-      <p class="text-gray-500 mb-8">Last Updated: November 28, 2025</p>
+      <p class="text-gray-500 mb-8">Last Updated: July 27, 2026</p>
       
       <div class="legal-content text-gray-600">
         <p>This Cookie Policy explains how ShopShot ("we," "us," or "our") uses cookies and similar technologies on www.shopshot.co.uk (the "Service").</p>
@@ -914,8 +897,17 @@ export function getCookiesPage(): string {
           <li>Images are processed by third-party AI providers and not stored beyond the generation session</li>
         </ul>
         
-        <div class="success-box">
-          <p><strong>Note:</strong> We do NOT use analytics or advertising cookies. No behavioral tracking occurs on the Service.</p>
+        <h3>Google Analytics 4 &amp; Google Tag Manager (Analytics)</h3>
+        <ul>
+          <li><strong>Purpose:</strong> Understanding which parts of the Service are used, and where people encounter problems</li>
+          <li><strong>Data Collected:</strong> Pages viewed, referring site, approximate location (country level), device and browser type, and product events such as sign-up, upload and generation completion</li>
+          <li><strong>Cookies:</strong> <code>_ga</code>, <code>_ga_*</code> (up to 2 years)</li>
+          <li><strong>Consent:</strong> These are <strong>not</strong> set unless you accept them. See section 6.</li>
+          <li><strong>Privacy Policy:</strong> <a href="https://policies.google.com/privacy" target="_blank">https://policies.google.com/privacy</a></li>
+        </ul>
+
+        <div class="info-box">
+          <p><strong>We do not use advertising or retargeting cookies</strong>, and we do not sell or share your data with advertising networks.</p>
         </div>
         
         <h2>4. Managing Cookies</h2>
@@ -952,19 +944,21 @@ export function getCookiesPage(): string {
         </ul>
         
         <h2>6. Cookie Consent</h2>
-        <p>By using the Service, you consent to our use of essential cookies.</p>
-        
-        <p><strong>No consent required for:</strong></p>
+        <p>When you first visit the Service you are shown a banner asking whether you accept analytics cookies. <strong>Analytics storage is disabled until you accept.</strong> If you reject, or ignore the banner, no analytics cookie is written and Google Analytics records nothing that identifies your browser between visits.</p>
+
+        <p><strong>Strictly necessary - no consent required:</strong></p>
         <ul>
-          <li>Authentication cookies (strictly necessary)</li>
+          <li>Authentication cookies (keeping you logged in)</li>
           <li>Security cookies (fraud prevention)</li>
+          <li>The cookie that records your cookie choice</li>
         </ul>
-        
-        <p>If we add analytics cookies in the future:</p>
+
+        <p><strong>Requires your consent:</strong></p>
         <ul>
-          <li>We will implement an opt-in consent banner</li>
-          <li>You will be able to reject non-essential cookies</li>
+          <li>Google Analytics 4 and Google Tag Manager (see section 3)</li>
         </ul>
+
+        <p>You can change your mind at any time: <a href="#" onclick="if(window.ssCookieSettings){ssCookieSettings();}return false;">reopen your cookie choices</a>, or clear cookies for this site in your browser. Your choice is remembered for six months.</p>
         
         <h2>7. Changes to This Policy</h2>
         <p>We may update this Cookie Policy as our use of cookies changes. Updates will be posted on this page with a revised "Last Updated" date.</p>
