@@ -2465,7 +2465,22 @@ app.get('/dashboard', (c) => {
 // Pricing page
 app.get('/pricing', (c) => {
   const user = c.get('user')
-  return c.html(getPricingPage(user))
+  // A plan is only buyable if its Stripe price ID is configured. Without this
+  // the page would advertise a plan, accept the click, and then fail with a
+  // 503 from create-checkout. Better to say so up front.
+  const availability = {
+    month: {
+      starter: !!(c.env.STRIPE_PRICE_STARTER_MONTHLY || true), // has a valid $9.99 fallback
+      standard: !!c.env.STRIPE_PRICE_STANDARD_MONTHLY,
+      pro: !!c.env.STRIPE_PRICE_PRO_MONTHLY,
+    },
+    year: {
+      starter: !!c.env.STRIPE_PRICE_STARTER_ANNUAL,
+      standard: !!c.env.STRIPE_PRICE_STANDARD_ANNUAL,
+      pro: !!c.env.STRIPE_PRICE_PRO_ANNUAL,
+    }
+  }
+  return c.html(getPricingPage(user, availability))
 })
 
 // ============================================================================
@@ -18584,7 +18599,15 @@ function getGetStartedPage() {
 // ============================================================================
 // PRICING PAGE
 // ============================================================================
-function getPricingPage(user?: User) {
+type PlanAvailability = { month: Record<string, boolean>; year: Record<string, boolean> };
+
+function getPricingPage(user?: User, availability?: PlanAvailability) {
+  // Default to available so local dev and any caller without env still renders.
+  const avail: PlanAvailability = availability || {
+    month: { starter: true, standard: true, pro: true },
+    year: { starter: true, standard: true, pro: true }
+  };
+  const anyAnnual = avail.year.starter || avail.year.standard || avail.year.pro;
   const userPlan = user?.subscription_plan || 'free';
   const isStarter = userPlan === 'starter';
   const isStandard = userPlan === 'standard';
@@ -18820,12 +18843,14 @@ function getPricingPage(user?: User) {
     <h2 class="section-title">Subscriptions</h2>
     <p class="section-subtitle">Fresh credits every month. Cancel anytime.</p>
 
+    ${anyAnnual ? `
     <div class="billing-toggle" role="group" aria-label="Billing interval">
       <button type="button" id="bill-month" class="bill-opt active" onclick="setInterval_('month')">Monthly</button>
       <button type="button" id="bill-year" class="bill-opt" onclick="setInterval_('year')">
         Annual <span class="bill-save">2 months free</span>
       </button>
     </div>
+    ` : ''}
     <div style="max-width:560px; margin:0 auto 32px; background:#D1FAE5; border:1px solid #6EE7B7; border-radius:12px; padding:14px 20px; text-align:center;">
       <span style="font-size:15px; font-weight:700; color:#065F46;">7-Day Money-Back Guarantee</span>
       <span style="display:block; font-size:13px; color:#047857; margin-top:2px;">Not right for you? Email us within 7 days of your first payment for a full refund. <a href="/refunds" style="color:#047857; text-decoration:underline;">Details</a></span>
@@ -18897,9 +18922,16 @@ function getPricingPage(user?: User) {
           <li>Cancel anytime</li>
         </ul>
         
+        ${avail.month.starter ? `
         <button class="plan-btn plan-btn-primary" onclick="startCheckout('starter')" ${isStarter ? 'disabled' : ''}>
           ${isStarter ? 'Current Plan' : 'Get Starter'}
         </button>
+        ` : `
+        <button class="plan-btn plan-btn-secondary" disabled title="This plan is being updated and will be back shortly">
+          Temporarily unavailable
+        </button>
+        <div style="margin-top:8px;font-size:12px;color:#6B7280;text-align:center;">Back shortly - <a href="/contact" style="color:#3B82F6;">contact us</a> to be notified</div>
+        `}
       </div>
       
       <!-- Standard Plan -->
@@ -18932,9 +18964,16 @@ function getPricingPage(user?: User) {
           <li>Unused credits carry over</li>
         </ul>
         
+        ${avail.month.standard ? `
         <button class="plan-btn plan-btn-primary" onclick="startCheckout('standard')" ${isStandard ? 'disabled' : ''}>
           ${isStandard ? 'Current Plan' : 'Get Standard'}
         </button>
+        ` : `
+        <button class="plan-btn plan-btn-secondary" disabled title="This plan is being updated and will be back shortly">
+          Temporarily unavailable
+        </button>
+        <div style="margin-top:8px;font-size:12px;color:#6B7280;text-align:center;">Back shortly - <a href="/contact" style="color:#3B82F6;">contact us</a> to be notified</div>
+        `}
       </div>
       
       <!-- Pro Plan -->
@@ -18967,9 +19006,16 @@ function getPricingPage(user?: User) {
           <li>Priority support</li>
         </ul>
         
+        ${avail.month.pro ? `
         <button class="plan-btn plan-btn-pro" onclick="startCheckout('pro')" ${isPro ? 'disabled' : ''}>
           ${isPro ? 'Current Plan' : 'Get Pro'}
         </button>
+        ` : `
+        <button class="plan-btn plan-btn-secondary" disabled title="This plan is being updated and will be back shortly">
+          Temporarily unavailable
+        </button>
+        <div style="margin-top:8px;font-size:12px;color:#6B7280;text-align:center;">Back shortly - <a href="/contact" style="color:#3B82F6;">contact us</a> to be notified</div>
+        `}
       </div>
     </div>
     
@@ -19268,6 +19314,7 @@ function getPricingPage(user?: User) {
     
     // Billing interval state. Named setInterval_ to avoid shadowing the global.
     let billingInterval = 'month';
+    const PLAN_AVAILABILITY = ${JSON.stringify(avail)};
     function setInterval_(next) {
       billingInterval = next === 'year' ? 'year' : 'month';
       document.getElementById('bill-month').classList.toggle('active', billingInterval === 'month');
@@ -19283,6 +19330,12 @@ function getPricingPage(user?: User) {
     };
 
     function startCheckout(plan) {
+      // Guard the click as well as the render - the toggle can change interval
+      // after the page loaded.
+      if (!(PLAN_AVAILABILITY[billingInterval] || {})[plan]) {
+        alert('That billing option is being updated and will be back shortly. Please try monthly, or contact support.');
+        return;
+      }
       if (window.ssTrack) {
         const value = (PLAN_PRICES[billingInterval] || {})[plan];
         window.ssTrack('begin_checkout', {
