@@ -1532,6 +1532,21 @@ function packCardsHtml(creditType: 'cheaper' | 'better', cur: Currency, opts: { 
 }
 
 /** Currency to record on a new account, from the country they signed up in. */
+/** Escapes text for interpolation into server-rendered HTML. */
+function escapeHtmlServer(text: unknown): string {
+  return String(text ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch] as string));
+}
+
+/**
+ * Only same-site paths may be used as post-login redirects. Anything else
+ * (absolute URLs, protocol-relative //host, backslash tricks) falls back.
+ */
+function safeRedirectPath(value: unknown, fallback = '/app'): string {
+  if (typeof value !== 'string' || !value.startsWith('/')) return fallback;
+  if (value.startsWith('//') || value.startsWith('/\\') || value.includes('\\')) return fallback;
+  return value;
+}
+
 function signupCurrency(c: any): Currency {
   return c.req.header('cf-ipcountry') === 'GB' ? 'GBP' : 'USD';
 }
@@ -4170,9 +4185,9 @@ app.post('/api/auth/register', async (c) => {
     const passwordHash = await hashPassword(password);
     
     await db.prepare(`
-      INSERT INTO users (id, email, password_hash, name, phone, marketing_consent, cheaper_credits, better_credits, email_verified, email_verification_code, email_verification_expires)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
-    `).bind(userId, email.toLowerCase(), passwordHash, name || null, phone?.trim() || null, marketing_consent ? 1 : 0, CREDITS.SIGNUP_CHEAPER, CREDITS.SIGNUP_BETTER, verificationCode, expiresAt.toISOString()).run();
+      INSERT INTO users (id, email, password_hash, name, phone, marketing_consent, cheaper_credits, better_credits, email_verified, email_verification_code, email_verification_expires, currency)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+    `).bind(userId, email.toLowerCase(), passwordHash, name || null, phone?.trim() || null, marketing_consent ? 1 : 0, CREDITS.SIGNUP_CHEAPER, CREDITS.SIGNUP_BETTER, verificationCode, expiresAt.toISOString(), signupCurrency(c)).run();
     
     // Send verification email
     if (c.env.RESEND_API_KEY) {
@@ -4589,12 +4604,17 @@ app.get('/api/auth/google', async (c) => {
   }
   
   // Get redirect URL from query params - default to /app not /
-  const redirectTo = c.req.query('redirect') || '/app';
+  const redirectTo = safeRedirectPath(c.req.query('redirect'), '/app');
   const plan = c.req.query('plan') || '';
   const ref = c.req.query('ref') || '';
-  
-  // Create state with redirect info and referral code
-  const state = btoa(JSON.stringify({ redirect: redirectTo, plan, ref }));
+  // Homepage preview session to attach to the account once it exists.
+  const anon = c.req.query('anon') || '';
+
+  // The nonce ties the callback to this browser, so nobody can complete a
+  // Google sign-in started elsewhere and land a victim in their account.
+  const nonce = generateId();
+  setCookie(c, 'oauth_nonce', nonce, { httpOnly: true, secure: true, sameSite: 'Lax', maxAge: 600, path: '/api/auth/google' });
+  const state = btoa(JSON.stringify({ redirect: redirectTo, plan, ref, anon, nonce }));
   
   const baseUrl = new URL(c.req.url).origin;
   const redirectUri = `${baseUrl}/api/auth/google/callback`;
@@ -4623,11 +4643,23 @@ app.get('/api/auth/google/callback', async (c) => {
   // Parse state
   let redirectTo = '/';
   let plan = '';
+  let refCode = '';
+  let anonSessionId = '';
+  let stateNonce = '';
   try {
     const stateData = JSON.parse(atob(state || ''));
-    redirectTo = stateData.redirect || '/';
+    redirectTo = safeRedirectPath(stateData.redirect, '/');
     plan = stateData.plan || '';
+    refCode = typeof stateData.ref === 'string' ? stateData.ref : '';
+    anonSessionId = typeof stateData.anon === 'string' ? stateData.anon : '';
+    stateNonce = typeof stateData.nonce === 'string' ? stateData.nonce : '';
   } catch {}
+
+  const cookieNonce = getCookie(c, 'oauth_nonce');
+  deleteCookie(c, 'oauth_nonce', { path: '/api/auth/google' });
+  if (!stateNonce || !cookieNonce || stateNonce !== cookieNonce) {
+    return c.redirect('/login?error=oauth_state');
+  }
   
   const clientId = c.env.GOOGLE_CLIENT_ID;
   const clientSecret = c.env.GOOGLE_CLIENT_SECRET;
@@ -4670,9 +4702,9 @@ app.get('/api/auth/google/callback', async (c) => {
     const userId = generateId();
     
     await db.prepare(`
-      INSERT INTO users (id, email, password_hash, name, cheaper_credits, better_credits, email_verified, google_id)
-      VALUES (?, ?, '', ?, ?, ?, 1, ?)
-    `).bind(userId, googleUser.email.toLowerCase(), googleUser.name || null, CREDITS.SIGNUP_CHEAPER, CREDITS.SIGNUP_BETTER, googleUser.id).run();
+      INSERT INTO users (id, email, password_hash, name, cheaper_credits, better_credits, email_verified, google_id, currency)
+      VALUES (?, ?, '', ?, ?, ?, 1, ?, ?)
+    `).bind(userId, googleUser.email.toLowerCase(), googleUser.name || null, CREDITS.SIGNUP_CHEAPER, CREDITS.SIGNUP_BETTER, googleUser.id, signupCurrency(c)).run();
     
     // Log signup bonus
     await db.prepare(`
@@ -4711,17 +4743,21 @@ app.get('/api/auth/google/callback', async (c) => {
     
     user = { id: userId };
     
-    // Process referral from state if available
-    if (state) {
-      try {
-        const stateData = JSON.parse(decodeURIComponent(state));
-        if (stateData.ref) {
-          c.executionCtx.waitUntil(
-            processReferral(db, stateData.ref, userId, c.env.RESEND_API_KEY)
-          );
-        }
-      } catch (e) { /* state parse error is non-critical */ }
+    // Process referral from state. This used to parse the state with
+    // decodeURIComponent although it is base64, so it always threw and no
+    // Google signup (most signups) ever credited a referral.
+    if (refCode) {
+      c.executionCtx.waitUntil(
+        processReferral(db, refCode, userId, c.env.RESEND_API_KEY)
+      );
     }
+  }
+
+  // Attach the homepage preview they generated before signing up.
+  if (isNewUser && anonSessionId) {
+    c.executionCtx.waitUntil(
+      claimAnonymousSession(db, anonSessionId, user.id).catch(err => console.error('[Anon] claim failed', err))
+    );
   }
   
   // Create session
@@ -4758,7 +4794,8 @@ app.get('/api/auth/google/callback', async (c) => {
   // fire the sign_up event - the callback itself is server-side and cannot.
   const finalRedirect = redirectTo && redirectTo !== '/' ? redirectTo : '/app';
   const sep = finalRedirect.includes('?') ? '&' : '?';
-  return c.redirect(finalRedirect + sep + 'welcome=1' + (isNewUser ? '&signup=google' : '&login=google'));
+  // Only new accounts get the first-run welcome; returning users go straight in.
+  return c.redirect(finalRedirect + sep + (isNewUser ? 'welcome=1&signup=google' + (anonSessionId ? '&from_preview=1' : '') : 'login=google'));
 });
 
 // ============================================================================
@@ -12147,6 +12184,8 @@ function getHomePage(user?: User, cur: Currency = 'USD') {
     }
     
     /* Upload zone - glassmorphism (75% size) */
+    .upload-zone-focus { outline: 3px solid #8B5CF6; outline-offset: 4px; }
+    .upload-zone:focus-visible { outline: 3px solid #8B5CF6; outline-offset: 4px; }
     .upload-zone {
       width: 100%;
       min-height: 135px;
@@ -13693,12 +13732,12 @@ function getHomePage(user?: User, cur: Currency = 'USD') {
              had already signed up. Shown on ?welcome=1 and dismissible. -->
         <div id="welcome-panel" class="welcome-panel" style="display:none">
           <button class="welcome-dismiss" onclick="dismissWelcome()" aria-label="Dismiss">&times;</button>
-          <div class="welcome-title">Welcome${user?.name ? `, ${user.name.split(' ')[0]}` : ''} - you have ${CREDITS.SIGNUP_CHEAPER} Standard and ${CREDITS.SIGNUP_BETTER} Pro credits</div>
-          <div class="welcome-sub">Your ${CREDITS.SIGNUP_CHEAPER} Standard credits cover one complete ${IMAGES_PER_SHOOT}-shot set. Nothing to pay, no card needed.</div>
+          <div class="welcome-title">Welcome${user?.name ? `, ${escapeHtmlServer(user.name.split(' ')[0])}` : ''}. You have <span id="welcome-std">${user?.cheaper_credits ?? CREDITS.SIGNUP_CHEAPER}</span> Standard and <span id="welcome-pro">${user?.better_credits ?? CREDITS.SIGNUP_BETTER}</span> Pro credits</div>
+          <div class="welcome-sub">One credit makes one image, and you choose which shots to make. You also get ${CREDITS.DRIP_CHEAPER} more Standard credits every Monday for your first ${CREDITS.DRIP_WEEKS} weeks. Nothing to pay, no card needed.</div>
           <div class="welcome-steps">
             <div class="welcome-step"><span class="ws-num">1</span><div><strong>Upload one photo</strong><br>Any clear shot of your product. A phone photo is fine.</div></div>
-            <div class="welcome-step"><span class="ws-num">2</span><div><strong>Pick a size and quality</strong><br>Standard is fast and reliable. Start there.</div></div>
-            <div class="welcome-step"><span class="ws-num">3</span><div><strong>Generate and export</strong><br>${IMAGES_PER_SHOOT} shots in ~25 seconds, sized for each marketplace.</div></div>
+            <div class="welcome-step"><span class="ws-num">2</span><div><strong>Pick your shots</strong><br>Tick the ones you want. Standard quality is fast and reliable; start there.</div></div>
+            <div class="welcome-step"><span class="ws-num">3</span><div><strong>Generate and export</strong><br>Ready in about 25 seconds, sized for each marketplace.</div></div>
           </div>
         </div>
 
@@ -14147,6 +14186,21 @@ function getHomePage(user?: User, cur: Currency = 'USD') {
       if (isWelcome || !dismissed) {
         panel.style.display = 'block';
         if (isWelcome && window.ssTrack) window.ssTrack('onboarding_started', {});
+      }
+      // New accounts land with the upload box in focus: keyboard users can
+      // press Enter to choose a file, and everyone sees where to start.
+      // (Browsers do not allow opening the file picker without a click.)
+      if (isWelcome) {
+        const zone = document.getElementById('upload-zone');
+        if (zone) {
+          zone.setAttribute('tabindex', '0');
+          zone.classList.add('upload-zone-focus');
+          zone.scrollIntoView({ block: 'center' });
+          try { zone.focus({ preventScroll: true }); } catch (e) { zone.focus(); }
+          zone.addEventListener('keydown', function(ev) {
+            if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); document.getElementById('file-input').click(); }
+          });
+        }
       }
     }
     maybeShowWelcome();
@@ -17367,6 +17421,21 @@ function getLoginPage() {
     }
     .google-btn:hover { background: #F9FAFB; border-color: #D1D5DB; }
     .google-btn svg { width: 20px; height: 20px; }
+    /* Google is the primary route: 54 of the first 67 accounts chose it. Dark
+       variant per Google's sign-in branding (fill #131314, text #E3E3E3). */
+    .google-btn.google-primary {
+      background: #131314; color: #E3E3E3; border: 1px solid #8E918F;
+      padding: 16px 20px; font-size: 16px; box-shadow: 0 4px 14px rgba(0,0,0,0.18);
+    }
+    .google-btn.google-primary:hover { background: #2A2A2C; border-color: #8E918F; }
+    .google-note { margin-top: 10px; font-size: 12px; color: #6B7280; text-align: center; line-height: 1.5; }
+    .google-note a { color: #6B7280; text-decoration: underline; }
+    .email-toggle {
+      display: block; width: 100%; margin-top: 18px; padding: 12px; background: none;
+      border: 1px solid #E5E7EB; border-radius: 12px; font-size: 14px; font-weight: 600;
+      color: #4B5563; cursor: pointer;
+    }
+    .email-toggle:hover { border-color: #C4B5FD; color: #6D28D9; }
     .info-msg {
       padding: 12px 16px;
       background: #FEF3C7;
@@ -17397,12 +17466,12 @@ function getLoginPage() {
       <p class="auth-subtitle">Log in to continue generating product photos</p>
       
       <!-- Google Sign In -->
-      <button onclick="signInWithGoogle()" class="google-btn" style="margin-top: 20px;">
+      <button onclick="signInWithGoogle()" class="google-btn google-primary" style="margin-top: 20px;">
         <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
         Continue with Google
       </button>
       
-      <div class="divider"><span>or</span></div>
+      <div class="divider"><span>or log in with email</span></div>
       
       <div id="info-msg" class="info-msg" style="display: none;"></div>
       <div id="error-msg" class="auth-error"></div>
@@ -17429,7 +17498,8 @@ function getLoginPage() {
   <script>
     // Get redirect param from URL
     const urlParams = new URLSearchParams(window.location.search);
-    const redirectTo = urlParams.get('redirect');
+    // Same-site paths only: a full URL or javascript: here would be an open redirect.
+    const redirectTo = (function(v) { return (v && v.charAt(0) === '/' && v.charAt(1) !== '/' && v.indexOf('\\\\') === -1) ? v : null; })(urlParams.get('redirect'));
     const errorCode = urlParams.get('error');
     
     // Show error from Google OAuth
@@ -17612,6 +17682,21 @@ function getRegisterPage(cur: Currency = 'USD') {
     }
     .google-btn:hover { background: #F9FAFB; border-color: #D1D5DB; }
     .google-btn svg { width: 20px; height: 20px; }
+    /* Google is the primary route: 54 of the first 67 accounts chose it. Dark
+       variant per Google's sign-in branding (fill #131314, text #E3E3E3). */
+    .google-btn.google-primary {
+      background: #131314; color: #E3E3E3; border: 1px solid #8E918F;
+      padding: 16px 20px; font-size: 16px; box-shadow: 0 4px 14px rgba(0,0,0,0.18);
+    }
+    .google-btn.google-primary:hover { background: #2A2A2C; border-color: #8E918F; }
+    .google-note { margin-top: 10px; font-size: 12px; color: #6B7280; text-align: center; line-height: 1.5; }
+    .google-note a { color: #6B7280; text-decoration: underline; }
+    .email-toggle {
+      display: block; width: 100%; margin-top: 18px; padding: 12px; background: none;
+      border: 1px solid #E5E7EB; border-radius: 12px; font-size: 14px; font-weight: 600;
+      color: #4B5563; cursor: pointer;
+    }
+    .email-toggle:hover { border-color: #C4B5FD; color: #6D28D9; }
     .password-requirements {
       margin-top: 8px;
       font-size: 12px;
@@ -17690,19 +17775,22 @@ function getRegisterPage(cur: Currency = 'USD') {
         <h1 class="auth-title" id="page-title">Create Account</h1>
         <p class="auth-subtitle" id="page-subtitle">Start generating professional product photos</p>
         <div style="text-align:center;" id="badge-container">
-          <span class="bonus-badge">🎁 Get ${CREDITS.SIGNUP_CHEAPER + CREDITS.SIGNUP_BETTER} free credits on signup!</span>
+          <span class="bonus-badge">🎁 ${CREDITS.SIGNUP_CHEAPER} Standard + ${CREDITS.SIGNUP_BETTER} Pro credits free, then ${CREDITS.DRIP_CHEAPER} more every week for ${CREDITS.DRIP_WEEKS} weeks</span>
         </div>
         
         <!-- Google Sign In -->
-        <button onclick="signInWithGoogle()" class="google-btn" style="margin-top: 20px;">
+        <button onclick="signInWithGoogle()" class="google-btn google-primary" style="margin-top: 20px;">
           <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
           Continue with Google
         </button>
-        
-        <div class="divider"><span>or</span></div>
+        <p class="google-note">One click, no password to remember. By continuing you agree to our <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</p>
         
         <div id="error-msg" class="auth-error"></div>
         
+        <button type="button" class="email-toggle" id="email-toggle" onclick="showEmailSignup()">Sign up with email instead</button>
+        
+        <div id="email-signup" hidden>
+        <div class="divider"><span>sign up with email</span></div>
         <form class="auth-form" onsubmit="handleRegister(event)">
           <div class="form-group">
             <label class="form-label">Name (optional)</label>
@@ -17750,6 +17838,7 @@ function getRegisterPage(cur: Currency = 'USD') {
           
           <button type="submit" id="submit-btn" class="auth-btn">Create Account</button>
         </form>
+        </div>
         
         <p class="auth-footer" id="login-link">
           Already have an account? <a href="/login">Log in</a>
@@ -17789,7 +17878,8 @@ function getRegisterPage(cur: Currency = 'USD') {
   <script>
     // Get params from URL
     const urlParams = new URLSearchParams(window.location.search);
-    const redirectTo = urlParams.get('redirect');
+    // Same-site paths only: a full URL or javascript: here would be an open redirect.
+    const redirectTo = (function(v) { return (v && v.charAt(0) === '/' && v.charAt(1) !== '/' && v.indexOf('\\\\') === -1) ? v : null; })(urlParams.get('redirect'));
     const selectedPlan = urlParams.get('plan');
     const selectedInterval = urlParams.get('interval') === 'year' ? 'year' : 'month';
     // Anonymous preview session to attach to the new account, if they came
@@ -17821,6 +17911,15 @@ function getRegisterPage(cur: Currency = 'USD') {
       btn.textContent = 'Create Account & Subscribe';
     }
     
+    // The email form is one click away; Google is the default route.
+    function showEmailSignup() {
+      document.getElementById('email-signup').hidden = false;
+      document.getElementById('email-toggle').hidden = true;
+      const first = document.getElementById('email');
+      if (first) first.focus();
+    }
+    if (urlParams.get('email') === '1') showEmailSignup();
+
     // Google Sign In (register page)
     function signInWithGoogle() {
       let url = '/api/auth/google';
@@ -17833,6 +17932,8 @@ function getRegisterPage(cur: Currency = 'USD') {
       const urlParams = new URLSearchParams(window.location.search);
       const ref = urlParams.get('ref');
       if (ref) params.push('ref=' + encodeURIComponent(ref));
+      // Carry the homepage preview so it is attached to the new account
+      if (anonSessionId) params.push('anon=' + encodeURIComponent(anonSessionId));
       url += '?' + params.join('&');
       window.location.href = url;
     }
@@ -18584,6 +18685,18 @@ function getGetStartedPage(cur: Currency = 'USD') {
       transform: translateY(-1px);
       box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
     }
+    .gs-google {
+      display: flex; align-items: center; justify-content: center; gap: 12px;
+      width: 100%; padding: 15px 18px; border-radius: 12px; text-decoration: none;
+      background: #131314; color: #E3E3E3; border: 1px solid #8E918F;
+      font-size: 15px; font-weight: 600; box-shadow: 0 4px 14px rgba(0,0,0,0.18);
+    }
+    .gs-google:hover { background: #2A2A2C; }
+    .gs-google-note { margin: 10px 0 0; font-size: 12px; color: #6B7280; text-align: center; line-height: 1.5; }
+    .gs-google-note a { color: #6B7280; }
+    .gs-divider { display: flex; align-items: center; margin: 20px 0; color: #9CA3AF; font-size: 13px; }
+    .gs-divider::before, .gs-divider::after { content: ''; flex: 1; height: 1px; background: #E5E7EB; }
+    .gs-divider span { padding: 0 12px; }
   </style>
 </head>
 <body>
@@ -18606,7 +18719,7 @@ function getGetStartedPage(cur: Currency = 'USD') {
     <section class="pricing-section">
       <div class="pricing-header">
         <h1>Simple, Transparent Pricing</h1>
-        <p>Start free with ${SIGNUP_CREDITS_TOTAL} credits - enough for a complete ${IMAGES_PER_SHOOT}-shot set. Upgrade anytime for more.</p>
+        <p>Start free: ${CREDITS.SIGNUP_CHEAPER} Standard and ${CREDITS.SIGNUP_BETTER} Pro images, then ${CREDITS.DRIP_CHEAPER} more Standard images every week for your first ${CREDITS.DRIP_WEEKS} weeks. Upgrade any time.</p>
       </div>
       
       <div class="pricing-grid">
@@ -18614,7 +18727,7 @@ function getGetStartedPage(cur: Currency = 'USD') {
         <div class="pricing-card">
           <h3>Free</h3>
           <div class="price">${formatMoney(0, cur)}</div>
-          <div class="price-note">One-time signup bonus</div>
+          <div class="price-note">At signup, then ${CREDITS.DRIP_CHEAPER} a week for ${CREDITS.DRIP_WEEKS} weeks</div>
           <div class="credits">
             <div class="credit-badge standard">
               <div class="count">${CREDITS.SIGNUP_CHEAPER}</div>
@@ -18626,7 +18739,7 @@ function getGetStartedPage(cur: Currency = 'USD') {
             </div>
           </div>
           <ul>
-            <li>10 images per product (10 credits)</li>
+            <li>1 credit per image; you choose which shots</li>
             <li>High-resolution downloads</li>
             <li>All variation types</li>
           </ul>
@@ -18725,7 +18838,7 @@ function getGetStartedPage(cur: Currency = 'USD') {
         <div class="feature-item">
           <div class="feature-icon">⚡</div>
           <div class="feature-text">
-            <h4>Ready in 36 Seconds</h4>
+            <h4>Ready in About 25 Seconds</h4>
             <p>AI-powered generation, faster than making coffee</p>
           </div>
         </div>
@@ -18747,6 +18860,13 @@ function getGetStartedPage(cur: Currency = 'USD') {
       </div>
       
       <div id="error-msg" class="error-msg"></div>
+
+      <a href="/api/auth/google?redirect=" id="gs-google" class="gs-google">
+        <svg viewBox="0 0 24 24" width="20" height="20"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+        Continue with Google
+      </a>
+      <p class="gs-google-note">New or returning, one click. By continuing you agree to our <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</p>
+      <div class="gs-divider"><span>or log in with email</span></div>
       
       <!-- Login Form -->
       <form id="login-form" onsubmit="handleLogin(event)">
@@ -18762,7 +18882,7 @@ function getGetStartedPage(cur: Currency = 'USD') {
           Log In
         </button>
         <p class="auth-footer">
-          <a href="#">Forgot your password?</a>
+          <a href="/forgot-password">Forgot your password?</a>
         </p>
       </form>
       
@@ -18781,7 +18901,9 @@ function getGetStartedPage(cur: Currency = 'USD') {
 
   <script>
     const urlParams = new URLSearchParams(window.location.search);
-    const redirectTo = urlParams.get('redirect') || '/';
+    // Same-site paths only: a full URL or javascript: here would be an open redirect.
+    const redirectTo = (function(v) { return (v && v.charAt(0) === '/' && v.charAt(1) !== '/' && v.indexOf('\\\\') === -1) ? v : null; })(urlParams.get('redirect')) || '/';
+    document.getElementById('gs-google').href = '/api/auth/google?redirect=' + encodeURIComponent(redirectTo === '/' ? '/app' : redirectTo);
     
     async function handleLogin(e) {
       e.preventDefault();
