@@ -3,7 +3,7 @@
 import { SIGNUP_CREDITS_TOTAL } from './config/constants';
 import { GTM_HEAD, GTM_BODY } from './config/analytics';
 
-// Google Tag Manager + Google Analytics snippets
+// Google Analytics (consent-gated) snippets
 
 // Promo banner for blog pages - links to homepage with SEO-optimized anchor
 const BLOG_PROMO_BANNER = `

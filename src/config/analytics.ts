@@ -10,11 +10,15 @@
 // what PECR requires for non-essential cookies, and it is what the Cookie
 // Policy now describes.
 
-export const GTM_ID = 'GTM-PNKMSPJN';
+// GA4 is loaded directly with gtag.js. Google Tag Manager (GTM-PNKMSPJN) was
+// also loaded on every page but nothing in the site needs it: there are no Ads,
+// Meta or other tags in the code, and if the container also held a GA4 tag
+// every page view was counted twice. The export names keep "GTM" so the 55
+// templates that include them did not need to change.
 export const GA4_ID = 'G-FJR6WVMLHE';
 export const CONSENT_COOKIE = 'shopshot_cookie_consent';
 
-export const GTM_HEAD = `<!-- Consent Mode v2 - must run before any Google tag -->
+export const GTM_HEAD = `<!-- Analytics: Consent Mode v2, GA4 loaded only after consent -->
 <script>
   window.dataLayer = window.dataLayer || [];
   function gtag(){dataLayer.push(arguments);}
@@ -26,59 +30,71 @@ export const GTM_HEAD = `<!-- Consent Mode v2 - must run before any Google tag -
     ad_personalization: 'denied',
     analytics_storage: 'denied',
     functionality_storage: 'granted',
-    security_storage: 'granted',
-    wait_for_update: 500
+    security_storage: 'granted'
   });
 
-  // Re-apply a previous choice on subsequent page loads.
   (function () {
+    // Never measure local development or Cloudflare preview deployments.
+    var host = location.hostname;
+    var measurable = !(host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0' || /\\.pages\\.dev$/.test(host));
+
+    var state = null; // null until the visitor chooses, then 'granted' or 'denied'
     try {
       var m = document.cookie.match(/(?:^|;\\s*)${CONSENT_COOKIE}=([^;]*)/);
-      if (m && decodeURIComponent(m[1]) === 'granted') {
-        gtag('consent', 'update', {
-          ad_storage: 'granted',
-          ad_user_data: 'granted',
-          ad_personalization: 'granted',
-          analytics_storage: 'granted'
-        });
-      }
+      if (m) state = decodeURIComponent(m[1]) === 'granted' ? 'granted' : 'denied';
     } catch (e) {}
-  })();
-</script>
-<!-- Google Tag Manager -->
-<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
-new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
-j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
-'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
-})(window,document,'script','dataLayer','${GTM_ID}');</script>
-<!-- End Google Tag Manager -->
-<!-- Google tag (gtag.js) -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=${GA4_ID}"></script>
-<script>
-  gtag('js', new Date());
-  gtag('config', '${GA4_ID}');
 
-  // Funnel tracking. Previously only 'purchase' reached GA4, which meant every
-  // stage before payment was invisible and drop-off could not be diagnosed.
-  // Safe to call before gtag.js finishes loading - dataLayer queues the hit.
-  window.ssTrack = function (eventName, params) {
-    try {
-      window.dataLayer = window.dataLayer || [];
-      if (typeof gtag === 'function') gtag('event', eventName, params || {});
-      window.dataLayer.push(Object.assign({ event: eventName }, params || {}));
-    } catch (e) {
-      // Never let analytics break the app
+    var loaded = false;
+    var pending = []; // events fired before the visitor has chosen
+
+    function load() {
+      if (loaded || !measurable) return;
+      loaded = true;
+      // Analytics only. The Cookie Policy says we use no advertising cookies,
+      // so the ad_* signals stay denied even after Accept.
+      gtag('consent', 'update', { analytics_storage: 'granted' });
+      gtag('js', new Date());
+      gtag('config', '${GA4_ID}');
+      var s = document.createElement('script');
+      s.async = true;
+      s.src = 'https://www.googletagmanager.com/gtag/js?id=${GA4_ID}';
+      document.head.appendChild(s);
+      for (var i = 0; i < pending.length; i++) gtag('event', pending[i][0], pending[i][1]);
+      pending = [];
     }
-  };
+
+    // Funnel events. Before a choice they wait in memory; after Accept they are
+    // sent; after Reject (or on a non-production host) they are dropped and no
+    // Google script is ever loaded, so Reject means no requests to Google.
+    window.ssTrack = function (eventName, params) {
+      try {
+        if (!measurable || state === 'denied') return;
+        if (state === 'granted' && loaded) gtag('event', eventName, params || {});
+        else if (pending.length < 50) pending.push([eventName, params || {}]);
+      } catch (e) {
+        // Never let analytics break the app
+      }
+    };
+
+    // Called by the cookie banner.
+    window.ssConsentChanged = function (choice) {
+      state = choice === 'granted' ? 'granted' : 'denied';
+      if (state === 'granted') load();
+      else {
+        pending = [];
+        // A page that had already loaded gtag.js stops storing from here on;
+        // the next page load will not load it at all.
+        if (loaded) gtag('consent', 'update', { analytics_storage: 'denied' });
+      }
+    };
+
+    if (state === 'granted') load();
+  })();
 </script>`;
 
-// Cookie banner. Rendered with the GTM noscript so every page that already
-// includes GTM_BODY gets it without touching each template.
-export const GTM_BODY = `<!-- Google Tag Manager (noscript) -->
-<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=${GTM_ID}"
-height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
-<!-- End Google Tag Manager (noscript) -->
-<div id="ss-cookie-banner" role="dialog" aria-live="polite" aria-label="Cookie choices" style="display:none">
+// Cookie banner. Every page that includes GTM_BODY gets it without touching
+// each template.
+export const GTM_BODY = `<div id="ss-cookie-banner" role="dialog" aria-live="polite" aria-label="Cookie choices" style="display:none">
   <div class="ss-cookie-inner">
     <div class="ss-cookie-text">
       <strong>We'd like to use analytics cookies.</strong>
@@ -127,15 +143,8 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
     }
     window.ssCookieChoice = function (choice) {
       // 6 months, matching the review cadence for consent under PECR guidance.
-      document.cookie = NAME + '=' + choice + ';path=/;max-age=' + (60 * 60 * 24 * 182) + ';SameSite=Lax';
-      if (typeof gtag === 'function') {
-        gtag('consent', 'update', {
-          ad_storage: choice,
-          ad_user_data: choice,
-          ad_personalization: choice,
-          analytics_storage: choice
-        });
-      }
+      document.cookie = NAME + '=' + choice + ';path=/;max-age=' + (60 * 60 * 24 * 182) + ';SameSite=Lax' + (location.protocol === 'https:' ? ';Secure' : '');
+      if (typeof window.ssConsentChanged === 'function') window.ssConsentChanged(choice);
       var el = document.getElementById('ss-cookie-banner');
       if (el) el.style.display = 'none';
     };

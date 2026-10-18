@@ -3,7 +3,7 @@
 import { SIGNUP_CREDITS_TOTAL, IMAGES_PER_SHOOT } from './config/constants';
 import { GTM_HEAD, GTM_BODY } from './config/analytics';
 
-// Google Tag Manager + Google Analytics snippets
+// Google Analytics (consent-gated) snippets
 
 const FOOTER_HTML = `
   <footer class="bg-gray-900 text-white py-12 mt-20">

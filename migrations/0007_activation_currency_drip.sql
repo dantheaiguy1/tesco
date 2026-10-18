@@ -87,3 +87,7 @@ ALTER TABLE credit_transactions ADD COLUMN image_key TEXT;
 -- of the remainder arrives from hosting networks with a browser user agent.
 -- ---------------------------------------------------------------------------
 ALTER TABLE analytics_events ADD COLUMN as_org TEXT;
+
+-- analytics_events had no index at all (120k rows): every admin chart and the
+-- nightly bot cleanup scanned the whole table.
+CREATE INDEX IF NOT EXISTS idx_analytics_events_type_created ON analytics_events (event_type, created_at);
