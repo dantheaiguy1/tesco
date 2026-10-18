@@ -4157,6 +4157,13 @@ app.post('/api/sessions/:id/images', async (c) => {
     if (!variation_type || variation_index === undefined || !image_data) {
       return c.json({ success: false, error: 'Missing required fields' }, 400)
     }
+
+    // Only the session's owner may write its images (there was no check).
+    const user = c.get('user')
+    if (!user) return c.json({ success: false, error: 'Authentication required' }, 401)
+    if (!(await db.prepare('SELECT 1 AS ok FROM sessions WHERE id = ? AND user_id = ?').bind(sessionId, user.id).first())) {
+      return c.json({ success: false, error: 'Session not found' }, 404)
+    }
     
     // Check if image already exists for this variation
     const existing = await db.prepare(
@@ -4192,6 +4199,12 @@ app.post('/api/sessions/:id/video', async (c) => {
     
     if (!video_url) {
       return c.json({ success: false, error: 'Missing video URL' }, 400)
+    }
+
+    const user = c.get('user')
+    if (!user) return c.json({ success: false, error: 'Authentication required' }, 401)
+    if (!(await db.prepare('SELECT 1 AS ok FROM sessions WHERE id = ? AND user_id = ?').bind(sessionId, user.id).first())) {
+      return c.json({ success: false, error: 'Session not found' }, 404)
     }
     
     // Update session with video URL
@@ -7438,6 +7451,10 @@ app.post('/api/regenerate/:sessionId/:variationIndex', async (c) => {
 
 // API: Generate variations (legacy - kept for compatibility)
 app.post('/api/generate/:id', async (c) => {
+  // Legacy all-in-one generator. Nothing in the app calls it any more, and it
+  // generated ten billed images with no authentication and no credit charge.
+  const caller = c.get('user') as any
+  if (!caller || caller.role !== 'admin') return c.json({ error: 'Not found' }, 404)
   const sessionId = c.req.param('id')
   const db = c.env.TESCO_DB
   
@@ -7516,10 +7533,13 @@ app.post('/api/generate/:id', async (c) => {
 // API: Delete session
 app.delete('/api/sessions/:id', async (c) => {
   try {
+    const user = c.get('user')
+    if (!user) return c.json({ success: false, error: 'Authentication required' }, 401)
     const db = c.env.TESCO_DB
     const id = c.req.param('id')
     
-    await db.prepare('DELETE FROM sessions WHERE id = ?').bind(id).run()
+    // Own sessions only (this used to delete any session by id)
+    await db.prepare('DELETE FROM sessions WHERE id = ? AND user_id = ?').bind(id, user.id).run()
     return c.json({ success: true })
   } catch (error) {
     console.error('Delete error:', error)
@@ -9939,8 +9959,13 @@ async function pollVeoOperation(
 // API: Delete all sessions
 app.delete('/api/sessions', async (c) => {
   try {
+    // "Clear history" for the signed-in user. This used to run an unscoped
+    // DELETE FROM sessions with no authentication: one anonymous request
+    // would have deleted every user's history.
+    const user = c.get('user')
+    if (!user) return c.json({ success: false, error: 'Authentication required' }, 401)
     const db = c.env.TESCO_DB
-    await db.prepare('DELETE FROM sessions').run()
+    await db.prepare('DELETE FROM sessions WHERE user_id = ?').bind(user.id).run()
     return c.json({ success: true })
   } catch (error) {
     console.error('Delete all error:', error)
@@ -9951,10 +9976,15 @@ app.delete('/api/sessions', async (c) => {
 // API: Update session (status or name)
 app.patch('/api/sessions/:id', async (c) => {
   try {
+    const user = c.get('user')
+    if (!user) return c.json({ success: false, error: 'Authentication required' }, 401)
     const db = c.env.TESCO_DB
     const id = c.req.param('id')
     const body = await c.req.json()
     const { status, product_name } = body
+    if (!(await db.prepare('SELECT 1 AS ok FROM sessions WHERE id = ? AND user_id = ?').bind(id, user.id).first())) {
+      return c.json({ success: false, error: 'Session not found' }, 404)
+    }
     
     // Update status if provided
     if (status) {
