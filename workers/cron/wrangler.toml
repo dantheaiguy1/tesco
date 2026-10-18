@@ -1,0 +1,15 @@
+# Companion Worker: Cloudflare Pages has no cron triggers, so this Worker
+# calls the site's scheduled-job endpoint once an hour.
+#
+# Deploy (from this directory):
+#   npx wrangler secret put CRON_SECRET   # same value as the Pages secret
+#   npx wrangler deploy
+name = "shopshot-cron"
+main = "index.js"
+compatibility_date = "2025-11-24"
+
+[triggers]
+crons = ["17 * * * *"]
+
+[vars]
+TARGET_URL = "https://www.shopshot.co.uk/api/cron/run"

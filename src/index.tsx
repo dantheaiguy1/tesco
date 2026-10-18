@@ -2396,15 +2396,51 @@ interface TrackEventOptions {
   referrer?: string | null;
   userAgent?: string | null;
   ipCountry?: string | null;
+  // Visitor's network (Cloudflare asOrganization), for filtering datacenter traffic
+  asOrg?: string | null;
   metadata?: Record<string, any>;
 }
 
+// ----------------------------------------------------------------------------
+// Bot filtering for first-party analytics
+// ----------------------------------------------------------------------------
+// Most page_view rows were bots: crawlers, scripts, and referrer spam from
+// WordPress scanners. These rules drop them at insert time; the same rules are
+// applied to history by BOT_CLEANUP_SQL in the scheduled job. They match on
+// user agent, referrer and path only, so bots that send a normal browser user
+// agent from a datacenter still get through - as_org is recorded so those can
+// be measured and filtered later.
+const BOT_UA_RE = /bot|crawl|spider|python|curl|Go-http|HeadlessChrome/i;
+const SPAM_REFERRER_RE = /wp-admin|wp-login|sensemaestro|binance/i;
+
+function isBotTraffic(userAgent: string | null | undefined, referrer: string | null | undefined, path: string | null | undefined): boolean {
+  if (!userAgent || !userAgent.trim()) return true;
+  if (BOT_UA_RE.test(userAgent)) return true;
+  if (referrer && SPAM_REFERRER_RE.test(referrer)) return true;
+  if (path && path.toLowerCase().includes('wp-')) return true;
+  return false;
+}
+
+// SQL equivalent of isBotTraffic, for deleting historic rows. LIKE is
+// case-insensitive for ASCII in SQLite, matching the /i regexes above.
+const BOT_CLEANUP_WHERE = `
+  (user_agent IS NULL OR TRIM(user_agent) = ''
+   OR user_agent LIKE '%bot%' OR user_agent LIKE '%crawl%' OR user_agent LIKE '%spider%'
+   OR user_agent LIKE '%python%' OR user_agent LIKE '%curl%' OR user_agent LIKE '%Go-http%'
+   OR user_agent LIKE '%HeadlessChrome%'
+   OR referrer LIKE '%wp-admin%' OR referrer LIKE '%wp-login%'
+   OR referrer LIKE '%sensemaestro%' OR referrer LIKE '%binance%'
+   OR page_url LIKE '%wp-%')`;
+// Only page views are cleaned: server-side events (signups, generations,
+// purchases) are recorded without a user agent and are not bot traffic.
+const BOT_CLEANUP_SQL = `DELETE FROM analytics_events WHERE event_type = 'page_view' AND ${BOT_CLEANUP_WHERE}`;
+
 async function trackEvent(db: D1Database, options: TrackEventOptions): Promise<void> {
   try {
-    const { eventType, userId, sessionId, pageUrl, referrer, userAgent, ipCountry, metadata } = options;
+    const { eventType, userId, sessionId, pageUrl, referrer, userAgent, ipCountry, asOrg, metadata } = options;
     await db.prepare(`
-      INSERT INTO analytics_events (event_type, user_id, session_id, page_url, referrer, user_agent, ip_country, metadata)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO analytics_events (event_type, user_id, session_id, page_url, referrer, user_agent, ip_country, metadata, as_org)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       eventType,
       userId || null,
@@ -2413,7 +2449,8 @@ async function trackEvent(db: D1Database, options: TrackEventOptions): Promise<v
       referrer || null,
       userAgent || null,
       ipCountry || null,
-      metadata ? JSON.stringify(metadata) : null
+      metadata ? JSON.stringify(metadata) : null,
+      asOrg || null
     ).run();
   } catch (e) {
     console.error('Failed to track event:', e);
@@ -2474,8 +2511,10 @@ app.use('*', async (c, next) => {
   const path = new URL(c.req.url).pathname;
   const isTrackedPage = TRACKED_PAGES.some(p => path === p || path.startsWith('/blog/') || path.startsWith('/results/') || path.startsWith('/admin/'));
   
-  // Only track HTML page requests, not API or static assets
-  if (isTrackedPage && !path.startsWith('/api/') && !path.includes('.')) {
+  // Only track HTML page requests, not API or static assets, and not bots
+  const ua = c.req.header('user-agent') || null;
+  const referrer = c.req.header('referer') || null;
+  if (isTrackedPage && !path.startsWith('/api/') && !path.includes('.') && !isBotTraffic(ua, referrer, path)) {
     const db = c.env.TESCO_DB;
     const user = c.get('user');
     
@@ -2485,9 +2524,10 @@ app.use('*', async (c, next) => {
         eventType: 'page_view',
         userId: user?.id || null,
         pageUrl: path,
-        referrer: c.req.header('referer') || null,
-        userAgent: c.req.header('user-agent') || null,
+        referrer,
+        userAgent: ua,
         ipCountry: c.req.header('cf-ipcountry') || null,
+        asOrg: (c.req.raw as any).cf?.asOrganization || null,
         metadata: {
           query: new URL(c.req.url).search || null
         }
@@ -5579,6 +5619,250 @@ app.get('/api/billing/portal', async (c) => {
 //   GET /api/health?deep=1   also asks Stripe whether each configured price
 //                            exists, is active, has the expected amount and
 //                            interval, and carries a GBP option if GBP is on
+// ============================================================================
+// SCHEDULED JOBS
+// ============================================================================
+// Cloudflare Pages has no cron triggers, so a tiny companion Worker
+// (workers/cron/) calls POST /api/cron/run every hour with
+// `Authorization: Bearer $CRON_SECRET`. Each job is idempotent and bounded,
+// so a missed or doubled run does no harm.
+//
+// Jobs:
+//   - day-2 onboarding email: signed up 2+ days ago, has never uploaded
+//   - day-7 win-back email: used the product, has not been back for 5 days,
+//     opted in to marketing
+//   - analytics bot cleanup: recent rows every run, all history at 03:00 UTC
+
+const LIFECYCLE_BATCH = 50;          // emails per job per run
+const BOT_CLEANUP_BATCH = 5000;      // rows per DELETE
+const BOT_CLEANUP_MAX_BATCHES = 20;  // up to 100k rows per run
+
+/** HMAC token for one-click unsubscribe links, so ids cannot be guessed. */
+async function unsubscribeToken(userId: string, secret: string): Promise<string> {
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret || 'shopshot'),
+    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`unsubscribe:${userId}`));
+  return Array.from(new Uint8Array(sig)).slice(0, 16).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function unsubscribeUrl(userId: string, secret: string): Promise<string> {
+  return `https://www.shopshot.co.uk/unsubscribe?u=${encodeURIComponent(userId)}&t=${await unsubscribeToken(userId, secret)}`;
+}
+
+/** Shared shell for lifecycle emails, matching the credit emails' style. */
+function lifecycleEmailHtml(opts: { heading: string; body: string; cta: string; ctaUrl: string; unsubscribe: string }): string {
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #F3F4F6; padding: 40px 20px; margin: 0;">
+  <div style="max-width: 480px; margin: 0 auto; background: white; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.08);">
+    <div style="background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%); padding: 32px; text-align: center;">
+      <h1 style="color: white; margin: 0; font-size: 24px; font-weight: 700;">${opts.heading}</h1>
+    </div>
+    <div style="padding: 36px 32px; color: #4B5563; font-size: 15px; line-height: 1.6;">
+      ${opts.body}
+      <a href="${opts.ctaUrl}" style="display: block; background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%); color: white; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-weight: 600; font-size: 15px; text-align: center; margin-top: 24px;">${opts.cta}</a>
+    </div>
+    <div style="background: #F9FAFB; padding: 20px 32px; text-align: center; border-top: 1px solid #E5E7EB;">
+      <p style="color: #9CA3AF; font-size: 12px; margin: 0;">Questions? Just reply to this email.<br>
+      <a href="${opts.unsubscribe}" style="color: #9CA3AF;">Stop these emails</a></p>
+    </div>
+  </div>
+</body></html>`;
+}
+
+async function sendLifecycleEmail(apiKey: string, to: string, subject: string, html: string, unsubscribe: string): Promise<boolean> {
+  try {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: 'ShopShot <noreply@shopshot.co.uk>',
+        to: [to],
+        subject,
+        html,
+        headers: { 'List-Unsubscribe': `<${unsubscribe}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' }
+      })
+    });
+    if (!response.ok) {
+      console.error('[Lifecycle Email] Resend error:', await response.text());
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.error('[Lifecycle Email] Error:', error);
+    return false;
+  }
+}
+
+/**
+ * Day 2: signed up at least two days ago (and within a fortnight) and has
+ * never uploaded a photo. An account email about credits they already hold,
+ * sent once, with an unsubscribe link.
+ */
+async function runDay2Emails(env: Bindings): Promise<{ candidates: number; sent: number; skipped?: string }> {
+  // Without a mail key, claiming users would mark them sent without sending.
+  if (!env.RESEND_API_KEY) return { candidates: 0, sent: 0, skipped: 'RESEND_API_KEY not set' };
+  const db = env.TESCO_DB;
+  const rows = await db.prepare(`
+    SELECT u.id, u.email, u.name, u.cheaper_credits, u.better_credits
+    FROM users u
+    WHERE u.email_day2_sent = 0
+      AND u.email_verified = 1
+      AND COALESCE(u.is_banned, 0) = 0
+      AND u.created_at <= datetime('now', '-2 days')
+      AND u.created_at > datetime('now', '-14 days')
+      AND NOT EXISTS (SELECT 1 FROM sessions s WHERE s.user_id = u.id)
+    LIMIT ?
+  `).bind(LIFECYCLE_BATCH).all();
+  let sent = 0;
+  for (const u of (rows.results || []) as any[]) {
+    // Claim first, so an overlapping run cannot send twice.
+    const claim = await db.prepare('UPDATE users SET email_day2_sent = 1 WHERE id = ? AND email_day2_sent = 0').bind(u.id).run();
+    if (!claim.meta || claim.meta.changes !== 1) continue;
+    const unsubscribe = await unsubscribeUrl(u.id, env.SESSION_SECRET);
+    const first = u.name ? escapeHtmlServer(String(u.name).split(' ')[0]) : 'there';
+    const html = lifecycleEmailHtml({
+      heading: 'Your free credits are waiting',
+      body: `
+        <p style="color: #1F2937; margin: 0 0 16px; font-size: 16px;">Hi ${first},</p>
+        <p style="margin: 0 0 16px;">You have <strong>${u.cheaper_credits} Standard</strong> and <strong>${u.better_credits} Pro</strong> credits in your ShopShot account and haven't used them yet.</p>
+        <p style="margin: 0 0 16px;">It takes about a minute: upload one photo of something you sell, tick the shots you want (one credit each) and get studio and lifestyle images in about 25 seconds. A phone photo on a plain background works well.</p>
+        <p style="margin: 0;">You also get ${CREDITS.DRIP_CHEAPER} more Standard credits every Monday for your first ${CREDITS.DRIP_WEEKS} weeks.</p>`,
+      cta: 'Upload a photo',
+      ctaUrl: 'https://www.shopshot.co.uk/app',
+      unsubscribe
+    });
+    if (await sendLifecycleEmail(env.RESEND_API_KEY, u.email, 'Your free ShopShot credits are waiting', html, unsubscribe)) {
+      sent++;
+    }
+  }
+  return { candidates: (rows.results || []).length, sent };
+}
+
+/**
+ * Day 7 win-back: used the product, has not been back for five days, is not
+ * subscribed, and opted in to marketing (this one is promotional, so it is
+ * consent-gated - Google signups never saw the opt-in box).
+ */
+async function runDay7Emails(env: Bindings): Promise<{ candidates: number; sent: number; skipped?: string }> {
+  // Without a mail key, claiming users would mark them sent without sending.
+  if (!env.RESEND_API_KEY) return { candidates: 0, sent: 0, skipped: 'RESEND_API_KEY not set' };
+  const db = env.TESCO_DB;
+  const rows = await db.prepare(`
+    SELECT u.id, u.email, u.name, u.cheaper_credits, u.better_credits
+    FROM users u
+    WHERE u.email_day7_sent = 0
+      AND u.marketing_consent = 1
+      AND COALESCE(u.is_banned, 0) = 0
+      AND COALESCE(u.subscription_status, 'free') != 'active'
+      AND u.created_at <= datetime('now', '-7 days')
+      AND u.created_at > datetime('now', '-30 days')
+      AND EXISTS (SELECT 1 FROM sessions s WHERE s.user_id = u.id)
+      AND NOT EXISTS (SELECT 1 FROM sessions s WHERE s.user_id = u.id AND s.created_at > datetime('now', '-5 days'))
+    LIMIT ?
+  `).bind(LIFECYCLE_BATCH).all();
+  let sent = 0;
+  for (const u of (rows.results || []) as any[]) {
+    const claim = await db.prepare('UPDATE users SET email_day7_sent = 1 WHERE id = ? AND email_day7_sent = 0').bind(u.id).run();
+    if (!claim.meta || claim.meta.changes !== 1) continue;
+    const unsubscribe = await unsubscribeUrl(u.id, env.SESSION_SECRET);
+    const first = u.name ? escapeHtmlServer(String(u.name).split(' ')[0]) : 'there';
+    const balance = u.cheaper_credits > 0
+      ? `You have <strong>${u.cheaper_credits} Standard</strong> and <strong>${u.better_credits} Pro</strong> credits ready to use, including this week's free top-up.`
+      : `You have <strong>${u.better_credits} Pro</strong> credits left, and new Standard credits arrive on Monday.`;
+    const html = lifecycleEmailHtml({
+      heading: 'Ready for your next listing?',
+      body: `
+        <p style="color: #1F2937; margin: 0 0 16px; font-size: 16px;">Hi ${first},</p>
+        <p style="margin: 0 0 16px;">${balance}</p>
+        <p style="margin: 0 0 16px;">If your first shots were not quite right, try a sharper, front-facing photo on a plain background, or switch one image to Pro quality for the hero shot. Regenerating any image costs one credit.</p>
+        <p style="margin: 0;">Need background removal only? It's free at shopshot.co.uk/tools/remove-background.</p>`,
+      cta: 'Make more shots',
+      ctaUrl: 'https://www.shopshot.co.uk/app',
+      unsubscribe
+    });
+    if (await sendLifecycleEmail(env.RESEND_API_KEY, u.email, 'Your ShopShot credits are ready', html, unsubscribe)) {
+      sent++;
+    }
+  }
+  return { candidates: (rows.results || []).length, sent };
+}
+
+/** Deletes bot page views. `full` sweeps all history; otherwise the last 2 days. */
+async function runBotCleanup(db: D1Database, full: boolean): Promise<{ deleted: number }> {
+  const window = full ? '' : `AND created_at > datetime('now', '-2 days')`;
+  let deleted = 0;
+  for (let i = 0; i < BOT_CLEANUP_MAX_BATCHES; i++) {
+    const res = await db.prepare(`
+      DELETE FROM analytics_events WHERE id IN (
+        SELECT id FROM analytics_events
+        WHERE event_type = 'page_view' ${window} AND ${BOT_CLEANUP_WHERE}
+        LIMIT ${BOT_CLEANUP_BATCH}
+      )`).run();
+    const n = res.meta?.changes || 0;
+    deleted += n;
+    if (n < BOT_CLEANUP_BATCH) break;
+  }
+  return { deleted };
+}
+
+app.post('/api/cron/run', async (c) => {
+  const secret = c.env.CRON_SECRET;
+  if (!secret || c.req.header('Authorization') !== `Bearer ${secret}`) {
+    return c.json({ error: 'Not found' }, 404);
+  }
+  const db = c.env.TESCO_DB;
+  const result: Record<string, any> = {};
+  const full = c.req.query('full') === '1' || new Date().getUTCHours() === 3;
+
+  for (const [name, job] of [
+    ['day2', () => runDay2Emails(c.env)],
+    ['day7', () => runDay7Emails(c.env)],
+    ['botCleanup', () => runBotCleanup(db, full)],
+  ] as Array<[string, () => Promise<any>]>) {
+    try {
+      result[name] = await job();
+    } catch (e: any) {
+      console.error(`[Cron] ${name} failed:`, e);
+      result[name] = { error: e?.message || String(e) };
+    }
+  }
+  result.fullCleanup = full;
+  return c.json({ success: true, ...result });
+});
+
+// One-click unsubscribe from lifecycle and marketing emails. GET shows a
+// confirmation page; POST (from the List-Unsubscribe-Post header) applies it
+// directly, as RFC 8058 requires.
+async function applyUnsubscribe(c: any): Promise<boolean> {
+  const userId = c.req.query('u') || '';
+  const token = c.req.query('t') || '';
+  if (!userId || !token || token !== await unsubscribeToken(userId, c.env.SESSION_SECRET)) return false;
+  await c.env.TESCO_DB.prepare(
+    'UPDATE users SET marketing_consent = 0, email_day2_sent = 1, email_day7_sent = 1 WHERE id = ?'
+  ).bind(userId).run();
+  return true;
+}
+
+app.post('/unsubscribe', async (c) => {
+  const ok = await applyUnsubscribe(c);
+  return c.text(ok ? 'Unsubscribed' : 'Invalid link', ok ? 200 : 400);
+});
+
+app.get('/unsubscribe', async (c) => {
+  const ok = await applyUnsubscribe(c);
+  return c.html(`<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="robots" content="noindex"><title>Email preferences - ShopShot</title></head>
+<body style="font-family: Inter, system-ui, sans-serif; background: #F9FAFB; display: flex; min-height: 100vh; align-items: center; justify-content: center; margin: 0; padding: 16px;">
+  <div style="max-width: 420px; background: white; border-radius: 16px; padding: 32px; text-align: center; box-shadow: 0 4px 20px rgba(0,0,0,0.06);">
+    <h1 style="font-size: 22px; color: #111827; margin: 0 0 12px;">${ok ? 'You have been unsubscribed' : 'That link has expired'}</h1>
+    <p style="color: #4B5563; font-size: 15px; line-height: 1.6; margin: 0 0 20px;">${ok
+      ? 'We will not send you any more tips or reminders. You will still get essential account emails, such as receipts and password resets.'
+      : 'Please use the link in your most recent email, or reply to it and we will remove you by hand.'}</p>
+    <a href="/" style="color: #7C3AED; font-weight: 600;">Back to ShopShot</a>
+  </div>
+</body></html>`, ok ? 200 : 400);
+});
+
 // Credit pack price IDs. The env vars allow replacing a price without a code
 // change; the literals are the original USD prices. For GBP checkout each one
 // needs a GBP currency option in Stripe; /api/health?deep=1 checks that.
@@ -9836,9 +10120,12 @@ app.post('/api/analytics/track', async (c) => {
     const { event, data } = await c.req.json()
     
     if (!event) return c.json({ success: false, error: 'Event required' }, 400)
+
+    const ua = c.req.header('user-agent') || ''
+    if (isBotTraffic(ua, c.req.header('referer'), null)) return c.json({ success: true })
     
-    await db.prepare(`INSERT INTO analytics_events (event_type, user_id, metadata, user_agent) VALUES (?, ?, ?, ?)`)
-      .bind(event, user?.id || null, JSON.stringify(data || {}), c.req.header('user-agent') || '').run()
+    await db.prepare(`INSERT INTO analytics_events (event_type, user_id, metadata, user_agent, as_org) VALUES (?, ?, ?, ?, ?)`)
+      .bind(String(event).slice(0, 64), user?.id || null, JSON.stringify(data || {}).slice(0, 4000), ua, (c.req.raw as any).cf?.asOrganization || null).run()
     
     return c.json({ success: true })
   } catch (error) {
@@ -20641,8 +20928,8 @@ function getDashboardPage(user: User, cur: Currency = 'USD') {
             items: [{ item_id: itemId, item_name: itemName, item_category: isSubscription ? 'subscription' : 'credit_pack', price: value, quantity: 1 }]
           });
         }
-        if (typeof gtag !== 'undefined') {
-          gtag('event', 'ads_conversion_PURCHASE_1', {
+        if (window.ssTrack) {
+          window.ssTrack('ads_conversion_PURCHASE_1', {
             'transaction_id': sessionId || undefined,
             'transaction_type': purchaseType,
             'currency': currency,
