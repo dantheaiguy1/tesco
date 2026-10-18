@@ -4,7 +4,8 @@ import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { getPrivacyPage, getTermsPage, getRefundsPage, getCookiesPage } from './legal-pages'
 import { getFaqPage, getAboutPage, getContactPage } from './info-pages'
 import { getBlogIndexPage, getBlogPostPage, getAllBlogPosts, getBlogPostMarkdown, getBlogMarkdownIndex } from './blog-pages'
-import { CREDITS, PRICING, SIGNUP_CREDITS_TOTAL, REFERRAL_CREDITS_TOTAL, IMAGES_PER_SHOOT } from './config/constants'
+import { CREDITS, PRICING, SIGNUP_CREDITS_TOTAL, REFERRAL_CREDITS_TOTAL, IMAGES_PER_SHOOT, PLAN_PRICES, PACK_PRICES, PACK_TIERS, resolveCurrency, formatMoney, planPrice, packPrice, shootsFor, WELCOME_COUPON } from './config/constants'
+import type { Currency, PlanKey, Interval, PackTier } from './config/constants'
 import { GTM_HEAD, GTM_BODY } from './config/analytics';
 
 
@@ -50,6 +51,18 @@ type Bindings = {
   STRIPE_PRICE_STARTER_ANNUAL: string;
   STRIPE_PRICE_STANDARD_ANNUAL: string;
   STRIPE_PRICE_PRO_ANNUAL: string;
+  // Credit pack price IDs. Optional: fall back to the original USD price IDs.
+  STRIPE_PRICE_PACK_STD_25?: string;
+  STRIPE_PRICE_PACK_STD_50?: string;
+  STRIPE_PRICE_PACK_STD_75?: string;
+  STRIPE_PRICE_PACK_STD_100?: string;
+  STRIPE_PRICE_PACK_PRO_25?: string;
+  STRIPE_PRICE_PACK_PRO_50?: string;
+  STRIPE_PRICE_PACK_PRO_75?: string;
+  STRIPE_PRICE_PACK_PRO_100?: string;
+  // 'true' once every Stripe price above has a GBP currency option. Until then
+  // the whole site shows and charges USD, so page and checkout always agree.
+  CURRENCY_GBP_ENABLED?: string;
   // Session
   SESSION_SECRET: string;
   // Email (Resend)
@@ -81,6 +94,7 @@ type User = {
   stripe_customer_id: string | null;
   email_verified: boolean;
   google_id: string | null;
+  currency?: Currency | null;
   subscription_interval?: 'month' | 'year';
   next_credit_grant_at?: string | null;
   subscription_period_end?: string | null;
@@ -899,7 +913,9 @@ async function sendSubscriptionNotification(
   userName: string | null, 
   planType: string,
   cheaperCredits: number,
-  betterCredits: number
+  betterCredits: number,
+  amountPaid?: string,      // what Stripe actually charged, e.g. "£63.92"
+  billingInterval?: string
 ): Promise<boolean> {
   try {
     const timestamp = new Date().toLocaleString('en-GB', { 
@@ -908,7 +924,11 @@ async function sendSubscriptionNotification(
       timeZone: 'Europe/London'
     });
     
-    const planPrice = planType === 'pro' ? '$59.99' : planType === 'starter' ? '$9.99' : '$39.99';
+    // Previously hard-coded to the pre-July prices. Use the real charge, which
+    // also reflects currency and any WELCOME20 discount.
+    const chargeLabel = amountPaid
+      ? `${amountPaid}${billingInterval === 'year' ? '/year' : '/month'}`
+      : 'see Stripe';
     const planEmoji = planType === 'pro' ? '👑' : planType === 'starter' ? '🚀' : '⭐';
     
     const response = await fetch('https://api.resend.com/emails', {
@@ -937,7 +957,7 @@ async function sendSubscriptionNotification(
               </div>
               <div style="padding: 32px;">
                 <div style="background: #F0FDF4; border: 1px solid #BBF7D0; border-radius: 8px; padding: 16px; margin-bottom: 24px; text-align: center;">
-                  <div style="color: #15803D; font-size: 28px; font-weight: 700;">${planPrice}/month</div>
+                  <div style="color: #15803D; font-size: 28px; font-weight: 700;">${chargeLabel}</div>
                   <div style="color: #166534; font-size: 13px;">Monthly Recurring Revenue</div>
                 </div>
                 
@@ -1132,7 +1152,7 @@ async function sendPasswordResetEmail(apiKey: string, to: string, resetLink: str
 // ============================================================================
 // CREDIT DEPLETION EMAILS
 // ============================================================================
-async function sendLowCreditsEmail(apiKey: string, to: string, name: string | null, standardCredits: number, proCredits: number): Promise<boolean> {
+async function sendLowCreditsEmail(apiKey: string, to: string, name: string | null, standardCredits: number, proCredits: number, cur: Currency = 'USD'): Promise<boolean> {
   try {
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -1176,7 +1196,7 @@ async function sendLowCreditsEmail(apiKey: string, to: string, name: string | nu
                   </div>
                 </div>
                 <p style="color: #4B5563; margin: 0 0 24px; font-size: 15px; line-height: 1.6;">
-                  Top up now to keep creating stunning product photos. Our Starter plan is just <strong>$9.99/month</strong> for ~11 product shoots!
+                  Top up now to keep creating product photos. Our Starter plan is just <strong>${planPrice(cur, 'starter')} a month</strong> for ${shootsFor(CREDITS.STARTER_CHEAPER)} product shoots.
                 </p>
                 <a href="https://www.shopshot.co.uk/pricing" style="display: block; background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%); color: white; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-weight: 600; font-size: 15px; text-align: center;">
                   Get More Credits →
@@ -1207,7 +1227,7 @@ async function sendLowCreditsEmail(apiKey: string, to: string, name: string | nu
   }
 }
 
-async function sendOutOfCreditsEmail(apiKey: string, to: string, name: string | null): Promise<boolean> {
+async function sendOutOfCreditsEmail(apiKey: string, to: string, name: string | null, cur: Currency = 'USD'): Promise<boolean> {
   try {
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -1244,12 +1264,12 @@ async function sendOutOfCreditsEmail(apiKey: string, to: string, name: string | 
                   <div style="font-size: 13px; color: rgba(255,255,255,0.8); margin-top: 4px;">Use code: <strong>WELCOME20</strong></div>
                 </div>
                 <p style="color: #4B5563; margin: 0 0 8px; font-size: 14px;">
-                  <strong>Plans from just $9.99/month:</strong>
+                  <strong>Plans from just ${planPrice(cur, 'starter')} a month:</strong>
                 </p>
                 <ul style="color: #6B7280; margin: 0 0 24px; padding-left: 20px; font-size: 14px; line-height: 1.8;">
-                  <li><strong>Starter</strong> - $9.99/mo (~11 shoots)</li>
-                  <li><strong>Standard</strong> - $39.99/mo (500 standard + 45 pro) ⭐</li>
-                  <li><strong>Pro</strong> - $59.99/mo (800 standard + 175 pro)</li>
+                  <li><strong>Starter</strong> - ${planPrice(cur, 'starter')}/mo (${shootsFor(CREDITS.STARTER_CHEAPER)} shoots)</li>
+                  <li><strong>Standard</strong> - ${planPrice(cur, 'standard')}/mo (${CREDITS.STANDARD_CHEAPER} standard + ${CREDITS.STANDARD_BETTER} pro) ⭐</li>
+                  <li><strong>Pro</strong> - ${planPrice(cur, 'pro')}/mo (${CREDITS.PRO_CHEAPER} standard + ${CREDITS.PRO_BETTER} pro)</li>
                 </ul>
                 <a href="https://www.shopshot.co.uk/pricing" style="display: block; background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%); color: white; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-weight: 600; font-size: 15px; text-align: center;">
                   Upgrade Now & Save 20% →
@@ -1415,13 +1435,14 @@ async function getUserFromSession(db: D1Database, sessionId: string): Promise<Us
     cheaper_credits: session.cheaper_credits || 0,
     better_credits: session.better_credits || 0,
     subscription_status: session.subscription_status,
-    subscription_plan: session.subscription_plan,
+    subscription_plan: session.plan || session.subscription_plan,
     stripe_customer_id: session.stripe_customer_id,
     role: session.role || 'user',
     is_banned: session.is_banned || 0,
     subscription_interval: session.subscription_interval || 'month',
     next_credit_grant_at: session.next_credit_grant_at || null,
-    subscription_period_end: session.subscription_period_end || null
+    subscription_period_end: session.subscription_period_end || null,
+    currency: session.currency || null
   };
 }
 
@@ -1436,6 +1457,79 @@ async function getUserFromSession(db: D1Database, sessionId: string): Promise<Us
 // authenticated requests and grant when one is due. Monthly subscribers are
 // untouched - their top-up already arrives via invoice.payment_succeeded, and
 // running both paths for them would double-grant.
+
+// ============================================================================
+// CURRENCY
+// ============================================================================
+// One decision, used for both what the page shows and what Stripe charges.
+// See resolveCurrency() in config/constants.ts.
+
+function gbpEnabled(env: Bindings): boolean {
+  return env.CURRENCY_GBP_ENABLED === 'true';
+}
+
+function currencyFor(c: any): Currency {
+  return resolveCurrency({
+    gbpEnabled: gbpEnabled(c.env),
+    country: c.req.header('cf-ipcountry'),
+    userCurrency: c.get('user')?.currency
+  });
+}
+
+// Fixed conversion for admin reporting only - never used for anything a
+// customer sees or is charged. Update occasionally; it only affects the MRR card.
+const GBP_TO_USD = 1.27;
+
+/** Monthly recurring revenue in USD from rows of { plan, interval, currency, n }. */
+function monthlyRecurringRevenueUsd(rows: Array<{ plan: string; interval: string; currency: string; n: number }>): number {
+  let total = 0;
+  for (const r of rows) {
+    const cur: Currency = r.currency === 'GBP' ? 'GBP' : 'USD';
+    const prices = (PLAN_PRICES[cur] as any)[r.plan];
+    if (!prices) continue; // 'free' and anything unknown
+    const monthly = r.interval === 'year' ? prices.year / 12 : prices.month;
+    total += monthly * r.n * (cur === 'GBP' ? GBP_TO_USD : 1);
+  }
+  return Math.round(total * 100) / 100;
+}
+
+/** "6p per credit", "$0.18 per credit" - per-credit cost of a pack. */
+function perCreditLabel(amount: number, credits: number, cur: Currency): string {
+  const each = amount / credits;
+  if (each < 1) {
+    const minor = Math.round(each * 100);
+    // Sub-unit prices read better in pence/cents for GBP; keep $0.18 style for USD.
+    return cur === 'GBP' ? `${minor}p per credit` : `$${each.toFixed(2)} per credit`;
+  }
+  return `${formatMoney(Math.round(each * 100) / 100, cur)} per credit`;
+}
+
+/**
+ * Credit pack cards for one credit type. Used on /pricing and in the paywall
+ * modal so pay-as-you-go is priced and presented identically in both places.
+ */
+function packCardsHtml(creditType: 'cheaper' | 'better', cur: Currency, opts: { loggedIn: boolean; compact?: boolean }): string {
+  const table = creditType === 'better' ? CREDITS.PACKS.BETTER : CREDITS.PACKS.CHEAPER;
+  return PACK_TIERS.map(tier => {
+    const credits = (table as any)['PACK_' + tier] as number;
+    const amount = PACK_PRICES[cur][tier];
+    const action = opts.loggedIn
+      ? `startPackCheckout('${creditType}', ${tier})`
+      : `window.location='/register?redirect=' + encodeURIComponent('/pricing#packs')`;
+    return `
+        <div class="pack-card ${creditType}" onclick="${action}">
+          <div class="pack-price">${formatMoney(amount, cur)}</div>
+          <div class="pack-credits ${creditType}">${credits} credits</div>
+          ${opts.compact ? '' : `<div class="pack-per">${perCreditLabel(amount, credits, cur)}</div>`}
+          <button class="pack-btn ${creditType}">${opts.loggedIn ? 'Buy now' : 'Sign up to buy'}</button>
+        </div>`;
+  }).join('');
+}
+
+/** Currency to record on a new account, from the country they signed up in. */
+function signupCurrency(c: any): Currency {
+  return c.req.header('cf-ipcountry') === 'GB' ? 'GBP' : 'USD';
+}
 
 /** Returns the plan's monthly allocation, or null for plans without one. */
 function monthlyAllocationFor(plan: string): { cheaper: number; better: number } | null {
@@ -1534,17 +1628,24 @@ async function deleteUserSession(db: D1Database, sessionId: string): Promise<voi
 // ============================================================================
 type CreditType = 'cheaper' | 'better';
 
+// Exactly the values production's credit_transactions.type CHECK constraint
+// accepts. Anything else makes the ledger INSERT throw - after deductCredits
+// has already changed the balance. Typing the parameter turns that runtime
+// failure into a build failure. Put the specific reason in `description`.
+type LedgerType = 'signup_bonus' | 'subscription' | 'topup' | 'generation' | 'regeneration' | 'refund';
+
 async function deductCredits(
   db: D1Database, 
   userId: string, 
   amount: number,
   creditType: CreditType,
-  type: string, 
+  type: LedgerType, 
   description: string,
   sessionId?: string,
   imageData?: string,
   ctx?: ExecutionContext,
-  resendApiKey?: string
+  resendApiKey?: string,
+  cur: Currency = 'USD'
 ): Promise<{ success: boolean; newBalance?: number; error?: string; transactionId?: string }> {
   const column = creditType === 'better' ? 'better_credits' : 'cheaper_credits';
   
@@ -1578,14 +1679,14 @@ async function deductCredits(
     // Out of credits email (both types at 0)
     if (cheaperCredits === 0 && betterCredits <= 3 && !user.email_out_credits_sent) {
       ctx.waitUntil((async () => {
-        await sendOutOfCreditsEmail(resendApiKey, user.email, user.name);
+        await sendOutOfCreditsEmail(resendApiKey, user.email, user.name, cur);
         await db.prepare('UPDATE users SET email_out_credits_sent = 1 WHERE id = ?').bind(userId).run();
       })());
     }
     // Low credits email (total <= 5 but not 0)
     else if (totalCredits <= 5 && totalCredits > 0 && !user.email_low_credits_sent) {
       ctx.waitUntil((async () => {
-        await sendLowCreditsEmail(resendApiKey, user.email, user.name, cheaperCredits, betterCredits);
+        await sendLowCreditsEmail(resendApiKey, user.email, user.name, cheaperCredits, betterCredits, cur);
         await db.prepare('UPDATE users SET email_low_credits_sent = 1 WHERE id = ?').bind(userId).run();
       })());
     }
@@ -1599,7 +1700,7 @@ async function addCredits(
   userId: string, 
   amount: number,
   creditType: CreditType,
-  type: string, 
+  type: LedgerType, 
   description: string,
   stripePaymentId?: string
 ): Promise<{ success: boolean; newBalance?: number; error?: string }> {
@@ -1890,6 +1991,27 @@ async function ensureDatabase(db: D1Database) {
     try {
       await db.prepare('CREATE INDEX IF NOT EXISTS idx_anon_gen_ip ON anonymous_generations (ip_hash, created_at)').run();
       await db.prepare('CREATE INDEX IF NOT EXISTS idx_anon_gen_session ON anonymous_generations (session_id)').run();
+    } catch (e) { /* Index exists */ }
+
+    // Columns from migration 0007. In production the migration adds these
+    // before the build that needs them is deployed; here they keep local and
+    // fresh databases in step. Each ALTER is a no-op where the column exists.
+    for (const ddl of [
+      'ALTER TABLE users ADD COLUMN plan TEXT',
+      'ALTER TABLE users ADD COLUMN currency TEXT',
+      'ALTER TABLE users ADD COLUMN drip_count INTEGER NOT NULL DEFAULT 0',
+      'ALTER TABLE users ADD COLUMN last_drip_at DATETIME',
+      'ALTER TABLE users ADD COLUMN email_day2_sent INTEGER NOT NULL DEFAULT 0',
+      'ALTER TABLE users ADD COLUMN email_day7_sent INTEGER NOT NULL DEFAULT 0',
+      "ALTER TABLE anonymous_generations ADD COLUMN kind TEXT NOT NULL DEFAULT 'preview'",
+      'ALTER TABLE generated_images ADD COLUMN image_key TEXT',
+      'ALTER TABLE credit_transactions ADD COLUMN image_key TEXT',
+      'ALTER TABLE analytics_events ADD COLUMN as_org TEXT',
+    ]) {
+      try { await db.prepare(ddl).run(); } catch (e) { /* Column exists */ }
+    }
+    try {
+      await db.prepare('CREATE INDEX IF NOT EXISTS idx_anon_gen_kind_ip ON anonymous_generations (kind, ip_hash, created_at)').run();
     } catch (e) { /* Index exists */ }
 
 
@@ -2241,6 +2363,17 @@ app.use('*', async (c, next) => {
   await next();
 });
 
+// Diagnostic endpoints are admin-only. /api/test-vertex-image generates a real,
+// billed image on every request and was reachable by anyone - including the
+// crawlers that make up over half of this site's traffic - as a plain GET.
+app.use('/api/test-*', async (c, next) => {
+  const user = c.get('user') as any;
+  if (!user || user.role !== 'admin') {
+    return c.json({ error: 'Not found' }, 404);
+  }
+  await next();
+});
+
 // ============================================================================
 // PAGE VIEW TRACKING MIDDLEWARE
 // ============================================================================
@@ -2389,7 +2522,7 @@ app.get('/api/test-vertex-image', async (c) => {
 app.get('/', (c) => {
   const user = c.get('user')
   // Always show marketing page - logged in users get "Open App" menu item
-  return c.html(getMarketingPage(user))
+  return c.html(getMarketingPage(user, currencyFor(c)))
 })
 
 // Direct app access (redirects to login if not authenticated)
@@ -2398,7 +2531,7 @@ app.get('/app', (c) => {
   if (!user) {
     return c.redirect('/get-started?redirect=/app')
   }
-  return c.html(getHomePage(user))
+  return c.html(getHomePage(user, currencyFor(c)))
 })
 
 // History page - redirect to home (now uses sidebar)
@@ -2439,14 +2572,14 @@ app.get('/reset-password', (c) => {
 app.get('/register', (c) => {
   const user = c.get('user')
   if (user) return c.redirect('/')
-  return c.html(getRegisterPage())
+  return c.html(getRegisterPage(currencyFor(c)))
 })
 
 // Get Started page (conversion-focused signup + login + value prop)
 app.get('/get-started', (c) => {
   const user = c.get('user')
   if (user) return c.redirect('/')
-  return c.html(getGetStartedPage())
+  return c.html(getGetStartedPage(currencyFor(c)))
 })
 
 // Logout page (GET for easy access)
@@ -2459,7 +2592,7 @@ app.get('/logout', async (c) => {
 app.get('/dashboard', (c) => {
   const user = c.get('user')
   if (!user) return c.redirect('/login')
-  return c.html(getDashboardPage(user))
+  return c.html(getDashboardPage(user, currencyFor(c)))
 })
 
 // Pricing page
@@ -2480,7 +2613,7 @@ app.get('/pricing', (c) => {
       pro: !!c.env.STRIPE_PRICE_PRO_ANNUAL,
     }
   }
-  return c.html(getPricingPage(user, availability))
+  return c.html(getPricingPage(user, availability, currencyFor(c)))
 })
 
 // ============================================================================
@@ -2778,16 +2911,19 @@ app.get('/api/admin/dashboard', async (c) => {
     // KPIs
     const totalUsers = await db.prepare('SELECT COUNT(*) as count FROM users').first() as any
     const activeMembers = await db.prepare("SELECT COUNT(*) as count FROM users WHERE subscription_status = 'active'").first() as any
-    const mrr = await db.prepare(`
-      SELECT SUM(
-        CASE 
-          WHEN subscription_plan = 'starter' THEN 9.99
-          WHEN subscription_plan = 'standard' THEN 39.99
-          WHEN subscription_plan = 'pro' THEN 59.99
-          ELSE 0
-        END
-      ) as mrr FROM users WHERE subscription_status = 'active'
-    `).first() as any
+    // MRR from the price list rather than SQL literals, which had drifted to
+    // the pre-July prices ($39.99 / $59.99). Annual plans count as 1/12 of the
+    // annual price. Reported in USD; GBP subscriptions are converted at
+    // GBP_TO_USD so the headline figure is one number.
+    const activeSubs = await db.prepare(`
+      SELECT COALESCE(plan, subscription_plan) AS plan,
+             COALESCE(subscription_interval, 'month') AS interval,
+             COALESCE(currency, 'USD') AS currency,
+             COUNT(*) AS n
+      FROM users WHERE subscription_status = 'active'
+      GROUP BY 1, 2, 3
+    `).all() as any
+    const mrr = { mrr: monthlyRecurringRevenueUsd(activeSubs?.results || []) }
     
     const creditsConsumed = await db.prepare(`
       SELECT SUM(ABS(amount)) as consumed FROM credit_transactions 
@@ -2814,7 +2950,7 @@ app.get('/api/admin/dashboard', async (c) => {
     
     // Recent signups list (last 7 days with details)
     const recentSignups = await db.prepare(`
-      SELECT id, name, email, created_at, subscription_plan FROM users 
+      SELECT id, name, email, created_at, COALESCE(plan, subscription_plan) AS subscription_plan FROM users 
       WHERE created_at > datetime('now', '-7 days')
       ORDER BY created_at DESC
       LIMIT 100
@@ -2822,27 +2958,30 @@ app.get('/api/admin/dashboard', async (c) => {
     
     // Recent cancellations list (last 7 days with details)
     const recentCancellations = await db.prepare(`
-      SELECT id, name, email, updated_at, subscription_plan FROM users 
+      SELECT id, name, email, updated_at, COALESCE(plan, subscription_plan) AS subscription_plan FROM users 
       WHERE subscription_status = 'canceled' AND updated_at > datetime('now', '-7 days')
       ORDER BY updated_at DESC
       LIMIT 100
     `).all() as any
     
     // Revenue by plan
-    const planBreakdown = await db.prepare(`
-      SELECT 
-        subscription_plan as plan,
-        COUNT(*) as count,
-        SUM(CASE 
-          WHEN subscription_plan = 'starter' THEN 9.99
-          WHEN subscription_plan = 'standard' THEN 39.99
-          WHEN subscription_plan = 'pro' THEN 59.99
-          ELSE 0
-        END) as revenue
-      FROM users 
-      WHERE subscription_status = 'active' OR subscription_plan = 'free'
-      GROUP BY subscription_plan
+    const planRows = await db.prepare(`
+      SELECT COALESCE(plan, subscription_plan) AS plan,
+             COALESCE(subscription_interval, 'month') AS interval,
+             COALESCE(currency, 'USD') AS currency,
+             subscription_status AS status,
+             COUNT(*) AS n
+      FROM users
+      WHERE subscription_status = 'active' OR COALESCE(plan, subscription_plan) = 'free'
+      GROUP BY 1, 2, 3, 4
     `).all() as any
+    const byPlan: Record<string, { plan: string; count: number; revenue: number }> = {}
+    for (const r of (planRows?.results || [])) {
+      const row = byPlan[r.plan] || (byPlan[r.plan] = { plan: r.plan, count: 0, revenue: 0 })
+      row.count += r.n
+      if (r.status === 'active') row.revenue += monthlyRecurringRevenueUsd([r])
+    }
+    const planBreakdown = { results: Object.values(byPlan).map(r => ({ ...r, revenue: Math.round(r.revenue * 100) / 100 })) }
     
     // Recent errors
     const recentErrors = await db.prepare(`
@@ -2907,7 +3046,7 @@ app.get('/api/admin/users/:id', async (c) => {
   try {
     const targetUser = await db.prepare(`
       SELECT id, email, name, phone, cheaper_credits, better_credits, subscription_status, 
-             subscription_plan, created_at, updated_at, role, is_banned, google_id
+             COALESCE(plan, subscription_plan) AS subscription_plan, created_at, updated_at, role, is_banned, google_id
       FROM users WHERE id = ?
     `).bind(userId).first()
     
@@ -2950,7 +3089,7 @@ app.get('/api/admin/users', async (c) => {
     if (search) {
       users = await db.prepare(`
         SELECT id, email, name, cheaper_credits, better_credits, subscription_status, 
-               subscription_plan, created_at, role, is_banned
+               COALESCE(plan, subscription_plan) AS subscription_plan, created_at, role, is_banned
         FROM users 
         WHERE email LIKE ? OR name LIKE ?
         ORDER BY created_at DESC
@@ -2959,7 +3098,7 @@ app.get('/api/admin/users', async (c) => {
     } else {
       users = await db.prepare(`
         SELECT id, email, name, cheaper_credits, better_credits, subscription_status, 
-               subscription_plan, created_at, role, is_banned
+               COALESCE(plan, subscription_plan) AS subscription_plan, created_at, role, is_banned
         FROM users 
         ORDER BY created_at DESC
         LIMIT ?
@@ -3088,7 +3227,7 @@ app.get('/api/admin/export/users', async (c) => {
   try {
     const users = await db.prepare(`
       SELECT email, name, cheaper_credits, better_credits, subscription_status, 
-             subscription_plan, created_at
+             COALESCE(plan, subscription_plan) AS subscription_plan, created_at
       FROM users 
       ORDER BY created_at DESC
     `).all() as any
@@ -3518,78 +3657,10 @@ app.get('/api/admin/analytics/generations', async (c) => {
 })
 
 // Analytics: Get feedback stats (thumbs up/down)
-app.get('/api/admin/analytics/feedback', async (c) => {
-  const user = c.get('user') as any
-  if (!user) return c.json({ success: false, error: 'Not authenticated' }, 401)
-  if (user.role !== 'admin') return c.json({ success: false, error: 'Not authorized' }, 403)
-  
-  const db = c.env.TESCO_DB
-  const days = parseInt(c.req.query('days') || '30')
-  
-  try {
-    // Overall feedback counts
-    const totals = await db.prepare(`
-      SELECT 
-        COUNT(CASE WHEN rating = 'up' THEN 1 END) as thumbs_up,
-        COUNT(CASE WHEN rating = 'down' THEN 1 END) as thumbs_down,
-        COUNT(*) as total
-      FROM image_feedback 
-      WHERE created_at > datetime('now', '-${days} days')
-    `).first() as any
-    
-    // Feedback by reason (for thumbs down)
-    const byReason = await db.prepare(`
-      SELECT feedback_reason, COUNT(*) as count
-      FROM image_feedback 
-      WHERE rating = 'down' AND feedback_reason IS NOT NULL
-        AND created_at > datetime('now', '-${days} days')
-      GROUP BY feedback_reason
-      ORDER BY count DESC
-    `).all() as any
-    
-    // Feedback by variation type
-    const byVariation = await db.prepare(`
-      SELECT variation_type, 
-        COUNT(CASE WHEN rating = 'up' THEN 1 END) as up,
-        COUNT(CASE WHEN rating = 'down' THEN 1 END) as down
-      FROM image_feedback 
-      WHERE created_at > datetime('now', '-${days} days')
-      GROUP BY variation_type
-      ORDER BY (up + down) DESC
-    `).all() as any
-    
-    // Recent feedback with user info
-    const recent = await db.prepare(`
-      SELECT f.*, u.email, u.name as user_name
-      FROM image_feedback f
-      LEFT JOIN users u ON f.user_id = u.id
-      WHERE f.created_at > datetime('now', '-${days} days')
-      ORDER BY f.created_at DESC
-      LIMIT 20
-    `).all() as any
-    
-    const thumbsUp = totals?.thumbs_up || 0
-    const thumbsDown = totals?.thumbs_down || 0
-    const total = totals?.total || 0
-    const satisfactionRate = total > 0 ? Math.round((thumbsUp / total) * 100) : 0
-    
-    return c.json({
-      success: true,
-      feedback: {
-        thumbs_up: thumbsUp,
-        thumbs_down: thumbsDown,
-        total,
-        satisfaction_rate: satisfactionRate,
-        by_reason: byReason?.results || [],
-        by_variation: byVariation?.results || [],
-        recent: recent?.results || []
-      }
-    })
-  } catch (error) {
-    console.error('Analytics feedback error:', error)
-    return c.json({ success: false, error: 'Failed to get feedback analytics' }, 500)
-  }
-})
+// /api/admin/analytics/feedback is defined once, further down. A second,
+// earlier definition used to shadow it: Hono answers with the first match, and
+// that one returned flat fields while the admin page reads feedback.overview,
+// so the feedback panel never displayed anything.
 
 // Analytics: Get user journey/funnel
 app.get('/api/admin/analytics/funnel', async (c) => {
@@ -4410,7 +4481,7 @@ app.post('/api/auth/login', async (c) => {
     }
     
     const user = await db.prepare(`
-      SELECT id, email, password_hash, name, cheaper_credits, better_credits, subscription_status, subscription_plan, stripe_customer_id, email_verified, google_id
+      SELECT id, email, password_hash, name, cheaper_credits, better_credits, subscription_status, COALESCE(plan, subscription_plan) AS subscription_plan, stripe_customer_id, email_verified, google_id
       FROM users WHERE email = ?
     `).bind(email.toLowerCase()).first() as any;
     
@@ -4898,21 +4969,31 @@ app.post('/api/billing/create-checkout', async (c) => {
     return c.json({ success: false, error: 'Invalid checkout type' }, 400);
   }
   
-  // Credit pack price IDs (Stripe)
+  // Credit pack price IDs. The env vars allow replacing a price without a code
+  // change; the literals are the original USD prices. For GBP checkout every
+  // pack price needs a GBP currency option added in Stripe (see
+  // DEPLOY_CHECKLIST.md) - /api/health?deep=1 does not check packs, so verify
+  // one GBP pack checkout by hand after enabling GBP.
+  const env = c.env;
   const PACK_PRICE_IDS: Record<string, Record<number, string>> = {
     cheaper: {
-      25: 'price_1SXofAK5jVZf8VX1YmbbaUWW',   // Standard 25
-      50: 'price_1SYWQGK5jVZf8VX1J5jY5poM',   // Standard 50
-      75: 'price_1SYWQTK5jVZf8VX1zqApkXAK',   // Standard 75
-      100: 'price_1SYWQcK5jVZf8VX1EP6g57IK',  // Standard 100
+      25: env.STRIPE_PRICE_PACK_STD_25 || 'price_1SXofAK5jVZf8VX1YmbbaUWW',
+      50: env.STRIPE_PRICE_PACK_STD_50 || 'price_1SYWQGK5jVZf8VX1J5jY5poM',
+      75: env.STRIPE_PRICE_PACK_STD_75 || 'price_1SYWQTK5jVZf8VX1zqApkXAK',
+      100: env.STRIPE_PRICE_PACK_STD_100 || 'price_1SYWQcK5jVZf8VX1EP6g57IK',
     },
     better: {
-      25: 'price_1SXofrK5jVZf8VX1JI0M5MXx',   // Pro 25
-      50: 'price_1SYWRBK5jVZf8VX1Qt1REGpZ',   // Pro 50
-      75: 'price_1SYWRKK5jVZf8VX1QauxPjTR',   // Pro 75
-      100: 'price_1SYWRUK5jVZf8VX1e59vipvr',  // Pro 100
+      25: env.STRIPE_PRICE_PACK_PRO_25 || 'price_1SXofrK5jVZf8VX1JI0M5MXx',
+      50: env.STRIPE_PRICE_PACK_PRO_50 || 'price_1SYWRBK5jVZf8VX1Qt1REGpZ',
+      75: env.STRIPE_PRICE_PACK_PRO_75 || 'price_1SYWRKK5jVZf8VX1QauxPjTR',
+      100: env.STRIPE_PRICE_PACK_PRO_100 || 'price_1SYWRUK5jVZf8VX1e59vipvr',
     }
   };
+
+  // The currency this checkout charges in. Same function as the page used to
+  // display prices, so the two cannot disagree. Stripe would otherwise pick a
+  // currency from the buyer's IP address itself.
+  const cur = currencyFor(c);
   
   // Subscription price IDs, resolved from the environment.
   //
@@ -4927,7 +5008,8 @@ app.post('/api/billing/create-checkout', async (c) => {
   // by our own webhook rather than by Stripe.
   const SUBSCRIPTION_PRICE_IDS: Record<string, Record<string, string | undefined>> = {
     month: {
-      starter:  c.env.STRIPE_PRICE_STARTER_MONTHLY || 'price_1SxnmqK5jVZf8VX1TwmwvuIs',
+      // The fallback price is USD-only, so it is not offered to GBP buyers.
+      starter:  c.env.STRIPE_PRICE_STARTER_MONTHLY || (cur === 'USD' ? 'price_1SxnmqK5jVZf8VX1TwmwvuIs' : undefined),
       standard: c.env.STRIPE_PRICE_STANDARD_MONTHLY,
       pro:      c.env.STRIPE_PRICE_PRO_MONTHLY,
     },
@@ -4988,12 +5070,16 @@ app.post('/api/billing/create-checkout', async (c) => {
     mode: mode,
     'line_items[0][price]': priceId,
     'line_items[0][quantity]': 1,
-    success_url: `${origin}/dashboard?checkout=success&type=${type}&plan=${encodeURIComponent(plan || '')}&interval=${billingInterval}&amount=${encodeURIComponent(String(amount || ''))}`,
+    // {CHECKOUT_SESSION_ID} is filled in by Stripe; the dashboard uses it as
+    // the GA4 transaction_id so a refresh cannot record the purchase twice.
+    success_url: `${origin}/dashboard?checkout=success&type=${type}&plan=${encodeURIComponent(plan || '')}&interval=${billingInterval}&amount=${encodeURIComponent(String(amount || ''))}&currency=${cur}&session_id={CHECKOUT_SESSION_ID}`,
+    currency: cur.toLowerCase(),
+    'metadata[currency]': cur,
     cancel_url: `${origin}/pricing?checkout=canceled`,
     client_reference_id: user.id,
     'metadata[user_id]': user.id,
     'metadata[type]': type === 'pack' ? 'topup' : type,
-    allow_promotion_codes: 'true' // Enable discount codes like FIRST20
+    allow_promotion_codes: 'true' // Lets buyers enter WELCOME20 (see DEPLOY_CHECKLIST.md)
   };
   
   // Add credit pack metadata if applicable
@@ -5132,17 +5218,25 @@ app.post('/api/billing/webhook', async (c) => {
             const nextGrant = billingInterval === 'year' ? addMonths(nowIso, 1) : null;
             const periodEnd = billingInterval === 'year' ? addMonths(nowIso, 12) : null;
 
+            // `plan` is authoritative. Production's subscription_plan column
+            // carries CHECK (IN 'free','standard','pro'), which rejects
+            // 'starter', so it is only kept in step where the check allows.
+            // See migrations/0007.
+            const chargedCurrency = String(session.currency || '').toUpperCase();
             await db.prepare(`
               UPDATE users SET 
                 subscription_status = 'active', 
-                subscription_plan = ?,
+                plan = ?,
+                subscription_plan = CASE WHEN ? IN ('free', 'standard', 'pro') THEN ? ELSE subscription_plan END,
                 stripe_subscription_id = ?,
                 subscription_interval = ?,
                 next_credit_grant_at = ?,
                 subscription_period_end = ?,
+                currency = CASE WHEN ? IN ('USD', 'GBP') THEN ? ELSE currency END,
                 updated_at = CURRENT_TIMESTAMP
               WHERE id = ?
-            `).bind(planType, session.subscription, billingInterval, nextGrant, periodEnd, userId).run();
+            `).bind(planType, planType, planType, session.subscription, billingInterval, nextGrant, periodEnd,
+                    chargedCurrency, chargedCurrency, userId).run();
 
             console.log(`[Webhook] User ${userId} subscription activated: ${planType}/${billingInterval}`);
             
@@ -5155,7 +5249,11 @@ app.post('/api/billing/webhook', async (c) => {
                 user.name,
                 planType,
                 cheaperCredits,
-                betterCredits
+                betterCredits,
+                typeof session.amount_total === 'number'
+                  ? formatMoney(session.amount_total / 100, chargedCurrency === 'GBP' ? 'GBP' : 'USD')
+                  : undefined,
+                billingInterval
               ).catch(err => {
                 console.error('Failed to send subscription notification:', err);
               });
@@ -5196,8 +5294,14 @@ app.post('/api/billing/webhook', async (c) => {
               ? CREDITS.PACKS.BETTER[packKey]
               : CREDITS.PACKS.CHEAPER[packKey];
             
+            // Describe the pack by what Stripe actually charged, not the tier
+            // number, which is only a dollar figure for USD buyers.
+            const packCur: Currency = String(session.currency || '').toUpperCase() === 'GBP' ? 'GBP' : 'USD';
+            const packCharged = typeof session.amount_total === 'number'
+              ? formatMoney(session.amount_total / 100, packCur)
+              : `${packAmount}-tier`;
             await addCredits(db, userId, credits, creditPackType as 'cheaper' | 'better', 'topup',
-              `$${packAmount} Credit Pack purchase - ${creditPackType === 'better' ? 'Pro' : 'Standard'} credits`,
+              `${packCharged} credit pack (${credits} ${creditPackType === 'better' ? 'Pro' : 'Standard'} credits)`,
               session.id);
             
             // Track credit pack purchase
@@ -5207,7 +5311,9 @@ app.post('/api/billing/webhook', async (c) => {
                 userId: userId,
                 metadata: {
                   type: 'credit_pack',
-                  amount_gbp: packAmount,
+                  pack_tier: packAmount,
+                  amount_paid: typeof session.amount_total === 'number' ? session.amount_total / 100 : null,
+                  currency: packCur,
                   credit_type: creditPackType,
                   credits_added: credits
                 }
@@ -5252,7 +5358,7 @@ app.post('/api/billing/webhook', async (c) => {
           if (userId) {
             // Get user's subscription plan and interval to determine what to grant
             const user = await db.prepare(
-              'SELECT subscription_plan, subscription_interval FROM users WHERE id = ?'
+              'SELECT COALESCE(plan, subscription_plan) AS subscription_plan, subscription_interval FROM users WHERE id = ?'
             ).bind(userId).first() as any;
             const planType = user?.subscription_plan || 'standard';
             const interval = user?.subscription_interval === 'year' ? 'year' : 'month';
@@ -5371,19 +5477,102 @@ app.get('/api/billing/portal', async (c) => {
 // ============================================================================
 
 // API: Health check
+// Post-deploy check. Reports which pieces of configuration are present - never
+// their values. The previous version returned secret lengths and the full list
+// of environment binding names; neither is needed to confirm a deploy.
+//
+//   GET /api/health          configuration and schema, no external calls
+//   GET /api/health?deep=1   also asks Stripe whether each configured price
+//                            exists, is active, has the expected amount and
+//                            interval, and carries a GBP option if GBP is on
 app.get('/api/health', async (c) => {
-  return c.json({ 
+  const env = c.env;
+  const db = env.TESCO_DB;
+
+  const configured = {
+    starterMonth: !!env.STRIPE_PRICE_STARTER_MONTHLY,
+    standardMonth: !!env.STRIPE_PRICE_STANDARD_MONTHLY,
+    proMonth: !!env.STRIPE_PRICE_PRO_MONTHLY,
+    starterYear: !!env.STRIPE_PRICE_STARTER_ANNUAL,
+    standardYear: !!env.STRIPE_PRICE_STANDARD_ANNUAL,
+    proYear: !!env.STRIPE_PRICE_PRO_ANNUAL,
+  };
+
+  let migrations: string | null = null;
+  let migrationsNote: string | undefined;
+  try {
+    const row = await db.prepare('SELECT name FROM d1_migrations ORDER BY id DESC LIMIT 1').first() as any;
+    migrations = row?.name || null;
+  } catch (e) {
+    migrationsNote = 'd1_migrations table missing - run scripts/baseline-d1-migrations.sql, then npm run db:migrate:prod';
+  }
+
+  let planColumn = false;
+  try {
+    const col = await db.prepare("SELECT 1 AS ok FROM pragma_table_info('users') WHERE name = 'plan'").first() as any;
+    planColumn = !!col;
+  } catch (e) { /* reported as false */ }
+
+  const body: Record<string, any> = {
     status: 'ok',
-    hasGeminiKey: !!c.env.GEMINI_API_KEY,
-    keyLength: c.env.GEMINI_API_KEY?.length || 0,
-    hasDB: !!c.env.TESCO_DB,
-    hasStripe: !!c.env.STRIPE_SECRET_KEY,
-    hasStripeWebhook: !!c.env.STRIPE_WEBHOOK_SECRET,
-    stripeKeyLength: c.env.STRIPE_SECRET_KEY?.length || 0,
-    hasResend: !!c.env.RESEND_API_KEY,
-    hasGoogleOAuth: !!c.env.GOOGLE_CLIENT_ID && !!c.env.GOOGLE_CLIENT_SECRET,
-    envKeys: Object.keys(c.env).filter(k => !k.includes('KEY') && !k.includes('SECRET'))
-  })
+    stripePrices: {
+      // Starter monthly has a working USD fallback price, so it is buyable even
+      // when its variable is unset - but only in USD.
+      starter: configured.starterMonth || !gbpEnabled(env),
+      standard: configured.standardMonth,
+      pro: configured.proMonth,
+      annual: configured.starterYear && configured.standardYear && configured.proYear,
+    },
+    migrations,
+    ...(migrationsNote ? { migrationsNote } : {}),
+    schema: { planColumn },
+    currency: { gbpEnabled: gbpEnabled(env) },
+    services: {
+      db: !!db,
+      gemini: !!env.GEMINI_API_KEY,
+      stripe: !!env.STRIPE_SECRET_KEY,
+      stripeWebhook: !!env.STRIPE_WEBHOOK_SECRET,
+      resend: !!env.RESEND_API_KEY,
+      googleOAuth: !!env.GOOGLE_CLIENT_ID && !!env.GOOGLE_CLIENT_SECRET,
+      imagesBucket: !!(env as any).IMAGES_BUCKET,
+      cronSecret: !!(env as any).CRON_SECRET,
+    },
+  };
+
+  if (c.req.query('deep') === '1' && env.STRIPE_SECRET_KEY) {
+    const expected: Array<{ name: string; id?: string; plan: PlanKey; interval: Interval }> = [
+      { name: 'starter/month', id: env.STRIPE_PRICE_STARTER_MONTHLY, plan: 'starter', interval: 'month' },
+      { name: 'standard/month', id: env.STRIPE_PRICE_STANDARD_MONTHLY, plan: 'standard', interval: 'month' },
+      { name: 'pro/month', id: env.STRIPE_PRICE_PRO_MONTHLY, plan: 'pro', interval: 'month' },
+      { name: 'starter/year', id: env.STRIPE_PRICE_STARTER_ANNUAL, plan: 'starter', interval: 'year' },
+      { name: 'standard/year', id: env.STRIPE_PRICE_STANDARD_ANNUAL, plan: 'standard', interval: 'year' },
+      { name: 'pro/year', id: env.STRIPE_PRICE_PRO_ANNUAL, plan: 'pro', interval: 'year' },
+    ];
+    const results: Record<string, string> = {};
+    for (const e of expected) {
+      if (!e.id) { results[e.name] = 'not configured'; continue; }
+      try {
+        const price = await stripeRequest(env.STRIPE_SECRET_KEY, `/prices/${encodeURIComponent(e.id)}?expand[]=currency_options`);
+        const problems: string[] = [];
+        if (!price.active) problems.push('inactive');
+        if (price.recurring?.interval !== e.interval) problems.push(`interval is ${price.recurring?.interval}`);
+        const usdCents = Math.round(PLAN_PRICES.USD[e.plan][e.interval] * 100);
+        const usd = price.currency === 'usd' ? price.unit_amount : price.currency_options?.usd?.unit_amount;
+        if (usd !== usdCents) problems.push(`USD amount ${usd} (expected ${usdCents})`);
+        if (gbpEnabled(env)) {
+          const gbpPence = Math.round(PLAN_PRICES.GBP[e.plan][e.interval] * 100);
+          const gbp = price.currency === 'gbp' ? price.unit_amount : price.currency_options?.gbp?.unit_amount;
+          if (gbp !== gbpPence) problems.push(gbp == null ? 'no GBP option' : `GBP amount ${gbp} (expected ${gbpPence})`);
+        }
+        results[e.name] = problems.length ? problems.join('; ') : 'ok';
+      } catch (err: any) {
+        results[e.name] = 'Stripe error: ' + (err?.message || 'unknown');
+      }
+    }
+    body.stripeCheck = results;
+  }
+
+  return c.json(body);
 })
 
 // API: Test POST body
@@ -6344,7 +6533,8 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
       sessionId,
       result.image, // Store the generated image with the transaction
       c.executionCtx,
-      c.env.RESEND_API_KEY
+      c.env.RESEND_API_KEY,
+      currencyFor(c)
     )
     
     // Update session stats
@@ -6604,12 +6794,13 @@ app.post('/api/regenerate-with-feedback/:sessionId/:variationIndex', async (c) =
       user.id,
       CREDITS.PER_IMAGE,
       creditType,  // 'better' or 'cheaper'
-      creditType === 'better' ? 'generation_pro' : 'generation_standard',
+      'regeneration', // was 'generation_pro'/'generation_standard', rejected by the ledger's CHECK constraint
       `Regenerated with feedback: ${variation.field} (${feedback_reason})`,
       sessionId,
       result.image,
       c.executionCtx,
-      c.env.RESEND_API_KEY
+      c.env.RESEND_API_KEY,
+      currencyFor(c)
     )
     
     // Track in analytics
@@ -6754,7 +6945,8 @@ app.post('/api/regenerate/:sessionId/:variationIndex', async (c) => {
       sessionId,
       result.image, // Store the generated image with the transaction
       c.executionCtx,
-      c.env.RESEND_API_KEY
+      c.env.RESEND_API_KEY,
+      currencyFor(c)
     )
     
     return c.json({ 
@@ -8338,7 +8530,7 @@ app.post('/api/social/generate-caption', async (c) => {
     }
     
     // Get brand knowledge - wrap in try-catch as table may be empty
-    let knowledgeText = 'ShopShot transforms one product photo into 10 professional variations in 25 seconds. Pricing: Free trial, Starter $9.99/mo, Standard $39.99/mo, Pro $59.99/mo.';
+    let knowledgeText = 'ShopShot transforms one product photo into 10 professional variations in 25 seconds. Pricing: free to try, Starter ' + planPrice('USD', 'starter') + '/mo, Standard ' + planPrice('USD', 'standard') + '/mo, Pro ' + planPrice('USD', 'pro') + '/mo (' + planPrice('GBP', 'starter') + '/' + planPrice('GBP', 'standard') + '/' + planPrice('GBP', 'pro') + ' in the UK).';
     try {
       const knowledge = await socialDb.prepare('SELECT section, content FROM brand_knowledge WHERE priority = 1').all() as any;
       if (knowledge.results?.length > 0) {
@@ -9760,7 +9952,7 @@ function getAuthPageStyles(): string {
 // ============================================================================
 // MARKETING HOMEPAGE - Sells the app to new visitors
 // ============================================================================
-function getMarketingPage(user?: User) {
+function getMarketingPage(user?: User, cur: Currency = 'USD') {
   const isLoggedIn = !!user;
   return `<!DOCTYPE html>
 <html lang="en">
@@ -10816,7 +11008,7 @@ function getMarketingPage(user?: User) {
       <!-- Free -->
       <div class="pricing-card">
         <h3>Free</h3>
-        <div class="price">$0</div>
+        <div class="price">${formatMoney(0, cur)}</div>
         <div class="price-note">One-time signup bonus</div>
         <div class="credits-row">
           <div class="credit-badge standard"><div class="count">${CREDITS.SIGNUP_CHEAPER}</div><div class="label">Standard</div></div>
@@ -10835,8 +11027,8 @@ function getMarketingPage(user?: User) {
       <!-- Starter -->
       <div class="pricing-card">
         <h3>Starter</h3>
-        <div class="price">$${PRICING.STARTER}<span>/mo</span></div>
-        <div class="price-note">~11 product shoots/month</div>
+        <div class="price">${planPrice(cur, 'starter')}<span>/mo</span></div>
+        <div class="price-note">${shootsFor(CREDITS.STARTER_CHEAPER)} product shoots a month</div>
         <div class="credits-row">
           <div class="credit-badge standard"><div class="count">${CREDITS.STARTER_CHEAPER}</div><div class="label">Standard</div></div>
           <div class="credit-badge pro"><div class="count">${CREDITS.STARTER_BETTER}</div><div class="label">Pro</div></div>
@@ -10853,7 +11045,7 @@ function getMarketingPage(user?: User) {
       <!-- Standard -->
       <div class="pricing-card featured">
         <h3>Standard</h3>
-        <div class="price">$${PRICING.STANDARD}<span>/mo</span></div>
+        <div class="price">${planPrice(cur, 'standard')}<span>/mo</span></div>
         <div class="price-note">Best for regular sellers</div>
         <div class="credits-row">
           <div class="credit-badge standard"><div class="count">${CREDITS.STANDARD_CHEAPER}</div><div class="label">Standard</div></div>
@@ -10872,7 +11064,7 @@ function getMarketingPage(user?: User) {
       <!-- Pro -->
       <div class="pricing-card">
         <h3>Pro</h3>
-        <div class="price">$${PRICING.PRO}<span>/mo</span></div>
+        <div class="price">${planPrice(cur, 'pro')}<span>/mo</span></div>
         <div class="price-note">For power sellers</div>
         <div class="credits-row">
           <div class="credit-badge standard"><div class="count">${CREDITS.PRO_CHEAPER}</div><div class="label">Standard</div></div>
@@ -11320,7 +11512,7 @@ function getMarketingPage(user?: User) {
 </html>`
 }
 
-function getHomePage(user?: User) {
+function getHomePage(user?: User, cur: Currency = 'USD') {
   const isLoggedIn = !!user;
   return `<!DOCTYPE html>
 <html lang="en">
@@ -13391,12 +13583,12 @@ function getHomePage(user?: User) {
         
         <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-bottom:16px;">
           <div style="background:#F3F4F6; border-radius:8px; padding:12px; text-align:center;">
-            <div style="font-size:18px; font-weight:700; color:#1F2937;">$9.99/mo</div>
-            <div style="font-size:12px; color:#6B7280;">Starter • ~11 shoots</div>
+            <div style="font-size:18px; font-weight:700; color:#1F2937;">${planPrice(cur, 'starter')}/mo</div>
+            <div style="font-size:12px; color:#6B7280;">Starter • ${shootsFor(CREDITS.STARTER_CHEAPER)} shoots</div>
           </div>
           <div style="background:#F0F9FF; border-radius:8px; padding:12px; text-align:center; border:2px solid #3B82F6;">
-            <div style="font-size:18px; font-weight:700; color:#1F2937;">$39.99/mo</div>
-            <div style="font-size:12px; color:#6B7280;">Standard • ~55 shoots ⭐</div>
+            <div style="font-size:18px; font-weight:700; color:#1F2937;">${planPrice(cur, 'standard')}/mo</div>
+            <div style="font-size:12px; color:#6B7280;">Standard • ${shootsFor(CREDITS.STANDARD_CHEAPER)} shoots ⭐</div>
           </div>
         </div>
         
@@ -17297,7 +17489,7 @@ function getLoginPage() {
 // ============================================================================
 // REGISTER PAGE
 // ============================================================================
-function getRegisterPage() {
+function getRegisterPage(cur: Currency = 'USD') {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -17579,17 +17771,17 @@ function getRegisterPage() {
     if (selectedPlan === 'starter') {
       title.textContent = 'Get Starter Plan';
       subtitle.textContent = 'Create account to start your subscription';
-      badge.innerHTML = '<span class="plan-badge starter">🚀 Starter Plan - ' + (selectedInterval === 'year' ? '$${PRICING.STARTER_ANNUAL}/year' : '$${PRICING.STARTER}/month') + '</span>';
+      badge.innerHTML = '<span class="plan-badge starter">🚀 Starter Plan - ' + (selectedInterval === 'year' ? '${planPrice(cur, 'starter', 'year')}/year' : '${planPrice(cur, 'starter')}/month') + '</span>';
       btn.textContent = 'Create Account & Subscribe';
     } else if (selectedPlan === 'standard') {
       title.textContent = 'Get Standard Plan';
       subtitle.textContent = 'Create account to start your subscription';
-      badge.innerHTML = '<span class="plan-badge standard">⚡ Standard Plan - ' + (selectedInterval === 'year' ? '$${PRICING.STANDARD_ANNUAL}/year' : '$${PRICING.STANDARD}/month') + '</span>';
+      badge.innerHTML = '<span class="plan-badge standard">⚡ Standard Plan - ' + (selectedInterval === 'year' ? '${planPrice(cur, 'standard', 'year')}/year' : '${planPrice(cur, 'standard')}/month') + '</span>';
       btn.textContent = 'Create Account & Subscribe';
     } else if (selectedPlan === 'pro') {
       title.textContent = 'Get Pro Plan';
       subtitle.textContent = 'Create account to start your subscription';
-      badge.innerHTML = '<span class="plan-badge pro">👑 Pro Plan - ' + (selectedInterval === 'year' ? '$${PRICING.PRO_ANNUAL}/year' : '$${PRICING.PRO}/month') + '</span>';
+      badge.innerHTML = '<span class="plan-badge pro">👑 Pro Plan - ' + (selectedInterval === 'year' ? '${planPrice(cur, 'pro', 'year')}/year' : '${planPrice(cur, 'pro')}/month') + '</span>';
       btn.textContent = 'Create Account & Subscribe';
     }
     
@@ -17887,7 +18079,7 @@ function getRegisterPage() {
 // ============================================================================
 // GET STARTED PAGE (75% Pricing Left, 25% Login Right - Light Theme)
 // ============================================================================
-function getGetStartedPage() {
+function getGetStartedPage(cur: Currency = 'USD') {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -18385,7 +18577,7 @@ function getGetStartedPage() {
         <!-- Free Plan -->
         <div class="pricing-card">
           <h3>Free</h3>
-          <div class="price">$0</div>
+          <div class="price">${formatMoney(0, cur)}</div>
           <div class="price-note">One-time signup bonus</div>
           <div class="credits">
             <div class="credit-badge standard">
@@ -18410,8 +18602,8 @@ function getGetStartedPage() {
         <!-- Starter Plan -->
         <div class="pricing-card">
           <h3>Starter</h3>
-          <div class="price">$${PRICING.STARTER}<span>/mo</span></div>
-          <div class="price-note">~11 product shoots</div>
+          <div class="price">${planPrice(cur, 'starter')}<span>/mo</span></div>
+          <div class="price-note">${shootsFor(CREDITS.STARTER_CHEAPER)} product shoots a month</div>
           <div class="credits">
             <div class="credit-badge standard">
               <div class="count">${CREDITS.STARTER_CHEAPER}</div>
@@ -18435,7 +18627,7 @@ function getGetStartedPage() {
         <!-- Standard Plan -->
         <div class="pricing-card featured">
           <h3>Standard</h3>
-          <div class="price">$${PRICING.STANDARD}<span>/mo</span></div>
+          <div class="price">${planPrice(cur, 'standard')}<span>/mo</span></div>
           <div class="price-note">Best for regular sellers</div>
           <div class="credits">
             <div class="credit-badge standard">
@@ -18461,7 +18653,7 @@ function getGetStartedPage() {
         <!-- Pro Plan -->
         <div class="pricing-card">
           <h3>Pro</h3>
-          <div class="price">$${PRICING.PRO}<span>/mo</span></div>
+          <div class="price">${planPrice(cur, 'pro')}<span>/mo</span></div>
           <div class="price-note">For power users</div>
           <div class="credits">
             <div class="credit-badge standard">
@@ -18601,7 +18793,7 @@ function getGetStartedPage() {
 // ============================================================================
 type PlanAvailability = { month: Record<string, boolean>; year: Record<string, boolean> };
 
-function getPricingPage(user?: User, availability?: PlanAvailability) {
+function getPricingPage(user?: User, availability?: PlanAvailability, cur: Currency = 'USD') {
   // Default to available so local dev and any caller without env still renders.
   const avail: PlanAvailability = availability || {
     month: { starter: true, standard: true, pro: true },
@@ -18621,8 +18813,8 @@ function getPricingPage(user?: User, availability?: PlanAvailability) {
   <title>Pricing - ShopShot</title>
   <link rel="canonical" href="https://www.shopshot.co.uk/pricing">
   ${socialTags({
-    title: 'ShopShot Pricing - Plans from $9.99/month',
-    description: 'Start free with credits for a complete 10-shot set. Paid plans from $9.99/month with a 7-day money-back guarantee. Cancel anytime.',
+    title: `ShopShot Pricing - Plans from ${planPrice(cur, 'starter')} a month`,
+    description: `Start free, no card needed. Paid plans from ${planPrice(cur, 'starter')} a month with a 7-day money-back guarantee. Cancel anytime.`,
     url: 'https://www.shopshot.co.uk/pricing'
   })}
   <link rel="icon" type="image/x-icon" href="/favicon.ico"><link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
@@ -18861,7 +19053,7 @@ function getPricingPage(user?: User, availability?: PlanAvailability) {
       <div class="plan-card ${!isStarter && !isStandard && !isPro && user ? 'current' : ''}">
         ${!isStarter && !isStandard && !isPro && user ? '<div class="badge current">Current Plan</div>' : ''}
         <div class="plan-name">Free</div>
-        <div class="plan-price">$0</div>
+        <div class="plan-price">${formatMoney(0, cur)}</div>
         <div class="plan-period">to get started</div>
         
         <div class="plan-credits">
@@ -18896,8 +19088,8 @@ function getPricingPage(user?: User, availability?: PlanAvailability) {
       <div class="plan-card ${isStarter ? 'current' : ''}">
         ${isStarter ? '<div class="badge current">Current Plan</div>' : '<div class="badge" style="background:#10B981;color:white;">New!</div>'}
         <div class="plan-name">Starter</div>
-        <div class="plan-price"><span class="price-month">$${PRICING.STARTER}<span>/mo</span></span><span class="price-year" hidden>$${PRICING.STARTER_ANNUAL}<span>/yr</span></span></div>
-        <div class="plan-period">${Math.floor(CREDITS.STARTER_CHEAPER / IMAGES_PER_SHOOT)} shoots a month</div>
+        <div class="plan-price"><span class="price-month">${planPrice(cur, 'starter')}<span>/mo</span></span><span class="price-year" hidden>${planPrice(cur, 'starter', 'year')}<span>/yr</span></span></div>
+        <div class="plan-period">${shootsFor(CREDITS.STARTER_CHEAPER)} shoots a month</div>
         
         <div class="plan-credits">
           <div class="credit-row">
@@ -18938,8 +19130,8 @@ function getPricingPage(user?: User, availability?: PlanAvailability) {
       <div class="plan-card featured ${isStandard ? 'current' : ''}">
         ${isStandard ? '<div class="badge current">Current Plan</div>' : '<div class="badge popular">Most Popular</div>'}
         <div class="plan-name">Standard</div>
-        <div class="plan-price"><span class="price-month">$${PRICING.STANDARD}<span>/mo</span></span><span class="price-year" hidden>$${PRICING.STANDARD_ANNUAL}<span>/yr</span></span></div>
-        <div class="plan-period">${Math.floor(CREDITS.STANDARD_CHEAPER / IMAGES_PER_SHOOT)} shoots a month</div>
+        <div class="plan-price"><span class="price-month">${planPrice(cur, 'standard')}<span>/mo</span></span><span class="price-year" hidden>${planPrice(cur, 'standard', 'year')}<span>/yr</span></span></div>
+        <div class="plan-period">${shootsFor(CREDITS.STANDARD_CHEAPER)} shoots a month</div>
         
         <div class="plan-credits">
           <div class="credit-row">
@@ -18980,8 +19172,8 @@ function getPricingPage(user?: User, availability?: PlanAvailability) {
       <div class="plan-card ${isPro ? 'current' : ''}">
         ${isPro ? '<div class="badge current">Current Plan</div>' : '<div class="badge best">Best Quality</div>'}
         <div class="plan-name">Pro</div>
-        <div class="plan-price"><span class="price-month">$${PRICING.PRO}<span>/mo</span></span><span class="price-year" hidden>$${PRICING.PRO_ANNUAL}<span>/yr</span></span></div>
-        <div class="plan-period">${Math.floor(CREDITS.PRO_CHEAPER / IMAGES_PER_SHOOT)} shoots a month</div>
+        <div class="plan-price"><span class="price-month">${planPrice(cur, 'pro')}<span>/mo</span></span><span class="price-year" hidden>${planPrice(cur, 'pro', 'year')}<span>/yr</span></span></div>
+        <div class="plan-period">${shootsFor(CREDITS.PRO_CHEAPER)} shoots a month</div>
         
         <div class="plan-credits">
           <div class="credit-row">
@@ -19027,34 +19219,34 @@ function getPricingPage(user?: User, availability?: PlanAvailability) {
           <tr style="border-bottom:2px solid #E5E7EB;">
             <th style="text-align:left;padding:12px 8px;font-weight:600;">Plan</th>
             <th style="text-align:center;padding:12px 8px;font-weight:600;">Price</th>
-            <th style="text-align:center;padding:12px 8px;font-weight:600;">Shoots/Month</th>
+            <th style="text-align:center;padding:12px 8px;font-weight:600;">${IMAGES_PER_SHOOT}-image shoots a month</th>
             <th style="text-align:left;padding:12px 8px;font-weight:600;">Best For</th>
           </tr>
         </thead>
         <tbody>
           <tr style="border-bottom:1px solid #E5E7EB;">
             <td style="padding:12px 8px;font-weight:500;">Free</td>
-            <td style="text-align:center;padding:12px 8px;">$0</td>
-            <td style="text-align:center;padding:12px 8px;">~1</td>
+            <td style="text-align:center;padding:12px 8px;">${formatMoney(0, cur)}</td>
+            <td style="text-align:center;padding:12px 8px;">${CREDITS.SIGNUP_CHEAPER} images, then ${CREDITS.DRIP_CHEAPER} a week for ${CREDITS.DRIP_WEEKS} weeks</td>
             <td style="padding:12px 8px;color:#6B7280;">Trying it out</td>
           </tr>
           <tr style="border-bottom:1px solid #E5E7EB;">
             <td style="padding:12px 8px;font-weight:500;">Starter</td>
-            <td style="text-align:center;padding:12px 8px;">$9.99</td>
-            <td style="text-align:center;padding:12px 8px;">~11</td>
+            <td style="text-align:center;padding:12px 8px;">${planPrice(cur, 'starter')}</td>
+            <td style="text-align:center;padding:12px 8px;">${shootsFor(CREDITS.STARTER_CHEAPER)}</td>
             <td style="padding:12px 8px;color:#6B7280;">Casual sellers, testing</td>
           </tr>
           <tr style="border-bottom:1px solid #E5E7EB;background:#F0F9FF;">
             <td style="padding:12px 8px;font-weight:600;">Standard ⭐</td>
-            <td style="text-align:center;padding:12px 8px;font-weight:600;">$39.99</td>
-            <td style="text-align:center;padding:12px 8px;font-weight:600;">~55</td>
+            <td style="text-align:center;padding:12px 8px;font-weight:600;">${planPrice(cur, 'standard')}</td>
+            <td style="text-align:center;padding:12px 8px;font-weight:600;">${shootsFor(CREDITS.STANDARD_CHEAPER)}</td>
             <td style="padding:12px 8px;color:#6B7280;">Regular sellers</td>
           </tr>
           <tr>
             <td style="padding:12px 8px;font-weight:500;">Pro</td>
-            <td style="text-align:center;padding:12px 8px;">$59.99</td>
-            <td style="text-align:center;padding:12px 8px;">~97 (premium)</td>
-            <td style="padding:12px 8px;color:#6B7280;">Quality-focused, marketing</td>
+            <td style="text-align:center;padding:12px 8px;">${planPrice(cur, 'pro')}</td>
+            <td style="text-align:center;padding:12px 8px;">${shootsFor(CREDITS.PRO_CHEAPER)}</td>
+            <td style="padding:12px 8px;color:#6B7280;">High volume, agencies</td>
           </tr>
         </tbody>
       </table>
@@ -19082,59 +19274,11 @@ function getPricingPage(user?: User, availability?: PlanAvailability) {
       </div>
       
       <!-- Cheaper/Standard Packs -->
-      <div id="packs-cheaper" class="packs-grid">
-        <div class="pack-card cheaper" onclick="${user ? "startPackCheckout('cheaper', 25)" : "window.location='/register'"}">
-          <div class="pack-price">$25</div>
-          <div class="pack-credits cheaper">${CREDITS.PACKS.CHEAPER.PACK_25} credits</div>
-          <div class="pack-per">$0.063 per credit</div>
-          <button class="pack-btn cheaper">Buy Now</button>
-        </div>
-        <div class="pack-card cheaper" onclick="${user ? "startPackCheckout('cheaper', 50)" : "window.location='/register'"}">
-          <div class="pack-price">$50</div>
-          <div class="pack-credits cheaper">${CREDITS.PACKS.CHEAPER.PACK_50} credits</div>
-          <div class="pack-per">$0.063 per credit</div>
-          <button class="pack-btn cheaper">Buy Now</button>
-        </div>
-        <div class="pack-card cheaper" onclick="${user ? "startPackCheckout('cheaper', 75)" : "window.location='/register'"}">
-          <div class="pack-price">$75</div>
-          <div class="pack-credits cheaper">${CREDITS.PACKS.CHEAPER.PACK_75} credits</div>
-          <div class="pack-per">$0.063 per credit</div>
-          <button class="pack-btn cheaper">Buy Now</button>
-        </div>
-        <div class="pack-card cheaper" onclick="${user ? "startPackCheckout('cheaper', 100)" : "window.location='/register'"}">
-          <div class="pack-price">$100</div>
-          <div class="pack-credits cheaper">${CREDITS.PACKS.CHEAPER.PACK_100} credits</div>
-          <div class="pack-per">$0.063 per credit</div>
-          <button class="pack-btn cheaper">Buy Now</button>
-        </div>
+      <div id="packs-cheaper" class="packs-grid">${packCardsHtml('cheaper', cur, { loggedIn: !!user })}
       </div>
       
       <!-- Better/Pro Packs -->
-      <div id="packs-better" class="packs-grid hidden">
-        <div class="pack-card better" onclick="${user ? "startPackCheckout('better', 25)" : "window.location='/register'"}">
-          <div class="pack-price">$25</div>
-          <div class="pack-credits better">${CREDITS.PACKS.BETTER.PACK_25} credits</div>
-          <div class="pack-per">$0.22 per credit</div>
-          <button class="pack-btn better">Buy Now</button>
-        </div>
-        <div class="pack-card better" onclick="${user ? "startPackCheckout('better', 50)" : "window.location='/register'"}">
-          <div class="pack-price">$50</div>
-          <div class="pack-credits better">${CREDITS.PACKS.BETTER.PACK_50} credits</div>
-          <div class="pack-per">$0.22 per credit</div>
-          <button class="pack-btn better">Buy Now</button>
-        </div>
-        <div class="pack-card better" onclick="${user ? "startPackCheckout('better', 75)" : "window.location='/register'"}">
-          <div class="pack-price">$75</div>
-          <div class="pack-credits better">${CREDITS.PACKS.BETTER.PACK_75} credits</div>
-          <div class="pack-per">$0.22 per credit</div>
-          <button class="pack-btn better">Buy Now</button>
-        </div>
-        <div class="pack-card better" onclick="${user ? "startPackCheckout('better', 100)" : "window.location='/register'"}">
-          <div class="pack-price">$100</div>
-          <div class="pack-credits better">${CREDITS.PACKS.BETTER.PACK_100} credits</div>
-          <div class="pack-per">$0.22 per credit</div>
-          <button class="pack-btn better">Buy Now</button>
-        </div>
+      <div id="packs-better" class="packs-grid hidden">${packCardsHtml('better', cur, { loggedIn: !!user })}
       </div>
       
       ${!user ? '<p style="text-align:center;color:#6B7280;margin-top:24px;font-size:14px;">Please <a href="/register" style="color:#3B82F6;">sign up</a> or <a href="/login" style="color:#3B82F6;">log in</a> to purchase credit packs.</p>' : ''}
@@ -19325,8 +19469,8 @@ function getPricingPage(user?: User, availability?: PlanAvailability) {
     }
 
     const PLAN_PRICES = {
-      month: { starter: ${PRICING.STARTER}, standard: ${PRICING.STANDARD}, pro: ${PRICING.PRO} },
-      year:  { starter: ${PRICING.STARTER_ANNUAL}, standard: ${PRICING.STANDARD_ANNUAL}, pro: ${PRICING.PRO_ANNUAL} }
+      month: { starter: ${PLAN_PRICES[cur].starter.month}, standard: ${PLAN_PRICES[cur].standard.month}, pro: ${PLAN_PRICES[cur].pro.month} },
+      year:  { starter: ${PLAN_PRICES[cur].starter.year}, standard: ${PLAN_PRICES[cur].standard.year}, pro: ${PLAN_PRICES[cur].pro.year} }
     };
 
     function startCheckout(plan) {
@@ -19342,7 +19486,7 @@ function getPricingPage(user?: User, availability?: PlanAvailability) {
           plan: plan,
           interval: billingInterval,
           item_category: 'subscription',
-          currency: 'USD',
+          currency: '${cur}',
           value: value,
           items: [{ item_id: plan + '_' + billingInterval, item_name: 'ShopShot ' + plan, item_category: 'subscription', price: value, quantity: 1 }]
         });
@@ -19373,13 +19517,18 @@ function getPricingPage(user?: User, availability?: PlanAvailability) {
       }
     }
     
+    // Pack tiers are identified by their USD amount (25/50/75/100); this maps a
+    // tier to what the visitor actually pays in their currency.
+    const PACK_VALUES = ${JSON.stringify(PACK_PRICES[cur])};
+
     function startPackCheckout(creditType, amount) {
+      const packValue = PACK_VALUES[amount];
       if (window.ssTrack) window.ssTrack('begin_checkout', {
         credit_type: creditType,
         item_category: 'credit_pack',
-        currency: 'USD',
-        value: amount,
-        items: [{ item_id: 'pack_' + creditType + '_' + amount, item_name: 'Credit pack', item_category: 'credit_pack', price: amount, quantity: 1 }]
+        currency: '${cur}',
+        value: packValue,
+        items: [{ item_id: 'pack_' + creditType + '_' + amount, item_name: 'Credit pack', item_category: 'credit_pack', price: packValue, quantity: 1 }]
       });
       ${!user ? 'window.location.href = "/register?redirect=" + encodeURIComponent("/pricing"); return;' : ''}
       showCheckoutModal('pack', null, creditType, amount);
@@ -19482,7 +19631,7 @@ function getPricingPage(user?: User, availability?: PlanAvailability) {
 // ============================================================================
 // DASHBOARD PAGE
 // ============================================================================
-function getDashboardPage(user: User) {
+function getDashboardPage(user: User, cur: Currency = 'USD') {
   const planName = user.subscription_plan === 'pro' ? 'Pro' : user.subscription_plan === 'standard' ? 'Standard' : 'Free';
   const totalCredits = user.cheaper_credits + user.better_credits;
   
@@ -19795,10 +19944,12 @@ function getDashboardPage(user: User) {
     }
     loadHistory();
     
-    // Purchase tracking. This previously fired only 'purchase_complete' and a
-    // Google Ads conversion, never GA4's standard 'purchase' event, and it
-    // hard-coded GBP on a site that prices in USD with no value at all - so no
-    // revenue was ever recorded.
+    // Purchase tracking: GA4's standard 'purchase' event with revenue.
+    // Currency comes from the success URL, which create-checkout fills with the
+    // currency Stripe actually charged, and the Stripe Checkout Session ID is
+    // the transaction_id. The ID is remembered so a refresh or back-navigation
+    // cannot send the same purchase twice (GA4 dedupes by transaction_id too,
+    // but only within one property and not for the Ads conversion).
     (function() {
       const urlParams = new URLSearchParams(window.location.search);
       if (urlParams.get('checkout') !== 'success') return;
@@ -19806,37 +19957,46 @@ function getDashboardPage(user: User) {
       const purchaseType = urlParams.get('type') || 'unknown';
       const plan = urlParams.get('plan') || '';
       const interval = urlParams.get('interval') === 'year' ? 'year' : 'month';
-      const packAmount = parseFloat(urlParams.get('amount') || '');
+      const packTier = parseInt(urlParams.get('amount') || '', 10);
+      const currency = urlParams.get('currency') === 'GBP' ? 'GBP' : (urlParams.get('currency') === 'USD' ? 'USD' : '${cur}');
+      const sessionId = urlParams.get('session_id') || '';
 
-      const PLAN_PRICES = {
-        month: { starter: ${PRICING.STARTER}, standard: ${PRICING.STANDARD}, pro: ${PRICING.PRO} },
-        year:  { starter: ${PRICING.STARTER_ANNUAL}, standard: ${PRICING.STANDARD_ANNUAL}, pro: ${PRICING.PRO_ANNUAL} }
-      };
+      const ALL_PLAN_PRICES = ${JSON.stringify(PLAN_PRICES)};
+      const ALL_PACK_PRICES = ${JSON.stringify(PACK_PRICES)};
 
       const isSubscription = purchaseType === 'subscription';
-      const value = isSubscription ? (PLAN_PRICES[interval] || {})[plan] : (isNaN(packAmount) ? undefined : packAmount);
-      const itemId = isSubscription ? (plan + '_' + interval) : ('pack_' + (packAmount || ''));
+      const value = isSubscription
+        ? ((ALL_PLAN_PRICES[currency] || {})[plan] || {})[interval]
+        : (ALL_PACK_PRICES[currency] || {})[packTier];
+      const itemId = isSubscription ? (plan + '_' + interval) : ('pack_' + (packTier || ''));
       const itemName = isSubscription ? ('ShopShot ' + plan) : 'Credit pack';
 
-      // GA4 standard purchase event, through the same helper as the rest of the
-      // funnel so it is consistent and carries revenue.
-      if (window.ssTrack) {
-        window.ssTrack('purchase', {
-          transaction_id: urlParams.get('session_id') || (itemId + '_' + Date.now()),
-          currency: 'USD',
-          value: value,
-          item_category: isSubscription ? 'subscription' : 'credit_pack',
-          items: [{ item_id: itemId, item_name: itemName, item_category: isSubscription ? 'subscription' : 'credit_pack', price: value, quantity: 1 }]
-        });
-      }
+      const SEEN_KEY = 'ss_purchases_tracked';
+      let seen = [];
+      try { seen = JSON.parse(localStorage.getItem(SEEN_KEY) || '[]'); } catch (e) {}
+      const alreadyTracked = sessionId && seen.indexOf(sessionId) !== -1;
 
-      // Google Ads conversion. Currency corrected from GBP to USD.
-      if (typeof gtag !== 'undefined') {
-        gtag('event', 'ads_conversion_PURCHASE_1', {
-          'transaction_type': purchaseType,
-          'currency': 'USD',
-          'value': value
-        });
+      if (!alreadyTracked) {
+        if (window.ssTrack) {
+          window.ssTrack('purchase', {
+            transaction_id: sessionId || (itemId + '_' + Date.now()),
+            currency: currency,
+            value: value,
+            items: [{ item_id: itemId, item_name: itemName, item_category: isSubscription ? 'subscription' : 'credit_pack', price: value, quantity: 1 }]
+          });
+        }
+        if (typeof gtag !== 'undefined') {
+          gtag('event', 'ads_conversion_PURCHASE_1', {
+            'transaction_id': sessionId || undefined,
+            'transaction_type': purchaseType,
+            'currency': currency,
+            'value': value
+          });
+        }
+        if (sessionId) {
+          seen.push(sessionId);
+          try { localStorage.setItem(SEEN_KEY, JSON.stringify(seen.slice(-20))); } catch (e) {}
+        }
       }
 
       // Clean up URL (remove checkout params) after tracking
