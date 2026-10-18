@@ -103,6 +103,8 @@ type User = {
   subscription_interval?: 'month' | 'year';
   next_credit_grant_at?: string | null;
   subscription_period_end?: string | null;
+  created_at?: string | null;
+  drip_count?: number;
 }
 
 type Variables = {
@@ -1447,8 +1449,65 @@ async function getUserFromSession(db: D1Database, sessionId: string): Promise<Us
     subscription_interval: session.subscription_interval || 'month',
     next_credit_grant_at: session.next_credit_grant_at || null,
     subscription_period_end: session.subscription_period_end || null,
-    currency: session.currency || null
-  };
+    currency: session.currency || null,
+    created_at: session.created_at || null,
+    // Missing column (migration not yet applied) reads as fully dripped.
+    drip_count: session.drip_count ?? CREDITS.DRIP_WEEKS
+  } as User;
+}
+
+// ============================================================================
+// FREE WEEKLY DRIP
+// ============================================================================
+// Free accounts get CREDITS.DRIP_CHEAPER Standard credits on each of the first
+// CREDITS.DRIP_WEEKS Mondays (00:00 UTC) after signup, as a reason to come
+// back. Like annual accrual this is lazy - granted on the user's next request
+// that week - because Pages has no cron. A missed week lapses rather than
+// piling up: the point is a weekly visit, and it bounds the cost of a free
+// account at 6 + 2 + 16 images.
+
+/** How many Mondays 00:00 UTC have passed since `createdAt`. */
+function dripWeeksDue(createdAt: string, now: number): number {
+  const created = Date.parse(createdAt.includes('T') ? createdAt : createdAt.replace(' ', 'T') + 'Z');
+  if (isNaN(created)) return 0;
+  const d = new Date(created);
+  const startOfDay = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  const daysToMonday = ((8 - d.getUTCDay()) % 7) || 7; // next Monday, never the signup day itself
+  const firstMonday = startOfDay + daysToMonday * 86400000;
+  if (now < firstMonday) return 0;
+  return 1 + Math.floor((now - firstMonday) / (7 * 86400000));
+}
+
+async function accrueFreeDrip(db: D1Database, user: User): Promise<User> {
+  const given = user.drip_count ?? CREDITS.DRIP_WEEKS;
+  if (given >= CREDITS.DRIP_WEEKS || !user.created_at) return user;
+  // Paying customers have a plan allocation instead.
+  if (user.subscription_status === 'active' && user.subscription_plan && user.subscription_plan !== 'free') return user;
+
+  const due = dripWeeksDue(user.created_at, Date.now());
+  // Nothing new this week, or the four-week window has closed.
+  if (due <= given || due > CREDITS.DRIP_WEEKS) return user;
+
+  // Conditional on drip_count so two concurrent requests cannot both grant.
+  const res = await db.prepare(`
+    UPDATE users
+    SET cheaper_credits = cheaper_credits + ?, drip_count = ?, last_drip_at = CURRENT_TIMESTAMP,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = ? AND drip_count = ?
+    RETURNING cheaper_credits
+  `).bind(CREDITS.DRIP_CHEAPER, due, user.id, given).first() as any;
+  if (!res) return user;
+
+  user.cheaper_credits = Number(res.cheaper_credits);
+  user.drip_count = due;
+  await db.prepare(`
+    INSERT INTO credit_transactions (id, user_id, amount, balance_after, credit_type, type, description)
+    VALUES (?, ?, ?, ?, 'cheaper', 'signup_bonus', ?)
+  `).bind(
+    generateId(), user.id, CREDITS.DRIP_CHEAPER, user.cheaper_credits,
+    `Weekly free credits (week ${due} of ${CREDITS.DRIP_WEEKS})`
+  ).run();
+  return user;
 }
 
 // ============================================================================
@@ -1531,7 +1590,6 @@ function packCardsHtml(creditType: 'cheaper' | 'better', cur: Currency, opts: { 
   }).join('');
 }
 
-/** Currency to record on a new account, from the country they signed up in. */
 /** Escapes text for interpolation into server-rendered HTML. */
 function escapeHtmlServer(text: unknown): string {
   return String(text ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch] as string));
@@ -1547,6 +1605,7 @@ function safeRedirectPath(value: unknown, fallback = '/app'): string {
   return value;
 }
 
+/** Currency to record on a new account, from the country they signed up in. */
 function signupCurrency(c: any): Currency {
   return c.req.header('cf-ipcountry') === 'GB' ? 'GBP' : 'USD';
 }
@@ -1669,20 +1728,22 @@ async function deductCredits(
 ): Promise<{ success: boolean; newBalance?: number; error?: string; transactionId?: string }> {
   const column = creditType === 'better' ? 'better_credits' : 'cheaper_credits';
   
-  // Get current balance and user info for potential email
-  const user = await db.prepare(`SELECT ${column} as balance, cheaper_credits, better_credits, email, name, email_low_credits_sent, email_out_credits_sent FROM users WHERE id = ?`).bind(userId).first() as any;
-  if (!user) return { success: false, error: 'User not found' };
-  
-  if (user.balance < amount) {
+  // Deduct atomically. This used to read the balance and write back
+  // balance - amount, so the ten parallel requests from /app overwrote each
+  // other: 89 of 1,621 production generation charges were lost that way.
+  const user = await db.prepare(`
+    UPDATE users SET ${column} = ${column} - ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ? AND ${column} >= ?
+    RETURNING ${column} AS balance, cheaper_credits, better_credits, email, name, email_low_credits_sent, email_out_credits_sent
+  `).bind(amount, userId, amount).first() as any;
+  if (!user) {
     return { success: false, error: `Insufficient ${creditType} credits` };
   }
   
-  const newBalance = user.balance - amount;
+  const newBalance = Number(user.balance);
   const transactionId = generateId();
   
-  // Update balance and log transaction
-  await db.prepare(`UPDATE users SET ${column} = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
-    .bind(newBalance, userId).run();
+  // Log transaction
   
   await db.prepare(`
     INSERT INTO credit_transactions (id, user_id, amount, balance_after, credit_type, type, description, session_id, image_data)
@@ -1726,14 +1787,15 @@ async function addCredits(
 ): Promise<{ success: boolean; newBalance?: number; error?: string }> {
   const column = creditType === 'better' ? 'better_credits' : 'cheaper_credits';
   
-  const user = await db.prepare(`SELECT ${column} as balance FROM users WHERE id = ?`).bind(userId).first() as any;
+  // Atomic, for the same reason as deductCredits.
+  const user = await db.prepare(`
+    UPDATE users SET ${column} = ${column} + ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ? RETURNING ${column} AS balance
+  `).bind(amount, userId).first() as any;
   if (!user) return { success: false, error: 'User not found' };
   
-  const newBalance = user.balance + amount;
+  const newBalance = Number(user.balance);
   const transactionId = generateId();
-  
-  await db.prepare(`UPDATE users SET ${column} = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
-    .bind(newBalance, userId).run();
   
   await db.prepare(`
     INSERT INTO credit_transactions (id, user_id, amount, balance_after, credit_type, type, description, stripe_payment_id)
@@ -2377,6 +2439,14 @@ app.use('*', async (c, next) => {
           console.error('[Accrual] Failed:', e);
         }
       }
+      // Free weekly top-up during the first weeks. No query unless one is due.
+      if ((user.drip_count ?? CREDITS.DRIP_WEEKS) < CREDITS.DRIP_WEEKS) {
+        try {
+          user = await accrueFreeDrip(db, user);
+        } catch (e) {
+          console.error('[Drip] Failed:', e);
+        }
+      }
       c.set('user', user);
     }
   }
@@ -2623,7 +2693,8 @@ app.get('/pricing', (c) => {
   // 503 from create-checkout. Better to say so up front.
   const availability = {
     month: {
-      starter: !!(c.env.STRIPE_PRICE_STARTER_MONTHLY || true), // has a valid $9.99 fallback
+      // The fallback Starter price is USD-only (see create-checkout)
+      starter: !!c.env.STRIPE_PRICE_STARTER_MONTHLY || currencyFor(c) === 'USD',
       standard: !!c.env.STRIPE_PRICE_STANDARD_MONTHLY,
       pro: !!c.env.STRIPE_PRICE_PRO_MONTHLY,
     },
@@ -6471,6 +6542,8 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
   const clientEmail = c.env.VERTEX_CLIENT_EMAIL
   const privateKey = c.env.VERTEX_PRIVATE_KEY
   
+  // Set once a credit has been reserved, so an unexpected error refunds it.
+  let reserved: { creditType: CreditType; label: string } | null = null
   try {
     const body = await c.req.json().catch(() => ({}))
     const originalImage = body.originalImage
@@ -6501,6 +6574,13 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
     
     if (!originalImage || originalImage.length < 100) {
       return c.json({ success: false, error: 'No image provided', field: variationDefinitions[variationIndex]?.field }, 400)
+    }
+
+    // The session must belong to this user: it is charged and written to below.
+    const owned = await db.prepare('SELECT 1 AS ok FROM sessions WHERE id = ? AND user_id = ?')
+      .bind(sessionId, user.id).first()
+    if (!owned) {
+      return c.json({ success: false, error: 'Session not found', field: variationDefinitions[variationIndex]?.field }, 404)
     }
     
     // Check for API credentials (prefer Gemini Direct, fallback to Vertex)
@@ -6551,6 +6631,35 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
     const modelInfo = MODEL_INFO[modelKey] || MODEL_INFO[DEFAULT_MODEL]
     console.log(`[${variation.field}] Generating with ${modelInfo.name} (${modelKey}) using ${creditTypeName} credits...`)
     
+    // Reserve the credit BEFORE generating. Charging after success let ten
+    // parallel requests all pass the balance check, so a user with 6 credits
+    // received 10 images. A failed generation refunds the credit below.
+    const creditResult = await deductCredits(
+      db,
+      user.id,
+      CREDITS.PER_IMAGE,
+      creditType,
+      'generation',
+      `Image: ${variation.label} (${creditTypeName})`,
+      sessionId,
+      undefined,
+      c.executionCtx,
+      c.env.RESEND_API_KEY,
+      currencyFor(c)
+    )
+    if (!creditResult.success) {
+      return c.json({
+        success: false,
+        error: `Insufficient ${creditTypeName} credits`,
+        required: CREDITS.PER_IMAGE,
+        current: 0,
+        creditType,
+        needsUpgrade: true,
+        field: variation.field
+      }, 402)
+    }
+    reserved = { creditType, label: variation.label }
+
     const startTime = Date.now()
     
     // Extract mime type and base64 data from data URL
@@ -6603,24 +6712,12 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
     
     if (!result.success) {
       console.error(`[${variation.field}] API error:`, result.error)
-      // NO credit deduction on failure
+      // Failed images are free: give the reserved credit back.
+      await addCredits(db, user.id, CREDITS.PER_IMAGE, creditType, 'refund', `Refund: ${variation.label} failed`)
+      reserved = null
       return c.json({ success: false, error: result.error, field: variation.field }, 500)
     }
-    
-    // SUCCESS: Deduct 1 credit for this image (and store the generated image)
-    const creditResult = await deductCredits(
-      db,
-      user.id,
-      CREDITS.PER_IMAGE,
-      creditType,
-      'generation',
-      `Image: ${variation.label} (${creditTypeName})`,
-      sessionId,
-      result.image, // Store the generated image with the transaction
-      c.executionCtx,
-      c.env.RESEND_API_KEY,
-      currencyFor(c)
-    )
+    reserved = null
     
     // Update session stats
     await db.prepare('UPDATE sessions SET generation_count = generation_count + 1, credits_charged = credits_charged + 1 WHERE id = ?')
@@ -6676,7 +6773,10 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
       })
     );
     
-    // NO credit deduction on error
+    // Refund a credit reserved before the error
+    if (reserved) {
+      await addCredits(db, user.id, CREDITS.PER_IMAGE, reserved.creditType, 'refund', `Refund: ${reserved.label} failed`).catch(() => {})
+    }
     return c.json({ success: false, error: errorMsg, field: variationDefinitions[variationIndex]?.field || 'unknown' }, 500)
   }
 })
@@ -12415,6 +12515,17 @@ function getHomePage(user?: User, cur: Currency = 'USD') {
     
     /* Upload zone - glassmorphism (75% size) */
     .upload-zone-focus { outline: 3px solid #8B5CF6; outline-offset: 4px; }
+    .shot-picker { margin: 4px 0 12px; padding: 12px; background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 12px; }
+    .shot-picker-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+    .shot-picker-title { font-size: 13px; font-weight: 700; color: #334155; }
+    .shot-picker-actions button { background: none; border: none; color: #7C3AED; font-size: 12px; font-weight: 600; cursor: pointer; padding: 2px 6px; }
+    .shot-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+    .shot-option { display: flex; align-items: center; gap: 8px; padding: 7px 9px; background: white; border: 1px solid #E2E8F0; border-radius: 8px; font-size: 12.5px; color: #334155; cursor: pointer; }
+    .shot-option:has(input:checked) { border-color: #A78BFA; background: #F5F3FF; }
+    .shot-option input { accent-color: #7C3AED; width: 15px; height: 15px; flex-shrink: 0; }
+    .shot-note { margin-top: 8px; font-size: 12px; color: #64748B; }
+    .shot-note.short { color: #B45309; font-weight: 600; }
+    .shot-note a { color: #7C3AED; font-weight: 600; }
     .upload-zone:focus-visible { outline: 3px solid #8B5CF6; outline-offset: 4px; }
     .upload-zone {
       width: 100%;
@@ -13744,6 +13855,18 @@ function getHomePage(user?: User, cur: Currency = 'USD') {
       text-align: center;
     }
     .paywall-icon { font-size: 48px; margin-bottom: 16px; }
+    .paywall-modal { max-height: 92vh; overflow-y: auto; }
+    .paywall-packs { margin: 4px 0 16px; }
+    .paywall-packs-title { font-size: 13px; font-weight: 700; color: #374151; margin-bottom: 8px; }
+    .paywall-packs-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+    .paywall-packs .pack-card { padding: 8px 4px; border: 1px solid #E5E7EB; border-radius: 10px; cursor: pointer; background: #F9FAFB; }
+    .paywall-packs .pack-card:hover { border-color: #8B5CF6; background: white; }
+    .paywall-packs .pack-price { font-size: 16px; font-weight: 800; color: #1F2937; }
+    .paywall-packs .pack-credits { font-size: 11px; font-weight: 600; color: #059669; margin: 2px 0 6px; }
+    .paywall-packs .pack-credits.better { color: #7C3AED; }
+    .paywall-packs .pack-btn { width: 100%; border: none; border-radius: 6px; padding: 5px 0; font-size: 11px; font-weight: 700; color: white; background: #10B981; cursor: pointer; }
+    .paywall-packs .pack-btn.better { background: #7C3AED; }
+    @media (max-width: 420px) { .paywall-packs-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
     .paywall-title { font-size: 22px; font-weight: 700; color: #1F2937; margin-bottom: 8px; }
     .paywall-text { font-size: 14px; color: #6B7280; margin-bottom: 24px; line-height: 1.5; }
     .paywall-credits { display: flex; justify-content: center; gap: 8px; margin-bottom: 16px; }
@@ -13897,9 +14020,16 @@ function getHomePage(user?: User, cur: Currency = 'USD') {
           </div>
         </div>
         
+        <!-- Pay as you go: same packs and prices as /pricing -->
+        <div class="paywall-packs">
+          <div class="paywall-packs-title">Or top up, no subscription</div>
+          <div class="paywall-packs-grid" id="paywall-packs-cheaper">${packCardsHtml('cheaper', cur, { loggedIn: true, compact: true })}</div>
+          <div class="paywall-packs-grid" id="paywall-packs-better" style="display:none">${packCardsHtml('better', cur, { loggedIn: true, compact: true })}</div>
+        </div>
+
         <div class="paywall-btns">
           <a href="/pricing" class="paywall-btn paywall-btn-primary" style="background:linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%)">
-            🚀 Get More Credits
+            🚀 See All Plans
           </a>
           <button onclick="closePaywall()" class="paywall-btn paywall-btn-secondary">Maybe Later</button>
         </div>
@@ -13973,7 +14103,7 @@ function getHomePage(user?: User, cur: Currency = 'USD') {
 
         <div class="upload-header">
           <h1>Upload Your Product Photo</h1>
-          <p>Upload your best shot - get 10 professional variations in ~25 seconds</p>
+          <p>Upload your best shot, then choose up to 10 professional shots. Ready in about 25 seconds.</p>
         </div>
 
       <!-- Upload Zone -->
@@ -14040,7 +14170,7 @@ function getHomePage(user?: User, cur: Currency = 'USD') {
           </button>
         </div>
         <div id="model-credit-info" class="model-credit-info">
-          <strong>10 <span id="selected-credit-type">Standard</span> credits</strong> will be used for this generation. 
+          <strong><span id="selected-shot-count">10</span> <span id="selected-credit-type">Standard</span> credits</strong> will be used for this generation. 
           You have: <strong id="available-credit-count">--</strong> <span id="credit-type-label">Standard</span> credits
         </div>
         <div id="nano-warning" class="nano-warning">
@@ -14115,6 +14245,19 @@ function getHomePage(user?: User, cur: Currency = 'USD') {
           <i class="fas fa-layer-group" style="color:#F97316;"></i>
           <span>Batch Mode</span>
         </button>
+      </div>
+
+      <!-- Shot picker: one credit per ticked image -->
+      <div id="shot-picker" class="shot-picker">
+        <div class="shot-picker-head">
+          <span class="shot-picker-title">Choose your shots</span>
+          <span class="shot-picker-actions">
+            <button type="button" onclick="shotPickAll(true)">All</button>
+            <button type="button" onclick="shotPickAll(false)">None</button>
+          </span>
+        </div>
+        <div id="shot-grid" class="shot-grid"></div>
+        <div id="shot-note" class="shot-note">1 credit per image.</div>
       </div>
 
       <!-- Generate Button -->
@@ -14334,10 +14477,41 @@ function getHomePage(user?: User, cur: Currency = 'USD') {
         }
       }
       
+      // Show the packs for the credit type they ran out of
+      const isPro = creditType === 'better';
+      const stdPacks = document.getElementById('paywall-packs-cheaper');
+      const proPacks = document.getElementById('paywall-packs-better');
+      if (stdPacks) stdPacks.style.display = isPro ? 'none' : 'grid';
+      if (proPacks) proPacks.style.display = isPro ? 'grid' : 'none';
+
       // Update credits indicator
       updateCreditsDisplay();
       
       if (modal) modal.classList.add('show');
+    }
+
+    // Credit pack checkout from the paywall. Prices match /pricing because
+    // both come from PACK_PRICES; currency matches checkout via currencyFor().
+    const PAYWALL_PACK_VALUES = ${JSON.stringify(PACK_PRICES[cur])};
+    async function startPackCheckout(creditType, amount) {
+      const value = PAYWALL_PACK_VALUES[amount];
+      if (window.ssTrack) window.ssTrack('begin_checkout', {
+        currency: '${cur}',
+        value: value,
+        items: [{ item_id: 'pack_' + creditType + '_' + amount, item_name: 'Credit pack', item_category: 'credit_pack', price: value, quantity: 1 }]
+      });
+      try {
+        const res = await fetch('/api/billing/create-checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'pack', creditType: creditType, amount: amount })
+        });
+        const data = await res.json();
+        if (data.success && data.url) { window.location.href = data.url; return; }
+        showError(data.error || 'Could not start checkout. Please try again.');
+      } catch (e) {
+        showError('Could not start checkout. Please try again.');
+      }
     }
     
     // Check if user has enough credits for the selected model
@@ -14384,6 +14558,79 @@ function getHomePage(user?: User, cur: Currency = 'USD') {
       nano: { name: 'Pro', time: '~10-15 min' },
       flash: { name: 'Standard', time: '~25s' }
     };
+
+    // ----- Shot picker -----
+    // Each ticked shot costs one credit, so users choose what to spend on.
+    // Indexes refer to variationDefs (0 is the original photo).
+    let selectedShots = new Set();
+    let shotPickerTouched = false;
+    // When the balance cannot cover every shot, preselect the most useful
+    // ones first: listing hero, lifestyle, then detail shots.
+    const SHOT_PRIORITY = ['hero_white', 'environment_context', 'inuse_action', 'flatlay_styled', 'scale_reference', 'multi_angle', 'macro_texture', 'label_branding', 'construction_detail', 'color_finish'];
+
+    function shotBalance() {
+      const v = selectedModel === 'nano' ? window.currentBetterCredits : window.currentCheaperCredits;
+      return typeof v === 'number' ? v : null;
+    }
+
+    function renderShotPicker(resetSelection) {
+      const grid = document.getElementById('shot-grid');
+      if (!grid) return;
+      if (resetSelection) {
+        selectedShots = new Set();
+        for (let i = 1; i < variationDefs.length; i++) selectedShots.add(i);
+        const bal = shotBalance();
+        if (!shotPickerTouched && bal !== null && bal < selectedShots.size) {
+          const order = Array.from(selectedShots).sort((a, b) => {
+            const pa = SHOT_PRIORITY.indexOf(variationDefs[a].field), pb = SHOT_PRIORITY.indexOf(variationDefs[b].field);
+            return (pa === -1 ? 99 : pa) - (pb === -1 ? 99 : pb);
+          });
+          selectedShots = new Set(order.slice(0, Math.max(0, bal)));
+        }
+      }
+      grid.innerHTML = variationDefs.map((v, i) => {
+        if (v.isOriginal) return '';
+        const name = v.label.replace(/^\\d+\\.\\s*/, '');
+        return '<label class="shot-option"><input type="checkbox" ' + (selectedShots.has(i) ? 'checked ' : '') +
+          'onchange="shotToggle(' + i + ', this.checked)"><span>' + name + '</span></label>';
+      }).join('');
+      updateGenerateLabel();
+    }
+
+    function shotToggle(i, on) {
+      shotPickerTouched = true;
+      if (on) selectedShots.add(i); else selectedShots.delete(i);
+      updateGenerateLabel();
+    }
+
+    function shotPickAll(on) {
+      shotPickerTouched = true;
+      selectedShots = new Set();
+      if (on) for (let i = 1; i < variationDefs.length; i++) selectedShots.add(i);
+      renderShotPicker(false);
+    }
+
+    function updateGenerateLabel() {
+      const countEl = document.getElementById('selected-shot-count');
+      if (countEl) countEl.textContent = selectedShots.size;
+      const btn = document.getElementById('generate-btn');
+      const note = document.getElementById('shot-note');
+      const n = selectedShots.size;
+      const bal = shotBalance();
+      const kind = selectedModel === 'nano' ? 'Pro' : 'Standard';
+      if (note) {
+        if (bal !== null && n > bal) {
+          note.className = 'shot-note short';
+          note.innerHTML = n + ' shots need ' + n + ' ' + kind + ' credits and you have ' + bal + '. Untick some, or <a href="/pricing">get more credits</a>.';
+        } else {
+          note.className = 'shot-note';
+          note.textContent = '1 credit per image. ' + n + ' selected' + (bal !== null ? ', you have ' + bal + ' ' + kind + ' credits.' : '.');
+        }
+      }
+      if (btn && btn.textContent !== 'Uploading...') {
+        btn.textContent = n === 0 ? 'Choose at least one shot' : 'Generate ' + n + ' shot' + (n === 1 ? '' : 's') + ' (' + n + ' credit' + (n === 1 ? '' : 's') + ')';
+      }
+    }
 
     // Sidebar
     // First-run welcome panel. Shows on ?welcome=1 (set by the post-signup
@@ -14561,6 +14808,8 @@ function getHomePage(user?: User, cur: Currency = 'USD') {
         if (creditCountEl) creditCountEl.textContent = window.currentCheaperCredits || '--';
       }
       
+      updateGenerateLabel();
+
       // Show warning for Nano Banana Pro (preview model with rate limits)
       const warning = document.getElementById('nano-warning');
       if (warning) {
@@ -14678,7 +14927,7 @@ function getHomePage(user?: User, cur: Currency = 'USD') {
           loadSessions();
           // Enable generate button now that upload is complete
           document.getElementById('generate-btn').disabled = false;
-          document.getElementById('generate-btn').textContent = 'Generate 10 Professional Shots';
+          document.getElementById('generate-btn').textContent = ''; updateGenerateLabel();
         } else if (data.needsAuth) {
           // Server says not authenticated - redirect to signup
           window.location.href = '/get-started?redirect=' + encodeURIComponent(window.location.pathname);
@@ -14688,14 +14937,14 @@ function getHomePage(user?: User, cur: Currency = 'USD') {
           showError(data.error || 'Upload failed');
           // Reset button on error
           document.getElementById('generate-btn').disabled = false;
-          document.getElementById('generate-btn').textContent = 'Generate 10 Professional Shots';
+          document.getElementById('generate-btn').textContent = ''; updateGenerateLabel();
         }
       } catch (e) { 
         console.error('Upload failed:', e);
         showError('Upload failed. Please try again.');
         // Reset button on error
         document.getElementById('generate-btn').disabled = false;
-        document.getElementById('generate-btn').textContent = 'Generate 10 Professional Shots';
+        document.getElementById('generate-btn').textContent = ''; updateGenerateLabel();
       }
     }
 
@@ -14722,6 +14971,16 @@ function getHomePage(user?: User, cur: Currency = 'USD') {
       } catch (e) {
         // Auth check failed - redirect to signup
         window.location.href = '/get-started?redirect=' + encodeURIComponent(window.location.pathname);
+        return;
+      }
+
+      if (selectedShots.size === 0) {
+        showError('Tick at least one shot to generate.');
+        return;
+      }
+      const bal = shotBalance();
+      if (bal !== null && selectedShots.size > bal) {
+        showPaywallModal(selectedShots.size, bal, selectedModel === 'nano' ? 'better' : 'cheaper');
         return;
       }
 
@@ -14757,7 +15016,9 @@ function getHomePage(user?: User, cur: Currency = 'USD') {
       const grid = document.getElementById('thumb-grid');
       lightboxImages = [];
       
+      const chosen = Array.from(selectedShots).sort((a, b) => a - b);
       grid.innerHTML = variationDefs.map((v, i) => {
+        if (!v.isOriginal && !selectedShots.has(i)) return '';
         if (v.isOriginal) {
           lightboxImages.push({ src: currentOriginalImage, label: 'Original' });
           return '<div class="image-card" id="card-' + i + '">' +
@@ -14779,7 +15040,7 @@ function getHomePage(user?: User, cur: Currency = 'USD') {
       console.log('[Generate] Starting ALL ' + (variationDefs.length - 1) + ' variations in parallel...');
       
       const allPromises = [];
-      for (let i = 1; i < variationDefs.length; i++) {
+      for (const i of chosen) {
         allPromises.push(generateSingle(i, startTime));
       }
       
@@ -14790,7 +15051,7 @@ function getHomePage(user?: User, cur: Currency = 'USD') {
       if (window.ssTrack) {
         const rendered = document.querySelectorAll('.image-card img').length;
         window.ssTrack('generation_complete', {
-          variations_requested: variationDefs.length,
+          variations_requested: chosen.length,
           variations_rendered: rendered,
           seconds_elapsed: Math.round((Date.now() - startTime) / 1000)
         });
@@ -15477,8 +15738,10 @@ function getHomePage(user?: User, cur: Currency = 'USD') {
           }
           
           // Store current credits for paywall checks
+          const firstLoad = typeof window.currentCheaperCredits !== 'number';
           window.currentCheaperCredits = cheaperCredits;
           window.currentBetterCredits = betterCredits;
+          if (typeof renderShotPicker === 'function') renderShotPicker(firstLoad);
           
           // Update the model-specific credit display
           const creditCountEl = document.getElementById('available-credit-count');
@@ -16466,6 +16729,7 @@ function getHomePage(user?: User, cur: Currency = 'USD') {
         variationDefs.length = 0;
         newDefs.forEach(d => variationDefs.push(d));
       }
+      if (typeof renderShotPicker === 'function') { renderShotPicker(true); return; }
       
       // Update generate button text
       const genBtn = document.getElementById('generate-btn');
