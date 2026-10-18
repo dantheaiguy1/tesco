@@ -195,7 +195,18 @@ Run in a private window.
 - [ ] `/pricing` shows Starter, Standard and Pro, the annual toggle changes the
       prices, and credit packs are listed. From a UK connection with GBP enabled
       every price is in £; from elsewhere in $.
-- [ ] `/tools/remove-background` works without an account.
+- [ ] `/tools/remove-background` works without an account, with no
+      watermark, and the fourth try in a day asks you to sign up.
+- [ ] Sign up with Google from the homepage preview: you land in `/app`
+      with the welcome panel, your balance (6 Standard, 2 Pro), the upload
+      box focused, and the preview image in your history.
+- [ ] In `/app`, untick some shots: the button shows the new count and
+      credits. Generate: the balance drops by exactly that number.
+- [ ] `https://www.shopshot.co.uk/sitemap.xml` has no `.md` URLs, and
+      `curl -sI https://www.shopshot.co.uk/blog/flat-lay-photography.md` shows
+      `X-Robots-Tag: noindex`. `/llms.txt` loads.
+- [ ] With the cookie banner: Reject, then check the browser's network tab
+      shows no requests to googletagmanager.com or google-analytics.com.
 - [ ] Standard monthly checkout completes (see below). Stripe Checkout shows
       the same currency and amount as `/pricing`.
 - [ ] After it completes, in D1:
@@ -231,7 +242,16 @@ npx wrangler secret put CRON_SECRET     # same value as the Pages secret
 npx wrangler deploy
 ```
 
-Check it: `curl -s -X POST -H "Authorization: Bearer <secret>" https://www.shopshot.co.uk/api/cron/run`.
+Check it, and run the one-off historic bot cleanup at the same time:
+
+```bash
+curl -s -X POST -H "Authorization: Bearer <secret>" "https://www.shopshot.co.uk/api/cron/run?full=1"
+```
+
+Expect `"botCleanup": {"deleted": ...}`. On 18 Oct 2026, 66,598 of the
+120,183 `page_view` rows matched the bot rules. Each run deletes up to 100k,
+so one call should clear them; run it again if `deleted` is 100000. Before
+`RESEND_API_KEY` is set the email jobs report `skipped` and mark nobody.
 
 The free weekly credit drip does not need the cron; it is granted the next
 time the user loads a page.
@@ -240,16 +260,35 @@ time the user loads a page.
 
 ## 8. After the deploy
 
-1. **Image migration to R2** (after section 3, any time). Dry run first:
+1. **Image migration to R2** (after section 3 and the deploy, any time).
+   Needs `CLOUDFLARE_API_TOKEN` (D1 Edit + Workers R2 Storage Edit) and
+   `CLOUDFLARE_ACCOUNT_ID` exported. Dry run first:
    ```bash
-   npx tsx scripts/migrate-images-to-r2.ts --dry-run
-   npx tsx scripts/migrate-images-to-r2.ts
+   npx tsx scripts/migrate-images-to-r2.ts --dry-run   # expect about 1,212 rows
+   npx tsx scripts/migrate-images-to-r2.ts             # generated_images
+   npx tsx scripts/migrate-images-to-r2.ts --ledger    # old copies in credit_transactions
    ```
-   See the script header for the environment variables it needs. It is
-   resumable and only touches rows without an `image_key`.
-2. **Search Console**: Sitemaps > resubmit `https://www.shopshot.co.uk/sitemap.xml`.
-   Then URL Inspection > Request indexing for the ten strongest posts (listed
-   in the PR summary).
+   It is resumable, only touches rows without an `image_key`, and keeps the
+   D1 copy. Open a few old sessions under `/results/...` to check they
+   still load, then free the D1 space (about 260 MB):
+   ```bash
+   npx tsx scripts/migrate-images-to-r2.ts --clear-data
+   npx tsx scripts/migrate-images-to-r2.ts --ledger --clear-data
+   ```
+2. **Search Console**: Sitemaps > resubmit `https://www.shopshot.co.uk/sitemap.xml`
+   (it drops from 73 URLs to 42: no more `.md` copies). Then URL Inspection >
+   Request indexing for these ten posts, the most-read by real visitors over
+   the last 90 days plus the background-removal guide that feeds the free tool:
+   - /blog/360-degree-product-photos
+   - /blog/white-background-product-photos-guide
+   - /blog/amazon-product-photography
+   - /blog/product-photography-lighting
+   - /blog/multiple-product-photos-one-image
+   - /blog/flat-lay-photography
+   - /blog/lifestyle-product-photos-without-studio
+   - /blog/product-photos-without-photographer
+   - /blog/etsy-product-photography
+   - /blog/ai-background-removal-guide
 3. **GA4**: Admin > Events, mark `sign_up` and `purchase` as key events.
    Also mark `anon_preview_claim` if you want to track preview-to-signup.
 4. **GitHub Actions deploys**: only after the manual deploy above is

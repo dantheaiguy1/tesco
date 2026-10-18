@@ -88,6 +88,7 @@ ALTER TABLE credit_transactions ADD COLUMN image_key TEXT;
 -- ---------------------------------------------------------------------------
 ALTER TABLE analytics_events ADD COLUMN as_org TEXT;
 
--- analytics_events had no index at all (120k rows): every admin chart and the
--- nightly bot cleanup scanned the whole table.
+-- Composite index for the bot cleanup and per-event-type date ranges.
+-- analytics_events already has single-column indexes on event_type and
+-- created_at; this one serves "event_type = ? AND created_at > ?" directly.
 CREATE INDEX IF NOT EXISTS idx_analytics_events_type_created ON analytics_events (event_type, created_at);
