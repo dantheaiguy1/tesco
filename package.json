@@ -9,8 +9,9 @@
     "deploy": "npm run build && wrangler pages deploy dist",
     "deploy:prod": "npm run build && wrangler pages deploy dist --project-name shopshot",
     "cf-typegen": "wrangler types --env-interface CloudflareBindings",
-    "db:migrate:local": "wrangler d1 migrations apply TESCO_DB --local",
-    "db:migrate:prod": "wrangler d1 migrations apply TESCO_DB"
+    "db:migrate:local": "wrangler d1 migrations apply TESCO_DB --local -c wrangler.migrations.toml",
+    "db:migrate:prod": "wrangler d1 migrations apply TESCO_DB --remote -c wrangler.migrations.toml",
+    "db:migrations:list:prod": "wrangler d1 migrations list TESCO_DB --remote -c wrangler.migrations.toml"
   },
   "dependencies": {
     "hono": "^4.6.0"

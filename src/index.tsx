@@ -63,6 +63,11 @@ type Bindings = {
   // 'true' once every Stripe price above has a GBP currency option. Until then
   // the whole site shows and charges USD, so page and checkout always agree.
   CURRENCY_GBP_ENABLED?: string;
+  // Shared secret for /api/cron/run (lifecycle emails, drip, analytics cleanup)
+  CRON_SECRET?: string;
+  // R2 bucket for generated and uploaded images (shopshot-images). Optional so
+  // the site keeps working, storing images in D1, until the binding is added.
+  IMAGES_BUCKET?: R2Bucket;
   // Session
   SESSION_SECRET: string;
   // Email (Resend)
@@ -4969,26 +4974,7 @@ app.post('/api/billing/create-checkout', async (c) => {
     return c.json({ success: false, error: 'Invalid checkout type' }, 400);
   }
   
-  // Credit pack price IDs. The env vars allow replacing a price without a code
-  // change; the literals are the original USD prices. For GBP checkout every
-  // pack price needs a GBP currency option added in Stripe (see
-  // DEPLOY_CHECKLIST.md) - /api/health?deep=1 does not check packs, so verify
-  // one GBP pack checkout by hand after enabling GBP.
-  const env = c.env;
-  const PACK_PRICE_IDS: Record<string, Record<number, string>> = {
-    cheaper: {
-      25: env.STRIPE_PRICE_PACK_STD_25 || 'price_1SXofAK5jVZf8VX1YmbbaUWW',
-      50: env.STRIPE_PRICE_PACK_STD_50 || 'price_1SYWQGK5jVZf8VX1J5jY5poM',
-      75: env.STRIPE_PRICE_PACK_STD_75 || 'price_1SYWQTK5jVZf8VX1zqApkXAK',
-      100: env.STRIPE_PRICE_PACK_STD_100 || 'price_1SYWQcK5jVZf8VX1EP6g57IK',
-    },
-    better: {
-      25: env.STRIPE_PRICE_PACK_PRO_25 || 'price_1SXofrK5jVZf8VX1JI0M5MXx',
-      50: env.STRIPE_PRICE_PACK_PRO_50 || 'price_1SYWRBK5jVZf8VX1Qt1REGpZ',
-      75: env.STRIPE_PRICE_PACK_PRO_75 || 'price_1SYWRKK5jVZf8VX1QauxPjTR',
-      100: env.STRIPE_PRICE_PACK_PRO_100 || 'price_1SYWRUK5jVZf8VX1e59vipvr',
-    }
-  };
+  const PACK_PRICE_IDS = packPriceIds(c.env);
 
   // The currency this checkout charges in. Same function as the page used to
   // display prices, so the two cannot disagree. Stripe would otherwise pick a
@@ -5040,9 +5026,9 @@ app.post('/api/billing/create-checkout', async (c) => {
     mode = 'subscription';
   } else {
     // For 'topup' or 'pack', look up the correct price ID
-    const packPrices = PACK_PRICE_IDS[creditType as string];
-    if (packPrices && packPrices[amount as number]) {
-      priceId = packPrices[amount as number];
+    const packPrices = PACK_PRICE_IDS[creditType as 'cheaper' | 'better'];
+    if (packPrices && packPrices[amount as PackTier]) {
+      priceId = packPrices[amount as PackTier];
     } else {
       return c.json({ success: false, error: 'Invalid pack type or amount' }, 400);
     }
@@ -5485,6 +5471,26 @@ app.get('/api/billing/portal', async (c) => {
 //   GET /api/health?deep=1   also asks Stripe whether each configured price
 //                            exists, is active, has the expected amount and
 //                            interval, and carries a GBP option if GBP is on
+// Credit pack price IDs. The env vars allow replacing a price without a code
+// change; the literals are the original USD prices. For GBP checkout each one
+// needs a GBP currency option in Stripe; /api/health?deep=1 checks that.
+function packPriceIds(env: Bindings): Record<'cheaper' | 'better', Record<PackTier, string>> {
+  return {
+    cheaper: {
+      25: env.STRIPE_PRICE_PACK_STD_25 || 'price_1SXofAK5jVZf8VX1YmbbaUWW',
+      50: env.STRIPE_PRICE_PACK_STD_50 || 'price_1SYWQGK5jVZf8VX1J5jY5poM',
+      75: env.STRIPE_PRICE_PACK_STD_75 || 'price_1SYWQTK5jVZf8VX1zqApkXAK',
+      100: env.STRIPE_PRICE_PACK_STD_100 || 'price_1SYWQcK5jVZf8VX1EP6g57IK',
+    },
+    better: {
+      25: env.STRIPE_PRICE_PACK_PRO_25 || 'price_1SXofrK5jVZf8VX1JI0M5MXx',
+      50: env.STRIPE_PRICE_PACK_PRO_50 || 'price_1SYWRBK5jVZf8VX1Qt1REGpZ',
+      75: env.STRIPE_PRICE_PACK_PRO_75 || 'price_1SYWRKK5jVZf8VX1QauxPjTR',
+      100: env.STRIPE_PRICE_PACK_PRO_100 || 'price_1SYWRUK5jVZf8VX1e59vipvr',
+    },
+  };
+}
+
 app.get('/api/health', async (c) => {
   const env = c.env;
   const db = env.TESCO_DB;
@@ -5534,12 +5540,21 @@ app.get('/api/health', async (c) => {
       stripeWebhook: !!env.STRIPE_WEBHOOK_SECRET,
       resend: !!env.RESEND_API_KEY,
       googleOAuth: !!env.GOOGLE_CLIENT_ID && !!env.GOOGLE_CLIENT_SECRET,
-      imagesBucket: !!(env as any).IMAGES_BUCKET,
-      cronSecret: !!(env as any).CRON_SECRET,
+      imagesBucket: !!env.IMAGES_BUCKET,
+      cronSecret: !!env.CRON_SECRET,
     },
   };
 
-  if (c.req.query('deep') === '1' && env.STRIPE_SECRET_KEY) {
+  // The deep check makes 14 Stripe API calls, so it is limited to admins or a
+  // caller presenting CRON_SECRET (the deploy workflow does not use it).
+  const sessionUser = c.get('user') as any;
+  const bearer = c.req.header('Authorization') || '';
+  const deepAllowed = (sessionUser && sessionUser.role === 'admin')
+    || (!!env.CRON_SECRET && bearer === `Bearer ${env.CRON_SECRET}`);
+  if (c.req.query('deep') === '1' && !deepAllowed) {
+    body.stripeCheck = 'admin only';
+  }
+  if (c.req.query('deep') === '1' && deepAllowed && env.STRIPE_SECRET_KEY) {
     const expected: Array<{ name: string; id?: string; plan: PlanKey; interval: Interval }> = [
       { name: 'starter/month', id: env.STRIPE_PRICE_STARTER_MONTHLY, plan: 'starter', interval: 'month' },
       { name: 'standard/month', id: env.STRIPE_PRICE_STANDARD_MONTHLY, plan: 'standard', interval: 'month' },
@@ -5567,6 +5582,27 @@ app.get('/api/health', async (c) => {
         results[e.name] = problems.length ? problems.join('; ') : 'ok';
       } catch (err: any) {
         results[e.name] = 'Stripe error: ' + (err?.message || 'unknown');
+      }
+    }
+    const packs = packPriceIds(env);
+    for (const creditType of ['cheaper', 'better'] as const) {
+      for (const tier of PACK_TIERS) {
+        const name = `pack/${creditType === 'cheaper' ? 'standard' : 'pro'}/${tier}`;
+        try {
+          const price = await stripeRequest(env.STRIPE_SECRET_KEY, `/prices/${encodeURIComponent(packs[creditType][tier])}?expand[]=currency_options`);
+          const problems: string[] = [];
+          if (!price.active) problems.push('inactive');
+          if (price.type !== 'one_time') problems.push(`type is ${price.type}`);
+          const usd = price.currency === 'usd' ? price.unit_amount : price.currency_options?.usd?.unit_amount;
+          if (usd !== PACK_PRICES.USD[tier] * 100) problems.push(`USD amount ${usd} (expected ${PACK_PRICES.USD[tier] * 100})`);
+          if (gbpEnabled(env)) {
+            const gbp = price.currency === 'gbp' ? price.unit_amount : price.currency_options?.gbp?.unit_amount;
+            if (gbp !== PACK_PRICES.GBP[tier] * 100) problems.push(gbp == null ? 'no GBP option' : `GBP amount ${gbp} (expected ${PACK_PRICES.GBP[tier] * 100})`);
+          }
+          results[name] = problems.length ? problems.join('; ') : 'ok';
+        } catch (err: any) {
+          results[name] = 'Stripe error: ' + (err?.message || 'unknown');
+        }
       }
     }
     body.stripeCheck = results;

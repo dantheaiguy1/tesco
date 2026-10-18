@@ -1,0 +1,18 @@
+# Used ONLY by the db:migrate:* scripts.
+#
+# wrangler 3.78 (pinned in package.json) does not read wrangler.jsonc at all:
+# it only looks for wrangler.toml, and Pages refuses JSON config in this
+# version. So `wrangler d1 migrations apply TESCO_DB` could not find the
+# database. Production bindings for the deployed site come from the Cloudflare
+# Pages dashboard, not from any file in this repo.
+#
+# This file deliberately has no pages_build_output_dir, so `wrangler pages
+# deploy` would ignore it even if it were renamed to wrangler.toml.
+name = "shopshot"
+compatibility_date = "2025-11-24"
+
+[[d1_databases]]
+binding = "TESCO_DB"
+database_name = "tesco-image-generator-db"
+database_id = "7418ff05-a1c5-41d5-8238-4c1373e2b4f6"
+migrations_dir = "migrations"
