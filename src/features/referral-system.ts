@@ -92,6 +92,10 @@ export async function processReferral(
       return { success: false, error: 'Already referred' }
     }
 
+    // Ledger rows below use type 'signup_bonus'. Production's credit_transactions
+    // table has a CHECK constraint that rejects 'referral_bonus', which used to
+    // make this insert throw after the referrer had already been credited.
+
     // Award credits to referrer
     await db.prepare(
       'UPDATE users SET cheaper_credits = cheaper_credits + ?, better_credits = better_credits + ? WHERE id = ?'
@@ -100,7 +104,7 @@ export async function processReferral(
     // Log referrer credit transaction
     await db.prepare(`
       INSERT INTO credit_transactions (id, user_id, amount, balance_after, credit_type, type, description)
-      VALUES (?, ?, ?, ?, 'cheaper', 'referral_bonus', ?)
+      VALUES (?, ?, ?, ?, 'cheaper', 'signup_bonus', ?)
     `).bind(
       generateId(),
       referrer.id,
@@ -111,7 +115,7 @@ export async function processReferral(
 
     await db.prepare(`
       INSERT INTO credit_transactions (id, user_id, amount, balance_after, credit_type, type, description)
-      VALUES (?, ?, ?, ?, 'better', 'referral_bonus', ?)
+      VALUES (?, ?, ?, ?, 'better', 'signup_bonus', ?)
     `).bind(
       generateId(),
       referrer.id,
@@ -128,7 +132,7 @@ export async function processReferral(
     // Log referred user credit transaction
     await db.prepare(`
       INSERT INTO credit_transactions (id, user_id, amount, balance_after, credit_type, type, description)
-      VALUES (?, ?, ?, ?, 'cheaper', 'referral_bonus', ?)
+      VALUES (?, ?, ?, ?, 'cheaper', 'signup_bonus', ?)
     `).bind(
       generateId(),
       newUserId,
@@ -139,7 +143,7 @@ export async function processReferral(
 
     await db.prepare(`
       INSERT INTO credit_transactions (id, user_id, amount, balance_after, credit_type, type, description)
-      VALUES (?, ?, ?, ?, 'better', 'referral_bonus', ?)
+      VALUES (?, ?, ?, ?, 'better', 'signup_bonus', ?)
     `).bind(
       generateId(),
       newUserId,
