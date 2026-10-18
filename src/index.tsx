@@ -4,7 +4,8 @@ import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { getPrivacyPage, getTermsPage, getRefundsPage, getCookiesPage } from './legal-pages'
 import { getFaqPage, getAboutPage, getContactPage } from './info-pages'
 import { getBlogIndexPage, getBlogPostPage, getAllBlogPosts, getBlogPostMarkdown, getBlogMarkdownIndex } from './blog-pages'
-import { CREDITS, PRICING, SIGNUP_CREDITS_TOTAL, REFERRAL_CREDITS_TOTAL, IMAGES_PER_SHOOT } from './config/constants'
+import { CREDITS, PRICING, SIGNUP_CREDITS_TOTAL, REFERRAL_CREDITS_TOTAL, IMAGES_PER_SHOOT, PLAN_PRICES, PACK_PRICES, PACK_TIERS, resolveCurrency, formatMoney, planPrice, packPrice, shootsFor, WELCOME_COUPON } from './config/constants'
+import type { Currency, PlanKey, Interval, PackTier } from './config/constants'
 import { GTM_HEAD, GTM_BODY } from './config/analytics';
 
 
@@ -50,6 +51,23 @@ type Bindings = {
   STRIPE_PRICE_STARTER_ANNUAL: string;
   STRIPE_PRICE_STANDARD_ANNUAL: string;
   STRIPE_PRICE_PRO_ANNUAL: string;
+  // Credit pack price IDs. Optional: fall back to the original USD price IDs.
+  STRIPE_PRICE_PACK_STD_25?: string;
+  STRIPE_PRICE_PACK_STD_50?: string;
+  STRIPE_PRICE_PACK_STD_75?: string;
+  STRIPE_PRICE_PACK_STD_100?: string;
+  STRIPE_PRICE_PACK_PRO_25?: string;
+  STRIPE_PRICE_PACK_PRO_50?: string;
+  STRIPE_PRICE_PACK_PRO_75?: string;
+  STRIPE_PRICE_PACK_PRO_100?: string;
+  // 'true' once every Stripe price above has a GBP currency option. Until then
+  // the whole site shows and charges USD, so page and checkout always agree.
+  CURRENCY_GBP_ENABLED?: string;
+  // Shared secret for /api/cron/run (lifecycle emails, drip, analytics cleanup)
+  CRON_SECRET?: string;
+  // R2 bucket for generated and uploaded images (shopshot-images). Optional so
+  // the site keeps working, storing images in D1, until the binding is added.
+  IMAGES_BUCKET?: R2Bucket;
   // Session
   SESSION_SECRET: string;
   // Email (Resend)
@@ -81,9 +99,12 @@ type User = {
   stripe_customer_id: string | null;
   email_verified: boolean;
   google_id: string | null;
+  currency?: Currency | null;
   subscription_interval?: 'month' | 'year';
   next_credit_grant_at?: string | null;
   subscription_period_end?: string | null;
+  created_at?: string | null;
+  drip_count?: number;
 }
 
 type Variables = {
@@ -899,7 +920,9 @@ async function sendSubscriptionNotification(
   userName: string | null, 
   planType: string,
   cheaperCredits: number,
-  betterCredits: number
+  betterCredits: number,
+  amountPaid?: string,      // what Stripe actually charged, e.g. "£63.92"
+  billingInterval?: string
 ): Promise<boolean> {
   try {
     const timestamp = new Date().toLocaleString('en-GB', { 
@@ -908,7 +931,11 @@ async function sendSubscriptionNotification(
       timeZone: 'Europe/London'
     });
     
-    const planPrice = planType === 'pro' ? '$59.99' : planType === 'starter' ? '$9.99' : '$39.99';
+    // Previously hard-coded to the pre-July prices. Use the real charge, which
+    // also reflects currency and any WELCOME20 discount.
+    const chargeLabel = amountPaid
+      ? `${amountPaid}${billingInterval === 'year' ? '/year' : '/month'}`
+      : 'see Stripe';
     const planEmoji = planType === 'pro' ? '👑' : planType === 'starter' ? '🚀' : '⭐';
     
     const response = await fetch('https://api.resend.com/emails', {
@@ -937,7 +964,7 @@ async function sendSubscriptionNotification(
               </div>
               <div style="padding: 32px;">
                 <div style="background: #F0FDF4; border: 1px solid #BBF7D0; border-radius: 8px; padding: 16px; margin-bottom: 24px; text-align: center;">
-                  <div style="color: #15803D; font-size: 28px; font-weight: 700;">${planPrice}/month</div>
+                  <div style="color: #15803D; font-size: 28px; font-weight: 700;">${chargeLabel}</div>
                   <div style="color: #166534; font-size: 13px;">Monthly Recurring Revenue</div>
                 </div>
                 
@@ -1132,7 +1159,7 @@ async function sendPasswordResetEmail(apiKey: string, to: string, resetLink: str
 // ============================================================================
 // CREDIT DEPLETION EMAILS
 // ============================================================================
-async function sendLowCreditsEmail(apiKey: string, to: string, name: string | null, standardCredits: number, proCredits: number): Promise<boolean> {
+async function sendLowCreditsEmail(apiKey: string, to: string, name: string | null, standardCredits: number, proCredits: number, cur: Currency = 'USD'): Promise<boolean> {
   try {
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -1176,7 +1203,7 @@ async function sendLowCreditsEmail(apiKey: string, to: string, name: string | nu
                   </div>
                 </div>
                 <p style="color: #4B5563; margin: 0 0 24px; font-size: 15px; line-height: 1.6;">
-                  Top up now to keep creating stunning product photos. Our Starter plan is just <strong>$9.99/month</strong> for ~11 product shoots!
+                  Top up now to keep creating product photos. Our Starter plan is just <strong>${planPrice(cur, 'starter')} a month</strong> for ${shootsFor(CREDITS.STARTER_CHEAPER)} product shoots.
                 </p>
                 <a href="https://www.shopshot.co.uk/pricing" style="display: block; background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%); color: white; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-weight: 600; font-size: 15px; text-align: center;">
                   Get More Credits →
@@ -1207,7 +1234,7 @@ async function sendLowCreditsEmail(apiKey: string, to: string, name: string | nu
   }
 }
 
-async function sendOutOfCreditsEmail(apiKey: string, to: string, name: string | null): Promise<boolean> {
+async function sendOutOfCreditsEmail(apiKey: string, to: string, name: string | null, cur: Currency = 'USD'): Promise<boolean> {
   try {
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -1244,12 +1271,12 @@ async function sendOutOfCreditsEmail(apiKey: string, to: string, name: string | 
                   <div style="font-size: 13px; color: rgba(255,255,255,0.8); margin-top: 4px;">Use code: <strong>WELCOME20</strong></div>
                 </div>
                 <p style="color: #4B5563; margin: 0 0 8px; font-size: 14px;">
-                  <strong>Plans from just $9.99/month:</strong>
+                  <strong>Plans from just ${planPrice(cur, 'starter')} a month:</strong>
                 </p>
                 <ul style="color: #6B7280; margin: 0 0 24px; padding-left: 20px; font-size: 14px; line-height: 1.8;">
-                  <li><strong>Starter</strong> - $9.99/mo (~11 shoots)</li>
-                  <li><strong>Standard</strong> - $39.99/mo (500 standard + 45 pro) ⭐</li>
-                  <li><strong>Pro</strong> - $59.99/mo (800 standard + 175 pro)</li>
+                  <li><strong>Starter</strong> - ${planPrice(cur, 'starter')}/mo (${shootsFor(CREDITS.STARTER_CHEAPER)} shoots)</li>
+                  <li><strong>Standard</strong> - ${planPrice(cur, 'standard')}/mo (${CREDITS.STANDARD_CHEAPER} standard + ${CREDITS.STANDARD_BETTER} pro) ⭐</li>
+                  <li><strong>Pro</strong> - ${planPrice(cur, 'pro')}/mo (${CREDITS.PRO_CHEAPER} standard + ${CREDITS.PRO_BETTER} pro)</li>
                 </ul>
                 <a href="https://www.shopshot.co.uk/pricing" style="display: block; background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%); color: white; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-weight: 600; font-size: 15px; text-align: center;">
                   Upgrade Now & Save 20% →
@@ -1415,14 +1442,72 @@ async function getUserFromSession(db: D1Database, sessionId: string): Promise<Us
     cheaper_credits: session.cheaper_credits || 0,
     better_credits: session.better_credits || 0,
     subscription_status: session.subscription_status,
-    subscription_plan: session.subscription_plan,
+    subscription_plan: session.plan || session.subscription_plan,
     stripe_customer_id: session.stripe_customer_id,
     role: session.role || 'user',
     is_banned: session.is_banned || 0,
     subscription_interval: session.subscription_interval || 'month',
     next_credit_grant_at: session.next_credit_grant_at || null,
-    subscription_period_end: session.subscription_period_end || null
-  };
+    subscription_period_end: session.subscription_period_end || null,
+    currency: session.currency || null,
+    created_at: session.created_at || null,
+    // Missing column (migration not yet applied) reads as fully dripped.
+    drip_count: session.drip_count ?? CREDITS.DRIP_WEEKS
+  } as unknown as User;
+}
+
+// ============================================================================
+// FREE WEEKLY DRIP
+// ============================================================================
+// Free accounts get CREDITS.DRIP_CHEAPER Standard credits on each of the first
+// CREDITS.DRIP_WEEKS Mondays (00:00 UTC) after signup, as a reason to come
+// back. Like annual accrual this is lazy - granted on the user's next request
+// that week - because Pages has no cron. A missed week lapses rather than
+// piling up: the point is a weekly visit, and it bounds the cost of a free
+// account at 6 + 2 + 16 images.
+
+/** How many Mondays 00:00 UTC have passed since `createdAt`. */
+function dripWeeksDue(createdAt: string, now: number): number {
+  const created = Date.parse(createdAt.includes('T') ? createdAt : createdAt.replace(' ', 'T') + 'Z');
+  if (isNaN(created)) return 0;
+  const d = new Date(created);
+  const startOfDay = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  const daysToMonday = ((8 - d.getUTCDay()) % 7) || 7; // next Monday, never the signup day itself
+  const firstMonday = startOfDay + daysToMonday * 86400000;
+  if (now < firstMonday) return 0;
+  return 1 + Math.floor((now - firstMonday) / (7 * 86400000));
+}
+
+async function accrueFreeDrip(db: D1Database, user: User): Promise<User> {
+  const given = user.drip_count ?? CREDITS.DRIP_WEEKS;
+  if (given >= CREDITS.DRIP_WEEKS || !user.created_at) return user;
+  // Paying customers have a plan allocation instead.
+  if (user.subscription_status === 'active' && user.subscription_plan && user.subscription_plan !== 'free') return user;
+
+  const due = dripWeeksDue(user.created_at, Date.now());
+  // Nothing new this week, or the four-week window has closed.
+  if (due <= given || due > CREDITS.DRIP_WEEKS) return user;
+
+  // Conditional on drip_count so two concurrent requests cannot both grant.
+  const res = await db.prepare(`
+    UPDATE users
+    SET cheaper_credits = cheaper_credits + ?, drip_count = ?, last_drip_at = CURRENT_TIMESTAMP,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = ? AND drip_count = ?
+    RETURNING cheaper_credits
+  `).bind(CREDITS.DRIP_CHEAPER, due, user.id, given).first() as any;
+  if (!res) return user;
+
+  user.cheaper_credits = Number(res.cheaper_credits);
+  user.drip_count = due;
+  await db.prepare(`
+    INSERT INTO credit_transactions (id, user_id, amount, balance_after, credit_type, type, description)
+    VALUES (?, ?, ?, ?, 'cheaper', 'signup_bonus', ?)
+  `).bind(
+    generateId(), user.id, CREDITS.DRIP_CHEAPER, user.cheaper_credits,
+    `Weekly free credits (week ${due} of ${CREDITS.DRIP_WEEKS})`
+  ).run();
+  return user;
 }
 
 // ============================================================================
@@ -1436,6 +1521,94 @@ async function getUserFromSession(db: D1Database, sessionId: string): Promise<Us
 // authenticated requests and grant when one is due. Monthly subscribers are
 // untouched - their top-up already arrives via invoice.payment_succeeded, and
 // running both paths for them would double-grant.
+
+// ============================================================================
+// CURRENCY
+// ============================================================================
+// One decision, used for both what the page shows and what Stripe charges.
+// See resolveCurrency() in config/constants.ts.
+
+function gbpEnabled(env: Bindings): boolean {
+  return env.CURRENCY_GBP_ENABLED === 'true';
+}
+
+function currencyFor(c: any): Currency {
+  return resolveCurrency({
+    gbpEnabled: gbpEnabled(c.env),
+    country: c.req.header('cf-ipcountry'),
+    userCurrency: c.get('user')?.currency
+  });
+}
+
+// Fixed conversion for admin reporting only - never used for anything a
+// customer sees or is charged. Update occasionally; it only affects the MRR card.
+const GBP_TO_USD = 1.27;
+
+/** Monthly recurring revenue in USD from rows of { plan, interval, currency, n }. */
+function monthlyRecurringRevenueUsd(rows: Array<{ plan: string; interval: string; currency: string; n: number }>): number {
+  let total = 0;
+  for (const r of rows) {
+    const cur: Currency = r.currency === 'GBP' ? 'GBP' : 'USD';
+    const prices = (PLAN_PRICES[cur] as any)[r.plan];
+    if (!prices) continue; // 'free' and anything unknown
+    const monthly = r.interval === 'year' ? prices.year / 12 : prices.month;
+    total += monthly * r.n * (cur === 'GBP' ? GBP_TO_USD : 1);
+  }
+  return Math.round(total * 100) / 100;
+}
+
+/** "6p per credit", "$0.18 per credit" - per-credit cost of a pack. */
+function perCreditLabel(amount: number, credits: number, cur: Currency): string {
+  const each = amount / credits;
+  if (each < 1) {
+    const minor = Math.round(each * 100);
+    // Sub-unit prices read better in pence/cents for GBP; keep $0.18 style for USD.
+    return cur === 'GBP' ? `${minor}p per credit` : `$${each.toFixed(2)} per credit`;
+  }
+  return `${formatMoney(Math.round(each * 100) / 100, cur)} per credit`;
+}
+
+/**
+ * Credit pack cards for one credit type. Used on /pricing and in the paywall
+ * modal so pay-as-you-go is priced and presented identically in both places.
+ */
+function packCardsHtml(creditType: 'cheaper' | 'better', cur: Currency, opts: { loggedIn: boolean; compact?: boolean }): string {
+  const table = creditType === 'better' ? CREDITS.PACKS.BETTER : CREDITS.PACKS.CHEAPER;
+  return PACK_TIERS.map(tier => {
+    const credits = (table as any)['PACK_' + tier] as number;
+    const amount = PACK_PRICES[cur][tier];
+    const action = opts.loggedIn
+      ? `startPackCheckout('${creditType}', ${tier})`
+      : `window.location='/register?redirect=' + encodeURIComponent('/pricing#packs')`;
+    return `
+        <div class="pack-card ${creditType}" onclick="${action}">
+          <div class="pack-price">${formatMoney(amount, cur)}</div>
+          <div class="pack-credits ${creditType}">${credits} credits</div>
+          ${opts.compact ? '' : `<div class="pack-per">${perCreditLabel(amount, credits, cur)}</div>`}
+          <button class="pack-btn ${creditType}">${opts.loggedIn ? 'Buy now' : 'Sign up to buy'}</button>
+        </div>`;
+  }).join('');
+}
+
+/** Escapes text for interpolation into server-rendered HTML. */
+function escapeHtmlServer(text: unknown): string {
+  return String(text ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch] as string));
+}
+
+/**
+ * Only same-site paths may be used as post-login redirects. Anything else
+ * (absolute URLs, protocol-relative //host, backslash tricks) falls back.
+ */
+function safeRedirectPath(value: unknown, fallback = '/app'): string {
+  if (typeof value !== 'string' || !value.startsWith('/')) return fallback;
+  if (value.startsWith('//') || value.startsWith('/\\') || value.includes('\\')) return fallback;
+  return value;
+}
+
+/** Currency to record on a new account, from the country they signed up in. */
+function signupCurrency(c: any): Currency {
+  return c.req.header('cf-ipcountry') === 'GB' ? 'GBP' : 'USD';
+}
 
 /** Returns the plan's monthly allocation, or null for plans without one. */
 function monthlyAllocationFor(plan: string): { cheaper: number; better: number } | null {
@@ -1534,34 +1707,43 @@ async function deleteUserSession(db: D1Database, sessionId: string): Promise<voi
 // ============================================================================
 type CreditType = 'cheaper' | 'better';
 
+// Exactly the values production's credit_transactions.type CHECK constraint
+// accepts. Anything else makes the ledger INSERT throw - after deductCredits
+// has already changed the balance. Typing the parameter turns that runtime
+// failure into a build failure. Put the specific reason in `description`.
+type LedgerType = 'signup_bonus' | 'subscription' | 'topup' | 'generation' | 'regeneration' | 'refund';
+
 async function deductCredits(
   db: D1Database, 
   userId: string, 
   amount: number,
   creditType: CreditType,
-  type: string, 
+  type: LedgerType, 
   description: string,
   sessionId?: string,
   imageData?: string,
   ctx?: ExecutionContext,
-  resendApiKey?: string
+  resendApiKey?: string,
+  cur: Currency = 'USD'
 ): Promise<{ success: boolean; newBalance?: number; error?: string; transactionId?: string }> {
   const column = creditType === 'better' ? 'better_credits' : 'cheaper_credits';
   
-  // Get current balance and user info for potential email
-  const user = await db.prepare(`SELECT ${column} as balance, cheaper_credits, better_credits, email, name, email_low_credits_sent, email_out_credits_sent FROM users WHERE id = ?`).bind(userId).first() as any;
-  if (!user) return { success: false, error: 'User not found' };
-  
-  if (user.balance < amount) {
+  // Deduct atomically. This used to read the balance and write back
+  // balance - amount, so the ten parallel requests from /app overwrote each
+  // other: 89 of 1,621 production generation charges were lost that way.
+  const user = await db.prepare(`
+    UPDATE users SET ${column} = ${column} - ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ? AND ${column} >= ?
+    RETURNING ${column} AS balance, cheaper_credits, better_credits, email, name, email_low_credits_sent, email_out_credits_sent
+  `).bind(amount, userId, amount).first() as any;
+  if (!user) {
     return { success: false, error: `Insufficient ${creditType} credits` };
   }
   
-  const newBalance = user.balance - amount;
+  const newBalance = Number(user.balance);
   const transactionId = generateId();
   
-  // Update balance and log transaction
-  await db.prepare(`UPDATE users SET ${column} = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
-    .bind(newBalance, userId).run();
+  // Log transaction
   
   await db.prepare(`
     INSERT INTO credit_transactions (id, user_id, amount, balance_after, credit_type, type, description, session_id, image_data)
@@ -1578,14 +1760,14 @@ async function deductCredits(
     // Out of credits email (both types at 0)
     if (cheaperCredits === 0 && betterCredits <= 3 && !user.email_out_credits_sent) {
       ctx.waitUntil((async () => {
-        await sendOutOfCreditsEmail(resendApiKey, user.email, user.name);
+        await sendOutOfCreditsEmail(resendApiKey, user.email, user.name, cur);
         await db.prepare('UPDATE users SET email_out_credits_sent = 1 WHERE id = ?').bind(userId).run();
       })());
     }
     // Low credits email (total <= 5 but not 0)
     else if (totalCredits <= 5 && totalCredits > 0 && !user.email_low_credits_sent) {
       ctx.waitUntil((async () => {
-        await sendLowCreditsEmail(resendApiKey, user.email, user.name, cheaperCredits, betterCredits);
+        await sendLowCreditsEmail(resendApiKey, user.email, user.name, cheaperCredits, betterCredits, cur);
         await db.prepare('UPDATE users SET email_low_credits_sent = 1 WHERE id = ?').bind(userId).run();
       })());
     }
@@ -1599,20 +1781,21 @@ async function addCredits(
   userId: string, 
   amount: number,
   creditType: CreditType,
-  type: string, 
+  type: LedgerType, 
   description: string,
   stripePaymentId?: string
 ): Promise<{ success: boolean; newBalance?: number; error?: string }> {
   const column = creditType === 'better' ? 'better_credits' : 'cheaper_credits';
   
-  const user = await db.prepare(`SELECT ${column} as balance FROM users WHERE id = ?`).bind(userId).first() as any;
+  // Atomic, for the same reason as deductCredits.
+  const user = await db.prepare(`
+    UPDATE users SET ${column} = ${column} + ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ? RETURNING ${column} AS balance
+  `).bind(amount, userId).first() as any;
   if (!user) return { success: false, error: 'User not found' };
   
-  const newBalance = user.balance + amount;
+  const newBalance = Number(user.balance);
   const transactionId = generateId();
-  
-  await db.prepare(`UPDATE users SET ${column} = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
-    .bind(newBalance, userId).run();
   
   await db.prepare(`
     INSERT INTO credit_transactions (id, user_id, amount, balance_after, credit_type, type, description, stripe_payment_id)
@@ -1890,6 +2073,27 @@ async function ensureDatabase(db: D1Database) {
     try {
       await db.prepare('CREATE INDEX IF NOT EXISTS idx_anon_gen_ip ON anonymous_generations (ip_hash, created_at)').run();
       await db.prepare('CREATE INDEX IF NOT EXISTS idx_anon_gen_session ON anonymous_generations (session_id)').run();
+    } catch (e) { /* Index exists */ }
+
+    // Columns from migration 0007. In production the migration adds these
+    // before the build that needs them is deployed; here they keep local and
+    // fresh databases in step. Each ALTER is a no-op where the column exists.
+    for (const ddl of [
+      'ALTER TABLE users ADD COLUMN plan TEXT',
+      'ALTER TABLE users ADD COLUMN currency TEXT',
+      'ALTER TABLE users ADD COLUMN drip_count INTEGER NOT NULL DEFAULT 0',
+      'ALTER TABLE users ADD COLUMN last_drip_at DATETIME',
+      'ALTER TABLE users ADD COLUMN email_day2_sent INTEGER NOT NULL DEFAULT 0',
+      'ALTER TABLE users ADD COLUMN email_day7_sent INTEGER NOT NULL DEFAULT 0',
+      "ALTER TABLE anonymous_generations ADD COLUMN kind TEXT NOT NULL DEFAULT 'preview'",
+      'ALTER TABLE generated_images ADD COLUMN image_key TEXT',
+      'ALTER TABLE credit_transactions ADD COLUMN image_key TEXT',
+      'ALTER TABLE analytics_events ADD COLUMN as_org TEXT',
+    ]) {
+      try { await db.prepare(ddl).run(); } catch (e) { /* Column exists */ }
+    }
+    try {
+      await db.prepare('CREATE INDEX IF NOT EXISTS idx_anon_gen_kind_ip ON anonymous_generations (kind, ip_hash, created_at)').run();
     } catch (e) { /* Index exists */ }
 
 
@@ -2188,19 +2392,55 @@ interface TrackEventOptions {
   eventType: string;
   userId?: string | null;
   sessionId?: string | null;
-  pageUrl?: string;
-  referrer?: string;
-  userAgent?: string;
-  ipCountry?: string;
+  pageUrl?: string | null;
+  referrer?: string | null;
+  userAgent?: string | null;
+  ipCountry?: string | null;
+  // Visitor's network (Cloudflare asOrganization), for filtering datacenter traffic
+  asOrg?: string | null;
   metadata?: Record<string, any>;
 }
 
+// ----------------------------------------------------------------------------
+// Bot filtering for first-party analytics
+// ----------------------------------------------------------------------------
+// Most page_view rows were bots: crawlers, scripts, and referrer spam from
+// WordPress scanners. These rules drop them at insert time; the same rules are
+// applied to history by BOT_CLEANUP_SQL in the scheduled job. They match on
+// user agent, referrer and path only, so bots that send a normal browser user
+// agent from a datacenter still get through - as_org is recorded so those can
+// be measured and filtered later.
+const BOT_UA_RE = /bot|crawl|spider|python|curl|Go-http|HeadlessChrome/i;
+const SPAM_REFERRER_RE = /wp-admin|wp-login|sensemaestro|binance/i;
+
+function isBotTraffic(userAgent: string | null | undefined, referrer: string | null | undefined, path: string | null | undefined): boolean {
+  if (!userAgent || !userAgent.trim()) return true;
+  if (BOT_UA_RE.test(userAgent)) return true;
+  if (referrer && SPAM_REFERRER_RE.test(referrer)) return true;
+  if (path && path.toLowerCase().includes('wp-')) return true;
+  return false;
+}
+
+// SQL equivalent of isBotTraffic, for deleting historic rows. LIKE is
+// case-insensitive for ASCII in SQLite, matching the /i regexes above.
+const BOT_CLEANUP_WHERE = `
+  (user_agent IS NULL OR TRIM(user_agent) = ''
+   OR user_agent LIKE '%bot%' OR user_agent LIKE '%crawl%' OR user_agent LIKE '%spider%'
+   OR user_agent LIKE '%python%' OR user_agent LIKE '%curl%' OR user_agent LIKE '%Go-http%'
+   OR user_agent LIKE '%HeadlessChrome%'
+   OR referrer LIKE '%wp-admin%' OR referrer LIKE '%wp-login%'
+   OR referrer LIKE '%sensemaestro%' OR referrer LIKE '%binance%'
+   OR page_url LIKE '%wp-%')`;
+// Only page views are cleaned: server-side events (signups, generations,
+// purchases) are recorded without a user agent and are not bot traffic.
+const BOT_CLEANUP_SQL = `DELETE FROM analytics_events WHERE event_type = 'page_view' AND ${BOT_CLEANUP_WHERE}`;
+
 async function trackEvent(db: D1Database, options: TrackEventOptions): Promise<void> {
   try {
-    const { eventType, userId, sessionId, pageUrl, referrer, userAgent, ipCountry, metadata } = options;
+    const { eventType, userId, sessionId, pageUrl, referrer, userAgent, ipCountry, asOrg, metadata } = options;
     await db.prepare(`
-      INSERT INTO analytics_events (event_type, user_id, session_id, page_url, referrer, user_agent, ip_country, metadata)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO analytics_events (event_type, user_id, session_id, page_url, referrer, user_agent, ip_country, metadata, as_org)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       eventType,
       userId || null,
@@ -2209,7 +2449,8 @@ async function trackEvent(db: D1Database, options: TrackEventOptions): Promise<v
       referrer || null,
       userAgent || null,
       ipCountry || null,
-      metadata ? JSON.stringify(metadata) : null
+      metadata ? JSON.stringify(metadata) : null,
+      asOrg || null
     ).run();
   } catch (e) {
     console.error('Failed to track event:', e);
@@ -2235,8 +2476,27 @@ app.use('*', async (c, next) => {
           console.error('[Accrual] Failed:', e);
         }
       }
+      // Free weekly top-up during the first weeks. No query unless one is due.
+      if ((user.drip_count ?? CREDITS.DRIP_WEEKS) < CREDITS.DRIP_WEEKS) {
+        try {
+          user = await accrueFreeDrip(db, user);
+        } catch (e) {
+          console.error('[Drip] Failed:', e);
+        }
+      }
       c.set('user', user);
     }
+  }
+  await next();
+});
+
+// Diagnostic endpoints are admin-only. /api/test-vertex-image generates a real,
+// billed image on every request and was reachable by anyone - including the
+// crawlers that make up over half of this site's traffic - as a plain GET.
+app.use('/api/test-*', async (c, next) => {
+  const user = c.get('user') as any;
+  if (!user || user.role !== 'admin') {
+    return c.json({ error: 'Not found' }, 404);
   }
   await next();
 });
@@ -2251,8 +2511,10 @@ app.use('*', async (c, next) => {
   const path = new URL(c.req.url).pathname;
   const isTrackedPage = TRACKED_PAGES.some(p => path === p || path.startsWith('/blog/') || path.startsWith('/results/') || path.startsWith('/admin/'));
   
-  // Only track HTML page requests, not API or static assets
-  if (isTrackedPage && !path.startsWith('/api/') && !path.includes('.')) {
+  // Only track HTML page requests, not API or static assets, and not bots
+  const ua = c.req.header('user-agent') || null;
+  const referrer = c.req.header('referer') || null;
+  if (isTrackedPage && !path.startsWith('/api/') && !path.includes('.') && !isBotTraffic(ua, referrer, path)) {
     const db = c.env.TESCO_DB;
     const user = c.get('user');
     
@@ -2262,9 +2524,10 @@ app.use('*', async (c, next) => {
         eventType: 'page_view',
         userId: user?.id || null,
         pageUrl: path,
-        referrer: c.req.header('referer') || null,
-        userAgent: c.req.header('user-agent') || null,
+        referrer,
+        userAgent: ua,
         ipCountry: c.req.header('cf-ipcountry') || null,
+        asOrg: (c.req.raw as any).cf?.asOrganization || null,
         metadata: {
           query: new URL(c.req.url).search || null
         }
@@ -2389,7 +2652,7 @@ app.get('/api/test-vertex-image', async (c) => {
 app.get('/', (c) => {
   const user = c.get('user')
   // Always show marketing page - logged in users get "Open App" menu item
-  return c.html(getMarketingPage(user))
+  return c.html(getMarketingPage(user, currencyFor(c)))
 })
 
 // Direct app access (redirects to login if not authenticated)
@@ -2398,7 +2661,7 @@ app.get('/app', (c) => {
   if (!user) {
     return c.redirect('/get-started?redirect=/app')
   }
-  return c.html(getHomePage(user))
+  return c.html(getHomePage(user, currencyFor(c)))
 })
 
 // History page - redirect to home (now uses sidebar)
@@ -2439,14 +2702,14 @@ app.get('/reset-password', (c) => {
 app.get('/register', (c) => {
   const user = c.get('user')
   if (user) return c.redirect('/')
-  return c.html(getRegisterPage())
+  return c.html(getRegisterPage(currencyFor(c)))
 })
 
 // Get Started page (conversion-focused signup + login + value prop)
 app.get('/get-started', (c) => {
   const user = c.get('user')
   if (user) return c.redirect('/')
-  return c.html(getGetStartedPage())
+  return c.html(getGetStartedPage(currencyFor(c)))
 })
 
 // Logout page (GET for easy access)
@@ -2459,7 +2722,7 @@ app.get('/logout', async (c) => {
 app.get('/dashboard', (c) => {
   const user = c.get('user')
   if (!user) return c.redirect('/login')
-  return c.html(getDashboardPage(user))
+  return c.html(getDashboardPage(user, currencyFor(c)))
 })
 
 // Pricing page
@@ -2470,7 +2733,8 @@ app.get('/pricing', (c) => {
   // 503 from create-checkout. Better to say so up front.
   const availability = {
     month: {
-      starter: !!(c.env.STRIPE_PRICE_STARTER_MONTHLY || true), // has a valid $9.99 fallback
+      // The fallback Starter price is USD-only (see create-checkout)
+      starter: !!c.env.STRIPE_PRICE_STARTER_MONTHLY || currencyFor(c) === 'USD',
       standard: !!c.env.STRIPE_PRICE_STANDARD_MONTHLY,
       pro: !!c.env.STRIPE_PRICE_PRO_MONTHLY,
     },
@@ -2480,7 +2744,7 @@ app.get('/pricing', (c) => {
       pro: !!c.env.STRIPE_PRICE_PRO_ANNUAL,
     }
   }
-  return c.html(getPricingPage(user, availability))
+  return c.html(getPricingPage(user, availability, currencyFor(c)))
 })
 
 // ============================================================================
@@ -2545,6 +2809,8 @@ app.get('/blog/markdown', (c) => {
     'Content-Disposition': 'inline; filename="blog-index.md"',
     'Cache-Control': 'public, max-age=3600',
     'X-Content-Type-Options': 'nosniff',
+    // Markdown copies are for AI tools; the HTML post is the indexed page.
+    'X-Robots-Tag': 'noindex',
   })
 })
 
@@ -2557,7 +2823,8 @@ app.get('/blog/:slugWithExt', (c) => {
     // Fall through to the normal blog post handler
     const page = getBlogPostPage(slugWithExt)
     if (!page) {
-      return c.redirect('/blog')
+      // A real 404 (it used to redirect to /blog, which Google reports as a soft 404)
+      return c.html(getBlogIndexPage(), 404)
     }
     return c.html(page)
   }
@@ -2569,6 +2836,7 @@ app.get('/blog/:slugWithExt', (c) => {
   if (!md) {
     return c.text('# 404 - Blog post not found\n\nThe requested blog post does not exist.\n\nSee all available posts at: https://www.shopshot.co.uk/blog/markdown', 404, {
       'Content-Type': 'text/markdown; charset=utf-8',
+      'X-Robots-Tag': 'noindex',
     })
   }
   
@@ -2577,6 +2845,9 @@ app.get('/blog/:slugWithExt', (c) => {
     'Content-Disposition': `inline; filename="${slug}.md"`,
     'Cache-Control': 'public, max-age=3600',
     'X-Content-Type-Options': 'nosniff',
+    // Duplicate of the HTML post: keep it out of the index, point at the original.
+    'X-Robots-Tag': 'noindex',
+    'Link': `<https://www.shopshot.co.uk/blog/${slug}>; rel="canonical"`,
   })
 })
 
@@ -2585,88 +2856,80 @@ app.get('/robots.txt', (c) => {
   const robotsTxt = `User-agent: *
 Allow: /
 
-# Blog Markdown for AI & Crawlers
+# Blog Markdown for AI tools. Crawlable, but each response carries
+# X-Robots-Tag: noindex so only the HTML posts are indexed. See /llms.txt.
 Allow: /blog/*.md
 Allow: /blog/markdown
 
 # Sitemap
 Sitemap: https://www.shopshot.co.uk/sitemap.xml
 
-# Block internal/API routes
+# Block internal/API routes and signed-in pages. "/app$" rather than "/app",
+# which would also block /apple-touch-icon.png.
 Disallow: /api/
-Disallow: /app
+Disallow: /app$
+Disallow: /app?
+Disallow: /dashboard
+Disallow: /account
+Disallow: /results/
 Disallow: /register
 Disallow: /login
+Disallow: /get-started
 Disallow: /reset-password
+Disallow: /forgot-password
 Disallow: /verify-email
+Disallow: /unsubscribe
 `
   return c.text(robotsTxt, 200, { 'Content-Type': 'text/plain' })
 })
 
 // SEO: sitemap.xml
+// Last real content change for each static page. Update the date when a
+// page's content changes; never generate it from the current date, which tells
+// Google every page changed on every crawl and teaches it to ignore lastmod.
+const STATIC_PAGE_LASTMOD: Array<{ url: string; lastmod: string; priority: string; changefreq: string }> = [
+  { url: '/', lastmod: '2026-10-18', priority: '1.0', changefreq: 'weekly' },
+  { url: '/pricing', lastmod: '2026-10-18', priority: '0.9', changefreq: 'monthly' },
+  { url: '/tools/remove-background', lastmod: '2026-10-18', priority: '0.8', changefreq: 'monthly' },
+  { url: '/blog', lastmod: BLOG_LATEST_DATE(), priority: '0.9', changefreq: 'weekly' },
+  { url: '/faq', lastmod: '2026-07-27', priority: '0.8', changefreq: 'monthly' },
+  { url: '/about', lastmod: '2026-07-27', priority: '0.7', changefreq: 'yearly' },
+  { url: '/contact', lastmod: '2026-07-27', priority: '0.6', changefreq: 'yearly' },
+  { url: '/privacy', lastmod: '2026-10-18', priority: '0.4', changefreq: 'yearly' },
+  { url: '/terms', lastmod: '2026-07-27', priority: '0.4', changefreq: 'yearly' },
+  { url: '/refunds', lastmod: '2026-07-27', priority: '0.4', changefreq: 'yearly' },
+  { url: '/cookies', lastmod: '2026-10-18', priority: '0.3', changefreq: 'yearly' },
+];
+
+function BLOG_LATEST_DATE(): string {
+  return getAllBlogPosts().map(p => p.publishDate).sort().pop() || '2026-02-10';
+}
+
 app.get('/sitemap.xml', (c) => {
   const baseUrl = 'https://www.shopshot.co.uk'
-  const today = new Date().toISOString().split('T')[0]
-  
-  const pages = [
-    { url: '/', priority: '1.0', changefreq: 'weekly' },
-    { url: '/pricing', priority: '0.9', changefreq: 'weekly' },
-    { url: '/blog', priority: '0.9', changefreq: 'weekly' },
-    { url: '/faq', priority: '0.8', changefreq: 'monthly' },
-    { url: '/about', priority: '0.7', changefreq: 'monthly' },
-    { url: '/contact', priority: '0.7', changefreq: 'monthly' },
-    { url: '/privacy', priority: '0.5', changefreq: 'yearly' },
-    { url: '/terms', priority: '0.5', changefreq: 'yearly' },
-    { url: '/refunds', priority: '0.5', changefreq: 'yearly' },
-    { url: '/cookies', priority: '0.3', changefreq: 'yearly' },
-  ]
-  
-  // Add blog posts dynamically
-  const blogPosts = getAllBlogPosts()
-  const blogUrls = blogPosts.map(post => ({
+
+  // HTML posts only. The .md copies and /blog/markdown are for AI tools and
+  // are served with X-Robots-Tag: noindex, so listing them here sent Google
+  // mixed signals and doubled the URL count.
+  const blogUrls = getAllBlogPosts().map(post => ({
     url: `/blog/${post.slug}`,
+    lastmod: post.publishDate,
     priority: '0.8',
-    changefreq: 'monthly',
-    lastmod: post.publishDate
+    changefreq: 'yearly'
   }))
-  
-  // Add markdown versions for AI/crawlers
-  const markdownUrls = blogPosts.map(post => ({
-    url: `/blog/${post.slug}.md`,
-    priority: '0.6',
-    changefreq: 'monthly',
-    lastmod: post.publishDate
-  }))
-  
+
+  const entries = [...STATIC_PAGE_LASTMOD, ...blogUrls]
   const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-${pages.map(p => `  <url>
-    <loc>${baseUrl}${p.url}</loc>
-    <lastmod>${today}</lastmod>
-    <changefreq>${p.changefreq}</changefreq>
-    <priority>${p.priority}</priority>
-  </url>`).join('\n')}
-${blogUrls.map(p => `  <url>
-    <loc>${baseUrl}${p.url}</loc>
-    <lastmod>${p.lastmod}</lastmod>
-    <changefreq>${p.changefreq}</changefreq>
-    <priority>${p.priority}</priority>
-  </url>`).join('\n')}
-  <url>
-    <loc>${baseUrl}/blog/markdown</loc>
-    <lastmod>${today}</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.7</priority>
-  </url>
-${markdownUrls.map(p => `  <url>
+${entries.map(p => `  <url>
     <loc>${baseUrl}${p.url}</loc>
     <lastmod>${p.lastmod}</lastmod>
     <changefreq>${p.changefreq}</changefreq>
     <priority>${p.priority}</priority>
   </url>`).join('\n')}
 </urlset>`
-  
-  return c.text(sitemap, 200, { 'Content-Type': 'application/xml' })
+
+  return c.text(sitemap, 200, { 'Content-Type': 'application/xml', 'Cache-Control': 'public, max-age=3600' })
 })
 
 // Contact Form API
@@ -2778,16 +3041,19 @@ app.get('/api/admin/dashboard', async (c) => {
     // KPIs
     const totalUsers = await db.prepare('SELECT COUNT(*) as count FROM users').first() as any
     const activeMembers = await db.prepare("SELECT COUNT(*) as count FROM users WHERE subscription_status = 'active'").first() as any
-    const mrr = await db.prepare(`
-      SELECT SUM(
-        CASE 
-          WHEN subscription_plan = 'starter' THEN 9.99
-          WHEN subscription_plan = 'standard' THEN 39.99
-          WHEN subscription_plan = 'pro' THEN 59.99
-          ELSE 0
-        END
-      ) as mrr FROM users WHERE subscription_status = 'active'
-    `).first() as any
+    // MRR from the price list rather than SQL literals, which had drifted to
+    // the pre-July prices ($39.99 / $59.99). Annual plans count as 1/12 of the
+    // annual price. Reported in USD; GBP subscriptions are converted at
+    // GBP_TO_USD so the headline figure is one number.
+    const activeSubs = await db.prepare(`
+      SELECT COALESCE(plan, subscription_plan) AS plan,
+             COALESCE(subscription_interval, 'month') AS interval,
+             COALESCE(currency, 'USD') AS currency,
+             COUNT(*) AS n
+      FROM users WHERE subscription_status = 'active'
+      GROUP BY 1, 2, 3
+    `).all() as any
+    const mrr = { mrr: monthlyRecurringRevenueUsd(activeSubs?.results || []) }
     
     const creditsConsumed = await db.prepare(`
       SELECT SUM(ABS(amount)) as consumed FROM credit_transactions 
@@ -2814,7 +3080,7 @@ app.get('/api/admin/dashboard', async (c) => {
     
     // Recent signups list (last 7 days with details)
     const recentSignups = await db.prepare(`
-      SELECT id, name, email, created_at, subscription_plan FROM users 
+      SELECT id, name, email, created_at, COALESCE(plan, subscription_plan) AS subscription_plan FROM users 
       WHERE created_at > datetime('now', '-7 days')
       ORDER BY created_at DESC
       LIMIT 100
@@ -2822,27 +3088,30 @@ app.get('/api/admin/dashboard', async (c) => {
     
     // Recent cancellations list (last 7 days with details)
     const recentCancellations = await db.prepare(`
-      SELECT id, name, email, updated_at, subscription_plan FROM users 
+      SELECT id, name, email, updated_at, COALESCE(plan, subscription_plan) AS subscription_plan FROM users 
       WHERE subscription_status = 'canceled' AND updated_at > datetime('now', '-7 days')
       ORDER BY updated_at DESC
       LIMIT 100
     `).all() as any
     
     // Revenue by plan
-    const planBreakdown = await db.prepare(`
-      SELECT 
-        subscription_plan as plan,
-        COUNT(*) as count,
-        SUM(CASE 
-          WHEN subscription_plan = 'starter' THEN 9.99
-          WHEN subscription_plan = 'standard' THEN 39.99
-          WHEN subscription_plan = 'pro' THEN 59.99
-          ELSE 0
-        END) as revenue
-      FROM users 
-      WHERE subscription_status = 'active' OR subscription_plan = 'free'
-      GROUP BY subscription_plan
+    const planRows = await db.prepare(`
+      SELECT COALESCE(plan, subscription_plan) AS plan,
+             COALESCE(subscription_interval, 'month') AS interval,
+             COALESCE(currency, 'USD') AS currency,
+             subscription_status AS status,
+             COUNT(*) AS n
+      FROM users
+      WHERE subscription_status = 'active' OR COALESCE(plan, subscription_plan) = 'free'
+      GROUP BY 1, 2, 3, 4
     `).all() as any
+    const byPlan: Record<string, { plan: string; count: number; revenue: number }> = {}
+    for (const r of (planRows?.results || [])) {
+      const row = byPlan[r.plan] || (byPlan[r.plan] = { plan: r.plan, count: 0, revenue: 0 })
+      row.count += r.n
+      if (r.status === 'active') row.revenue += monthlyRecurringRevenueUsd([r])
+    }
+    const planBreakdown = { results: Object.values(byPlan).map(r => ({ ...r, revenue: Math.round(r.revenue * 100) / 100 })) }
     
     // Recent errors
     const recentErrors = await db.prepare(`
@@ -2907,7 +3176,7 @@ app.get('/api/admin/users/:id', async (c) => {
   try {
     const targetUser = await db.prepare(`
       SELECT id, email, name, phone, cheaper_credits, better_credits, subscription_status, 
-             subscription_plan, created_at, updated_at, role, is_banned, google_id
+             COALESCE(plan, subscription_plan) AS subscription_plan, created_at, updated_at, role, is_banned, google_id
       FROM users WHERE id = ?
     `).bind(userId).first()
     
@@ -2950,7 +3219,7 @@ app.get('/api/admin/users', async (c) => {
     if (search) {
       users = await db.prepare(`
         SELECT id, email, name, cheaper_credits, better_credits, subscription_status, 
-               subscription_plan, created_at, role, is_banned
+               COALESCE(plan, subscription_plan) AS subscription_plan, created_at, role, is_banned
         FROM users 
         WHERE email LIKE ? OR name LIKE ?
         ORDER BY created_at DESC
@@ -2959,7 +3228,7 @@ app.get('/api/admin/users', async (c) => {
     } else {
       users = await db.prepare(`
         SELECT id, email, name, cheaper_credits, better_credits, subscription_status, 
-               subscription_plan, created_at, role, is_banned
+               COALESCE(plan, subscription_plan) AS subscription_plan, created_at, role, is_banned
         FROM users 
         ORDER BY created_at DESC
         LIMIT ?
@@ -3088,7 +3357,7 @@ app.get('/api/admin/export/users', async (c) => {
   try {
     const users = await db.prepare(`
       SELECT email, name, cheaper_credits, better_credits, subscription_status, 
-             subscription_plan, created_at
+             COALESCE(plan, subscription_plan) AS subscription_plan, created_at
       FROM users 
       ORDER BY created_at DESC
     `).all() as any
@@ -3172,8 +3441,8 @@ app.get('/api/admin/system-health', async (c) => {
     
     // Database size estimate (count images * avg size)
     const imageCount = await db.prepare(`
-      SELECT COUNT(*) as count FROM generated_images WHERE image_data IS NOT NULL
-    `).first() as any
+      SELECT COUNT(*) as count FROM generated_images WHERE image_data IS NOT NULL AND image_data != ''
+    `).first() as any // images still held in D1 (not yet in R2)
     const estimatedStorageMB = ((imageCount?.count || 0) * 0.15).toFixed(1) // ~150KB per image avg
     
     return c.json({
@@ -3235,7 +3504,7 @@ app.get('/api/admin/recent-activity', async (c) => {
       FROM generated_images gi
       JOIN sessions s ON gi.session_id = s.id
       LEFT JOIN users u ON s.user_id = u.id
-      WHERE gi.status = 'completed' AND gi.created_at > ${sinceClause}
+      WHERE gi.created_at > ${sinceClause}
       ORDER BY gi.created_at DESC
       LIMIT 20
     `).all() as any
@@ -3518,78 +3787,10 @@ app.get('/api/admin/analytics/generations', async (c) => {
 })
 
 // Analytics: Get feedback stats (thumbs up/down)
-app.get('/api/admin/analytics/feedback', async (c) => {
-  const user = c.get('user') as any
-  if (!user) return c.json({ success: false, error: 'Not authenticated' }, 401)
-  if (user.role !== 'admin') return c.json({ success: false, error: 'Not authorized' }, 403)
-  
-  const db = c.env.TESCO_DB
-  const days = parseInt(c.req.query('days') || '30')
-  
-  try {
-    // Overall feedback counts
-    const totals = await db.prepare(`
-      SELECT 
-        COUNT(CASE WHEN rating = 'up' THEN 1 END) as thumbs_up,
-        COUNT(CASE WHEN rating = 'down' THEN 1 END) as thumbs_down,
-        COUNT(*) as total
-      FROM image_feedback 
-      WHERE created_at > datetime('now', '-${days} days')
-    `).first() as any
-    
-    // Feedback by reason (for thumbs down)
-    const byReason = await db.prepare(`
-      SELECT feedback_reason, COUNT(*) as count
-      FROM image_feedback 
-      WHERE rating = 'down' AND feedback_reason IS NOT NULL
-        AND created_at > datetime('now', '-${days} days')
-      GROUP BY feedback_reason
-      ORDER BY count DESC
-    `).all() as any
-    
-    // Feedback by variation type
-    const byVariation = await db.prepare(`
-      SELECT variation_type, 
-        COUNT(CASE WHEN rating = 'up' THEN 1 END) as up,
-        COUNT(CASE WHEN rating = 'down' THEN 1 END) as down
-      FROM image_feedback 
-      WHERE created_at > datetime('now', '-${days} days')
-      GROUP BY variation_type
-      ORDER BY (up + down) DESC
-    `).all() as any
-    
-    // Recent feedback with user info
-    const recent = await db.prepare(`
-      SELECT f.*, u.email, u.name as user_name
-      FROM image_feedback f
-      LEFT JOIN users u ON f.user_id = u.id
-      WHERE f.created_at > datetime('now', '-${days} days')
-      ORDER BY f.created_at DESC
-      LIMIT 20
-    `).all() as any
-    
-    const thumbsUp = totals?.thumbs_up || 0
-    const thumbsDown = totals?.thumbs_down || 0
-    const total = totals?.total || 0
-    const satisfactionRate = total > 0 ? Math.round((thumbsUp / total) * 100) : 0
-    
-    return c.json({
-      success: true,
-      feedback: {
-        thumbs_up: thumbsUp,
-        thumbs_down: thumbsDown,
-        total,
-        satisfaction_rate: satisfactionRate,
-        by_reason: byReason?.results || [],
-        by_variation: byVariation?.results || [],
-        recent: recent?.results || []
-      }
-    })
-  } catch (error) {
-    console.error('Analytics feedback error:', error)
-    return c.json({ success: false, error: 'Failed to get feedback analytics' }, 500)
-  }
-})
+// /api/admin/analytics/feedback is defined once, further down. A second,
+// earlier definition used to shadow it: Hono answers with the first match, and
+// that one returned flat fields while the admin page reads feedback.overview,
+// so the feedback panel never displayed anything.
 
 // Analytics: Get user journey/funnel
 app.get('/api/admin/analytics/funnel', async (c) => {
@@ -3802,13 +4003,15 @@ app.get('/api/admin/analytics/events', async (c) => {
       if ((e.event_type === 'generation_completed' || e.event_type === 'image_uploaded') && e.session_id) {
         // Get the most recent generated image for this session
         const txn = await db.prepare(`
-          SELECT image_data FROM credit_transactions 
-          WHERE session_id = ? AND image_data IS NOT NULL AND image_data != ''
+          SELECT image_data, image_key FROM credit_transactions 
+          WHERE session_id = ? AND ((image_data IS NOT NULL AND image_data != '') OR image_key IS NOT NULL)
           ORDER BY created_at DESC LIMIT 1
         `).bind(e.session_id).first() as any
         
-        if (txn?.image_data) {
-          e.generated_image = txn.image_data
+        // Old ledger images may have been moved to R2 by migrate-images-to-r2.ts
+        const image = txn?.image_data || (txn?.image_key ? await getImageFromR2(c.env, txn.image_key).catch(() => null) : null)
+        if (image) {
+          e.generated_image = image
         }
       }
       return e
@@ -3926,9 +4129,9 @@ app.get('/api/sessions/:id', async (c) => {
     let images: any[] = []
     try {
       const imagesResult = await db.prepare(
-        'SELECT variation_type, variation_index, image_data FROM generated_images WHERE session_id = ? ORDER BY variation_index'
+        'SELECT variation_type, variation_index, image_data, image_key FROM generated_images WHERE session_id = ? ORDER BY variation_index'
       ).bind(id).all()
-      images = imagesResult.results || []
+      images = await hydrateImages(c.env, (imagesResult.results || []) as any[])
     } catch (imgError) {
       console.error('Error fetching images (table may not exist):', imgError)
       // Continue with empty images array - table might not exist yet
@@ -3956,22 +4159,37 @@ app.post('/api/sessions/:id/images', async (c) => {
     if (!variation_type || variation_index === undefined || !image_data) {
       return c.json({ success: false, error: 'Missing required fields' }, 400)
     }
+
+    // Only the session's owner may write its images (there was no check).
+    const user = c.get('user')
+    if (!user) return c.json({ success: false, error: 'Authentication required' }, 401)
+    if (!(await db.prepare('SELECT 1 AS ok FROM sessions WHERE id = ? AND user_id = ?').bind(sessionId, user.id).first())) {
+      return c.json({ success: false, error: 'Session not found' }, 404)
+    }
     
+    // Store the bytes in R2 when the bucket is bound; D1 keeps only the key.
+    const imageKey = await putImageToR2(c.env, sessionId, Number(variation_index), image_data)
+    // image_data is NOT NULL in production, so R2-backed rows store ''.
+    const storedData = imageKey ? '' : image_data
+
     // Check if image already exists for this variation
     const existing = await db.prepare(
-      'SELECT id FROM generated_images WHERE session_id = ? AND variation_index = ?'
-    ).bind(sessionId, variation_index).first()
+      'SELECT id, image_key FROM generated_images WHERE session_id = ? AND variation_index = ?'
+    ).bind(sessionId, variation_index).first() as any
     
     if (existing) {
-      // Update existing
+      // Update existing (a regeneration replaces the image)
       await db.prepare(
-        'UPDATE generated_images SET image_data = ? WHERE session_id = ? AND variation_index = ?'
-      ).bind(image_data, sessionId, variation_index).run()
+        'UPDATE generated_images SET image_data = ?, image_key = ? WHERE session_id = ? AND variation_index = ?'
+      ).bind(storedData, imageKey, sessionId, variation_index).run()
+      if (existing.image_key && existing.image_key !== imageKey && c.env.IMAGES_BUCKET) {
+        c.executionCtx.waitUntil(c.env.IMAGES_BUCKET.delete(existing.image_key).catch(() => {}))
+      }
     } else {
       // Insert new
       await db.prepare(
-        'INSERT INTO generated_images (session_id, variation_type, variation_index, image_data) VALUES (?, ?, ?, ?)'
-      ).bind(sessionId, variation_type, variation_index, image_data).run()
+        'INSERT INTO generated_images (session_id, variation_type, variation_index, image_data, image_key) VALUES (?, ?, ?, ?, ?)'
+      ).bind(sessionId, variation_type, variation_index, storedData, imageKey).run()
     }
     
     return c.json({ success: true })
@@ -3991,6 +4209,12 @@ app.post('/api/sessions/:id/video', async (c) => {
     
     if (!video_url) {
       return c.json({ success: false, error: 'Missing video URL' }, 400)
+    }
+
+    const user = c.get('user')
+    if (!user) return c.json({ success: false, error: 'Authentication required' }, 401)
+    if (!(await db.prepare('SELECT 1 AS ok FROM sessions WHERE id = ? AND user_id = ?').bind(sessionId, user.id).first())) {
+      return c.json({ success: false, error: 'Session not found' }, 404)
     }
     
     // Update session with video URL
@@ -4094,9 +4318,9 @@ app.post('/api/auth/register', async (c) => {
     const passwordHash = await hashPassword(password);
     
     await db.prepare(`
-      INSERT INTO users (id, email, password_hash, name, phone, marketing_consent, cheaper_credits, better_credits, email_verified, email_verification_code, email_verification_expires)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
-    `).bind(userId, email.toLowerCase(), passwordHash, name || null, phone?.trim() || null, marketing_consent ? 1 : 0, CREDITS.SIGNUP_CHEAPER, CREDITS.SIGNUP_BETTER, verificationCode, expiresAt.toISOString()).run();
+      INSERT INTO users (id, email, password_hash, name, phone, marketing_consent, cheaper_credits, better_credits, email_verified, email_verification_code, email_verification_expires, currency)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+    `).bind(userId, email.toLowerCase(), passwordHash, name || null, phone?.trim() || null, marketing_consent ? 1 : 0, CREDITS.SIGNUP_CHEAPER, CREDITS.SIGNUP_BETTER, verificationCode, expiresAt.toISOString(), signupCurrency(c)).run();
     
     // Send verification email
     if (c.env.RESEND_API_KEY) {
@@ -4410,7 +4634,7 @@ app.post('/api/auth/login', async (c) => {
     }
     
     const user = await db.prepare(`
-      SELECT id, email, password_hash, name, cheaper_credits, better_credits, subscription_status, subscription_plan, stripe_customer_id, email_verified, google_id
+      SELECT id, email, password_hash, name, cheaper_credits, better_credits, subscription_status, COALESCE(plan, subscription_plan) AS subscription_plan, stripe_customer_id, email_verified, google_id
       FROM users WHERE email = ?
     `).bind(email.toLowerCase()).first() as any;
     
@@ -4513,12 +4737,17 @@ app.get('/api/auth/google', async (c) => {
   }
   
   // Get redirect URL from query params - default to /app not /
-  const redirectTo = c.req.query('redirect') || '/app';
+  const redirectTo = safeRedirectPath(c.req.query('redirect'), '/app');
   const plan = c.req.query('plan') || '';
   const ref = c.req.query('ref') || '';
-  
-  // Create state with redirect info and referral code
-  const state = btoa(JSON.stringify({ redirect: redirectTo, plan, ref }));
+  // Homepage preview session to attach to the account once it exists.
+  const anon = c.req.query('anon') || '';
+
+  // The nonce ties the callback to this browser, so nobody can complete a
+  // Google sign-in started elsewhere and land a victim in their account.
+  const nonce = generateId();
+  setCookie(c, 'oauth_nonce', nonce, { httpOnly: true, secure: true, sameSite: 'Lax', maxAge: 600, path: '/api/auth/google' });
+  const state = btoa(JSON.stringify({ redirect: redirectTo, plan, ref, anon, nonce }));
   
   const baseUrl = new URL(c.req.url).origin;
   const redirectUri = `${baseUrl}/api/auth/google/callback`;
@@ -4547,11 +4776,23 @@ app.get('/api/auth/google/callback', async (c) => {
   // Parse state
   let redirectTo = '/';
   let plan = '';
+  let refCode = '';
+  let anonSessionId = '';
+  let stateNonce = '';
   try {
     const stateData = JSON.parse(atob(state || ''));
-    redirectTo = stateData.redirect || '/';
+    redirectTo = safeRedirectPath(stateData.redirect, '/');
     plan = stateData.plan || '';
+    refCode = typeof stateData.ref === 'string' ? stateData.ref : '';
+    anonSessionId = typeof stateData.anon === 'string' ? stateData.anon : '';
+    stateNonce = typeof stateData.nonce === 'string' ? stateData.nonce : '';
   } catch {}
+
+  const cookieNonce = getCookie(c, 'oauth_nonce');
+  deleteCookie(c, 'oauth_nonce', { path: '/api/auth/google' });
+  if (!stateNonce || !cookieNonce || stateNonce !== cookieNonce) {
+    return c.redirect('/login?error=oauth_state');
+  }
   
   const clientId = c.env.GOOGLE_CLIENT_ID;
   const clientSecret = c.env.GOOGLE_CLIENT_SECRET;
@@ -4594,9 +4835,9 @@ app.get('/api/auth/google/callback', async (c) => {
     const userId = generateId();
     
     await db.prepare(`
-      INSERT INTO users (id, email, password_hash, name, cheaper_credits, better_credits, email_verified, google_id)
-      VALUES (?, ?, '', ?, ?, ?, 1, ?)
-    `).bind(userId, googleUser.email.toLowerCase(), googleUser.name || null, CREDITS.SIGNUP_CHEAPER, CREDITS.SIGNUP_BETTER, googleUser.id).run();
+      INSERT INTO users (id, email, password_hash, name, cheaper_credits, better_credits, email_verified, google_id, currency)
+      VALUES (?, ?, '', ?, ?, ?, 1, ?, ?)
+    `).bind(userId, googleUser.email.toLowerCase(), googleUser.name || null, CREDITS.SIGNUP_CHEAPER, CREDITS.SIGNUP_BETTER, googleUser.id, signupCurrency(c)).run();
     
     // Log signup bonus
     await db.prepare(`
@@ -4635,17 +4876,21 @@ app.get('/api/auth/google/callback', async (c) => {
     
     user = { id: userId };
     
-    // Process referral from state if available
-    if (state) {
-      try {
-        const stateData = JSON.parse(decodeURIComponent(state));
-        if (stateData.ref) {
-          c.executionCtx.waitUntil(
-            processReferral(db, stateData.ref, userId, c.env.RESEND_API_KEY)
-          );
-        }
-      } catch (e) { /* state parse error is non-critical */ }
+    // Process referral from state. This used to parse the state with
+    // decodeURIComponent although it is base64, so it always threw and no
+    // Google signup (most signups) ever credited a referral.
+    if (refCode) {
+      c.executionCtx.waitUntil(
+        processReferral(db, refCode, userId, c.env.RESEND_API_KEY)
+      );
     }
+  }
+
+  // Attach the homepage preview they generated before signing up.
+  if (isNewUser && anonSessionId) {
+    c.executionCtx.waitUntil(
+      claimAnonymousSession(db, anonSessionId, user.id).catch(err => console.error('[Anon] claim failed', err))
+    );
   }
   
   // Create session
@@ -4682,7 +4927,8 @@ app.get('/api/auth/google/callback', async (c) => {
   // fire the sign_up event - the callback itself is server-side and cannot.
   const finalRedirect = redirectTo && redirectTo !== '/' ? redirectTo : '/app';
   const sep = finalRedirect.includes('?') ? '&' : '?';
-  return c.redirect(finalRedirect + sep + 'welcome=1' + (isNewUser ? '&signup=google' : '&login=google'));
+  // Only new accounts get the first-run welcome; returning users go straight in.
+  return c.redirect(finalRedirect + sep + (isNewUser ? 'welcome=1&signup=google' + (anonSessionId ? '&from_preview=1' : '') : 'login=google'));
 });
 
 // ============================================================================
@@ -4898,21 +5144,12 @@ app.post('/api/billing/create-checkout', async (c) => {
     return c.json({ success: false, error: 'Invalid checkout type' }, 400);
   }
   
-  // Credit pack price IDs (Stripe)
-  const PACK_PRICE_IDS: Record<string, Record<number, string>> = {
-    cheaper: {
-      25: 'price_1SXofAK5jVZf8VX1YmbbaUWW',   // Standard 25
-      50: 'price_1SYWQGK5jVZf8VX1J5jY5poM',   // Standard 50
-      75: 'price_1SYWQTK5jVZf8VX1zqApkXAK',   // Standard 75
-      100: 'price_1SYWQcK5jVZf8VX1EP6g57IK',  // Standard 100
-    },
-    better: {
-      25: 'price_1SXofrK5jVZf8VX1JI0M5MXx',   // Pro 25
-      50: 'price_1SYWRBK5jVZf8VX1Qt1REGpZ',   // Pro 50
-      75: 'price_1SYWRKK5jVZf8VX1QauxPjTR',   // Pro 75
-      100: 'price_1SYWRUK5jVZf8VX1e59vipvr',  // Pro 100
-    }
-  };
+  const PACK_PRICE_IDS = packPriceIds(c.env);
+
+  // The currency this checkout charges in. Same function as the page used to
+  // display prices, so the two cannot disagree. Stripe would otherwise pick a
+  // currency from the buyer's IP address itself.
+  const cur = currencyFor(c);
   
   // Subscription price IDs, resolved from the environment.
   //
@@ -4927,7 +5164,8 @@ app.post('/api/billing/create-checkout', async (c) => {
   // by our own webhook rather than by Stripe.
   const SUBSCRIPTION_PRICE_IDS: Record<string, Record<string, string | undefined>> = {
     month: {
-      starter:  c.env.STRIPE_PRICE_STARTER_MONTHLY || 'price_1SxnmqK5jVZf8VX1TwmwvuIs',
+      // The fallback price is USD-only, so it is not offered to GBP buyers.
+      starter:  c.env.STRIPE_PRICE_STARTER_MONTHLY || (cur === 'USD' ? 'price_1SxnmqK5jVZf8VX1TwmwvuIs' : undefined),
       standard: c.env.STRIPE_PRICE_STANDARD_MONTHLY,
       pro:      c.env.STRIPE_PRICE_PRO_MONTHLY,
     },
@@ -4958,9 +5196,9 @@ app.post('/api/billing/create-checkout', async (c) => {
     mode = 'subscription';
   } else {
     // For 'topup' or 'pack', look up the correct price ID
-    const packPrices = PACK_PRICE_IDS[creditType as string];
-    if (packPrices && packPrices[amount as number]) {
-      priceId = packPrices[amount as number];
+    const packPrices = PACK_PRICE_IDS[creditType as 'cheaper' | 'better'];
+    if (packPrices && packPrices[amount as PackTier]) {
+      priceId = packPrices[amount as PackTier];
     } else {
       return c.json({ success: false, error: 'Invalid pack type or amount' }, 400);
     }
@@ -4988,12 +5226,16 @@ app.post('/api/billing/create-checkout', async (c) => {
     mode: mode,
     'line_items[0][price]': priceId,
     'line_items[0][quantity]': 1,
-    success_url: `${origin}/dashboard?checkout=success&type=${type}&plan=${encodeURIComponent(plan || '')}&interval=${billingInterval}&amount=${encodeURIComponent(String(amount || ''))}`,
+    // {CHECKOUT_SESSION_ID} is filled in by Stripe; the dashboard uses it as
+    // the GA4 transaction_id so a refresh cannot record the purchase twice.
+    success_url: `${origin}/dashboard?checkout=success&type=${type}&plan=${encodeURIComponent(plan || '')}&interval=${billingInterval}&amount=${encodeURIComponent(String(amount || ''))}&currency=${cur}&session_id={CHECKOUT_SESSION_ID}`,
+    currency: cur.toLowerCase(),
+    'metadata[currency]': cur,
     cancel_url: `${origin}/pricing?checkout=canceled`,
     client_reference_id: user.id,
     'metadata[user_id]': user.id,
     'metadata[type]': type === 'pack' ? 'topup' : type,
-    allow_promotion_codes: 'true' // Enable discount codes like FIRST20
+    allow_promotion_codes: 'true' // Lets buyers enter WELCOME20 (see DEPLOY_CHECKLIST.md)
   };
   
   // Add credit pack metadata if applicable
@@ -5132,17 +5374,25 @@ app.post('/api/billing/webhook', async (c) => {
             const nextGrant = billingInterval === 'year' ? addMonths(nowIso, 1) : null;
             const periodEnd = billingInterval === 'year' ? addMonths(nowIso, 12) : null;
 
+            // `plan` is authoritative. Production's subscription_plan column
+            // carries CHECK (IN 'free','standard','pro'), which rejects
+            // 'starter', so it is only kept in step where the check allows.
+            // See migrations/0007.
+            const chargedCurrency = String(session.currency || '').toUpperCase();
             await db.prepare(`
               UPDATE users SET 
                 subscription_status = 'active', 
-                subscription_plan = ?,
+                plan = ?,
+                subscription_plan = CASE WHEN ? IN ('free', 'standard', 'pro') THEN ? ELSE subscription_plan END,
                 stripe_subscription_id = ?,
                 subscription_interval = ?,
                 next_credit_grant_at = ?,
                 subscription_period_end = ?,
+                currency = CASE WHEN ? IN ('USD', 'GBP') THEN ? ELSE currency END,
                 updated_at = CURRENT_TIMESTAMP
               WHERE id = ?
-            `).bind(planType, session.subscription, billingInterval, nextGrant, periodEnd, userId).run();
+            `).bind(planType, planType, planType, session.subscription, billingInterval, nextGrant, periodEnd,
+                    chargedCurrency, chargedCurrency, userId).run();
 
             console.log(`[Webhook] User ${userId} subscription activated: ${planType}/${billingInterval}`);
             
@@ -5155,7 +5405,11 @@ app.post('/api/billing/webhook', async (c) => {
                 user.name,
                 planType,
                 cheaperCredits,
-                betterCredits
+                betterCredits,
+                typeof session.amount_total === 'number'
+                  ? formatMoney(session.amount_total / 100, chargedCurrency === 'GBP' ? 'GBP' : 'USD')
+                  : undefined,
+                billingInterval
               ).catch(err => {
                 console.error('Failed to send subscription notification:', err);
               });
@@ -5196,8 +5450,14 @@ app.post('/api/billing/webhook', async (c) => {
               ? CREDITS.PACKS.BETTER[packKey]
               : CREDITS.PACKS.CHEAPER[packKey];
             
+            // Describe the pack by what Stripe actually charged, not the tier
+            // number, which is only a dollar figure for USD buyers.
+            const packCur: Currency = String(session.currency || '').toUpperCase() === 'GBP' ? 'GBP' : 'USD';
+            const packCharged = typeof session.amount_total === 'number'
+              ? formatMoney(session.amount_total / 100, packCur)
+              : `${packAmount}-tier`;
             await addCredits(db, userId, credits, creditPackType as 'cheaper' | 'better', 'topup',
-              `$${packAmount} Credit Pack purchase - ${creditPackType === 'better' ? 'Pro' : 'Standard'} credits`,
+              `${packCharged} credit pack (${credits} ${creditPackType === 'better' ? 'Pro' : 'Standard'} credits)`,
               session.id);
             
             // Track credit pack purchase
@@ -5207,7 +5467,9 @@ app.post('/api/billing/webhook', async (c) => {
                 userId: userId,
                 metadata: {
                   type: 'credit_pack',
-                  amount_gbp: packAmount,
+                  pack_tier: packAmount,
+                  amount_paid: typeof session.amount_total === 'number' ? session.amount_total / 100 : null,
+                  currency: packCur,
                   credit_type: creditPackType,
                   credits_added: credits
                 }
@@ -5252,7 +5514,7 @@ app.post('/api/billing/webhook', async (c) => {
           if (userId) {
             // Get user's subscription plan and interval to determine what to grant
             const user = await db.prepare(
-              'SELECT subscription_plan, subscription_interval FROM users WHERE id = ?'
+              'SELECT COALESCE(plan, subscription_plan) AS subscription_plan, subscription_interval FROM users WHERE id = ?'
             ).bind(userId).first() as any;
             const planType = user?.subscription_plan || 'standard';
             const interval = user?.subscription_interval === 'year' ? 'year' : 'month';
@@ -5371,19 +5633,458 @@ app.get('/api/billing/portal', async (c) => {
 // ============================================================================
 
 // API: Health check
+// Post-deploy check. Reports which pieces of configuration are present - never
+// their values. The previous version returned secret lengths and the full list
+// of environment binding names; neither is needed to confirm a deploy.
+//
+//   GET /api/health          configuration and schema, no external calls
+//   GET /api/health?deep=1   also asks Stripe whether each configured price
+//                            exists, is active, has the expected amount and
+//                            interval, and carries a GBP option if GBP is on
+// ============================================================================
+// IMAGE STORAGE (R2)
+// ============================================================================
+// Generated images used to be stored as base64 data URLs in D1 (173 MB in
+// generated_images by Oct 2026). New images go to the shopshot-images R2
+// bucket (binding IMAGES_BUCKET) and D1 keeps only the object key. Reads
+// turn the object back into a data URL, so API responses keep their shape
+// and no client code changes. Without the binding everything stays in D1.
+// scripts/migrate-images-to-r2.ts moves existing rows.
+
+function dataUrlToBytes(dataUrl: string): { bytes: Uint8Array; contentType: string } | null {
+  const m = /^data:([^;,]+);base64,(.*)$/s.exec(dataUrl || '');
+  if (!m) return null;
+  const bin = atob(m[2]);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return { bytes, contentType: m[1] };
+}
+
+function bytesToDataUrl(bytes: Uint8Array, contentType: string): string {
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 8192) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192) as any);
+  }
+  return `data:${contentType};base64,${btoa(binary)}`;
+}
+
+/** Stores a data-URL image in R2. Returns the key, or null to fall back to D1. */
+async function putImageToR2(env: Bindings, sessionId: string, variationIndex: number, dataUrl: string): Promise<string | null> {
+  if (!env.IMAGES_BUCKET) return null;
+  const parsed = dataUrlToBytes(dataUrl);
+  if (!parsed) return null;
+  const ext = parsed.contentType === 'image/png' ? 'png' : parsed.contentType === 'image/webp' ? 'webp' : 'jpg';
+  const key = `generated/${sessionId}/${variationIndex}-${generateId()}.${ext}`;
+  try {
+    await env.IMAGES_BUCKET.put(key, parsed.bytes, { httpMetadata: { contentType: parsed.contentType } });
+    return key;
+  } catch (e) {
+    console.error('[R2] put failed, keeping image in D1:', e);
+    return null;
+  }
+}
+
+async function getImageFromR2(env: Bindings, key: string): Promise<string | null> {
+  if (!env.IMAGES_BUCKET || !key) return null;
+  const obj = await env.IMAGES_BUCKET.get(key);
+  if (!obj) return null;
+  const bytes = new Uint8Array(await obj.arrayBuffer());
+  return bytesToDataUrl(bytes, obj.httpMetadata?.contentType || 'image/png');
+}
+
+/** Fills image_data from R2 for rows that only have an image_key. */
+async function hydrateImages(env: Bindings, rows: any[]): Promise<any[]> {
+  return Promise.all(rows.map(async r => {
+    if (!r.image_data && r.image_key) {
+      r.image_data = await getImageFromR2(env, r.image_key).catch(() => null);
+    }
+    delete r.image_key;
+    return r;
+  }));
+}
+
+// ============================================================================
+// SCHEDULED JOBS
+// ============================================================================
+// Cloudflare Pages has no cron triggers, so a tiny companion Worker
+// (workers/cron/) calls POST /api/cron/run every hour with
+// `Authorization: Bearer $CRON_SECRET`. Each job is idempotent and bounded,
+// so a missed or doubled run does no harm.
+//
+// Jobs:
+//   - day-2 onboarding email: signed up 2+ days ago, has never uploaded
+//   - day-7 win-back email: used the product, has not been back for 5 days,
+//     opted in to marketing
+//   - analytics bot cleanup: recent rows every run, all history at 03:00 UTC
+
+const LIFECYCLE_BATCH = 50;          // emails per job per run
+const BOT_CLEANUP_BATCH = 5000;      // rows per DELETE
+const BOT_CLEANUP_MAX_BATCHES = 20;  // up to 100k rows per run
+
+/** HMAC token for one-click unsubscribe links, so ids cannot be guessed. */
+async function unsubscribeToken(userId: string, secret: string): Promise<string> {
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret || 'shopshot'),
+    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`unsubscribe:${userId}`));
+  return Array.from(new Uint8Array(sig)).slice(0, 16).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function unsubscribeUrl(userId: string, secret: string): Promise<string> {
+  return `https://www.shopshot.co.uk/unsubscribe?u=${encodeURIComponent(userId)}&t=${await unsubscribeToken(userId, secret)}`;
+}
+
+/** Shared shell for lifecycle emails, matching the credit emails' style. */
+function lifecycleEmailHtml(opts: { heading: string; body: string; cta: string; ctaUrl: string; unsubscribe: string }): string {
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #F3F4F6; padding: 40px 20px; margin: 0;">
+  <div style="max-width: 480px; margin: 0 auto; background: white; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.08);">
+    <div style="background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%); padding: 32px; text-align: center;">
+      <h1 style="color: white; margin: 0; font-size: 24px; font-weight: 700;">${opts.heading}</h1>
+    </div>
+    <div style="padding: 36px 32px; color: #4B5563; font-size: 15px; line-height: 1.6;">
+      ${opts.body}
+      <a href="${opts.ctaUrl}" style="display: block; background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%); color: white; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-weight: 600; font-size: 15px; text-align: center; margin-top: 24px;">${opts.cta}</a>
+    </div>
+    <div style="background: #F9FAFB; padding: 20px 32px; text-align: center; border-top: 1px solid #E5E7EB;">
+      <p style="color: #9CA3AF; font-size: 12px; margin: 0;">Questions? Just reply to this email.<br>
+      <a href="${opts.unsubscribe}" style="color: #9CA3AF;">Stop these emails</a></p>
+    </div>
+  </div>
+</body></html>`;
+}
+
+async function sendLifecycleEmail(apiKey: string, to: string, subject: string, html: string, unsubscribe: string): Promise<boolean> {
+  try {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: 'ShopShot <noreply@shopshot.co.uk>',
+        to: [to],
+        subject,
+        html,
+        headers: { 'List-Unsubscribe': `<${unsubscribe}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' }
+      })
+    });
+    if (!response.ok) {
+      console.error('[Lifecycle Email] Resend error:', await response.text());
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.error('[Lifecycle Email] Error:', error);
+    return false;
+  }
+}
+
+/**
+ * Day 2: signed up at least two days ago (and within a fortnight) and has
+ * never uploaded a photo. An account email about credits they already hold,
+ * sent once, with an unsubscribe link.
+ */
+async function runDay2Emails(env: Bindings): Promise<{ candidates: number; sent: number; skipped?: string }> {
+  // Without a mail key, claiming users would mark them sent without sending.
+  if (!env.RESEND_API_KEY) return { candidates: 0, sent: 0, skipped: 'RESEND_API_KEY not set' };
+  const db = env.TESCO_DB;
+  const rows = await db.prepare(`
+    SELECT u.id, u.email, u.name, u.cheaper_credits, u.better_credits
+    FROM users u
+    WHERE u.email_day2_sent = 0
+      AND u.email_verified = 1
+      AND COALESCE(u.is_banned, 0) = 0
+      AND u.created_at <= datetime('now', '-2 days')
+      AND u.created_at > datetime('now', '-14 days')
+      AND NOT EXISTS (SELECT 1 FROM sessions s WHERE s.user_id = u.id)
+    LIMIT ?
+  `).bind(LIFECYCLE_BATCH).all();
+  let sent = 0;
+  for (const u of (rows.results || []) as any[]) {
+    // Claim first, so an overlapping run cannot send twice.
+    const claim = await db.prepare('UPDATE users SET email_day2_sent = 1 WHERE id = ? AND email_day2_sent = 0').bind(u.id).run();
+    if (!claim.meta || claim.meta.changes !== 1) continue;
+    const unsubscribe = await unsubscribeUrl(u.id, env.SESSION_SECRET);
+    const first = u.name ? escapeHtmlServer(String(u.name).split(' ')[0]) : 'there';
+    const html = lifecycleEmailHtml({
+      heading: 'Your free credits are waiting',
+      body: `
+        <p style="color: #1F2937; margin: 0 0 16px; font-size: 16px;">Hi ${first},</p>
+        <p style="margin: 0 0 16px;">You have <strong>${u.cheaper_credits} Standard</strong> and <strong>${u.better_credits} Pro</strong> credits in your ShopShot account and haven't used them yet.</p>
+        <p style="margin: 0 0 16px;">It takes about a minute: upload one photo of something you sell, tick the shots you want (one credit each) and get studio and lifestyle images in about 25 seconds. A phone photo on a plain background works well.</p>
+        <p style="margin: 0;">You also get ${CREDITS.DRIP_CHEAPER} more Standard credits every Monday for your first ${CREDITS.DRIP_WEEKS} weeks.</p>`,
+      cta: 'Upload a photo',
+      ctaUrl: 'https://www.shopshot.co.uk/app',
+      unsubscribe
+    });
+    if (await sendLifecycleEmail(env.RESEND_API_KEY, u.email, 'Your free ShopShot credits are waiting', html, unsubscribe)) {
+      sent++;
+    }
+  }
+  return { candidates: (rows.results || []).length, sent };
+}
+
+/**
+ * Day 7 win-back: used the product, has not been back for five days, is not
+ * subscribed, and opted in to marketing (this one is promotional, so it is
+ * consent-gated - Google signups never saw the opt-in box).
+ */
+async function runDay7Emails(env: Bindings): Promise<{ candidates: number; sent: number; skipped?: string }> {
+  // Without a mail key, claiming users would mark them sent without sending.
+  if (!env.RESEND_API_KEY) return { candidates: 0, sent: 0, skipped: 'RESEND_API_KEY not set' };
+  const db = env.TESCO_DB;
+  const rows = await db.prepare(`
+    SELECT u.id, u.email, u.name, u.cheaper_credits, u.better_credits
+    FROM users u
+    WHERE u.email_day7_sent = 0
+      AND u.marketing_consent = 1
+      AND COALESCE(u.is_banned, 0) = 0
+      AND COALESCE(u.subscription_status, 'free') != 'active'
+      AND u.created_at <= datetime('now', '-7 days')
+      AND u.created_at > datetime('now', '-30 days')
+      AND EXISTS (SELECT 1 FROM sessions s WHERE s.user_id = u.id)
+      AND NOT EXISTS (SELECT 1 FROM sessions s WHERE s.user_id = u.id AND s.created_at > datetime('now', '-5 days'))
+    LIMIT ?
+  `).bind(LIFECYCLE_BATCH).all();
+  let sent = 0;
+  for (const u of (rows.results || []) as any[]) {
+    const claim = await db.prepare('UPDATE users SET email_day7_sent = 1 WHERE id = ? AND email_day7_sent = 0').bind(u.id).run();
+    if (!claim.meta || claim.meta.changes !== 1) continue;
+    const unsubscribe = await unsubscribeUrl(u.id, env.SESSION_SECRET);
+    const first = u.name ? escapeHtmlServer(String(u.name).split(' ')[0]) : 'there';
+    const balance = u.cheaper_credits > 0
+      ? `You have <strong>${u.cheaper_credits} Standard</strong> and <strong>${u.better_credits} Pro</strong> credits ready to use, including this week's free top-up.`
+      : `You have <strong>${u.better_credits} Pro</strong> credits left, and new Standard credits arrive on Monday.`;
+    const html = lifecycleEmailHtml({
+      heading: 'Ready for your next listing?',
+      body: `
+        <p style="color: #1F2937; margin: 0 0 16px; font-size: 16px;">Hi ${first},</p>
+        <p style="margin: 0 0 16px;">${balance}</p>
+        <p style="margin: 0 0 16px;">If your first shots were not quite right, try a sharper, front-facing photo on a plain background, or switch one image to Pro quality for the hero shot. Regenerating any image costs one credit.</p>
+        <p style="margin: 0;">Need background removal only? It's free at shopshot.co.uk/tools/remove-background.</p>`,
+      cta: 'Make more shots',
+      ctaUrl: 'https://www.shopshot.co.uk/app',
+      unsubscribe
+    });
+    if (await sendLifecycleEmail(env.RESEND_API_KEY, u.email, 'Your ShopShot credits are ready', html, unsubscribe)) {
+      sent++;
+    }
+  }
+  return { candidates: (rows.results || []).length, sent };
+}
+
+/** Deletes bot page views. `full` sweeps all history; otherwise the last 2 days. */
+async function runBotCleanup(db: D1Database, full: boolean): Promise<{ deleted: number }> {
+  const window = full ? '' : `AND created_at > datetime('now', '-2 days')`;
+  let deleted = 0;
+  for (let i = 0; i < BOT_CLEANUP_MAX_BATCHES; i++) {
+    const res = await db.prepare(`
+      DELETE FROM analytics_events WHERE id IN (
+        SELECT id FROM analytics_events
+        WHERE event_type = 'page_view' ${window} AND ${BOT_CLEANUP_WHERE}
+        LIMIT ${BOT_CLEANUP_BATCH}
+      )`).run();
+    const n = res.meta?.changes || 0;
+    deleted += n;
+    if (n < BOT_CLEANUP_BATCH) break;
+  }
+  return { deleted };
+}
+
+app.post('/api/cron/run', async (c) => {
+  const secret = c.env.CRON_SECRET;
+  if (!secret || c.req.header('Authorization') !== `Bearer ${secret}`) {
+    return c.json({ error: 'Not found' }, 404);
+  }
+  const db = c.env.TESCO_DB;
+  const result: Record<string, any> = {};
+  const full = c.req.query('full') === '1' || new Date().getUTCHours() === 3;
+
+  for (const [name, job] of [
+    ['day2', () => runDay2Emails(c.env)],
+    ['day7', () => runDay7Emails(c.env)],
+    ['botCleanup', () => runBotCleanup(db, full)],
+  ] as Array<[string, () => Promise<any>]>) {
+    try {
+      result[name] = await job();
+    } catch (e: any) {
+      console.error(`[Cron] ${name} failed:`, e);
+      result[name] = { error: e?.message || String(e) };
+    }
+  }
+  result.fullCleanup = full;
+  return c.json({ success: true, ...result });
+});
+
+// One-click unsubscribe from lifecycle and marketing emails. GET shows a
+// confirmation page; POST (from the List-Unsubscribe-Post header) applies it
+// directly, as RFC 8058 requires.
+async function applyUnsubscribe(c: any): Promise<boolean> {
+  const userId = c.req.query('u') || '';
+  const token = c.req.query('t') || '';
+  if (!userId || !token || token !== await unsubscribeToken(userId, c.env.SESSION_SECRET)) return false;
+  await c.env.TESCO_DB.prepare(
+    'UPDATE users SET marketing_consent = 0, email_day2_sent = 1, email_day7_sent = 1 WHERE id = ?'
+  ).bind(userId).run();
+  return true;
+}
+
+app.post('/unsubscribe', async (c) => {
+  const ok = await applyUnsubscribe(c);
+  return c.text(ok ? 'Unsubscribed' : 'Invalid link', ok ? 200 : 400);
+});
+
+app.get('/unsubscribe', async (c) => {
+  const ok = await applyUnsubscribe(c);
+  return c.html(`<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="robots" content="noindex"><title>Email preferences - ShopShot</title></head>
+<body style="font-family: Inter, system-ui, sans-serif; background: #F9FAFB; display: flex; min-height: 100vh; align-items: center; justify-content: center; margin: 0; padding: 16px;">
+  <div style="max-width: 420px; background: white; border-radius: 16px; padding: 32px; text-align: center; box-shadow: 0 4px 20px rgba(0,0,0,0.06);">
+    <h1 style="font-size: 22px; color: #111827; margin: 0 0 12px;">${ok ? 'You have been unsubscribed' : 'That link has expired'}</h1>
+    <p style="color: #4B5563; font-size: 15px; line-height: 1.6; margin: 0 0 20px;">${ok
+      ? 'We will not send you any more tips or reminders. You will still get essential account emails, such as receipts and password resets.'
+      : 'Please use the link in your most recent email, or reply to it and we will remove you by hand.'}</p>
+    <a href="/" style="color: #7C3AED; font-weight: 600;">Back to ShopShot</a>
+  </div>
+</body></html>`, ok ? 200 : 400);
+});
+
+// Credit pack price IDs. The env vars allow replacing a price without a code
+// change; the literals are the original USD prices. For GBP checkout each one
+// needs a GBP currency option in Stripe; /api/health?deep=1 checks that.
+function packPriceIds(env: Bindings): Record<'cheaper' | 'better', Record<PackTier, string>> {
+  return {
+    cheaper: {
+      25: env.STRIPE_PRICE_PACK_STD_25 || 'price_1SXofAK5jVZf8VX1YmbbaUWW',
+      50: env.STRIPE_PRICE_PACK_STD_50 || 'price_1SYWQGK5jVZf8VX1J5jY5poM',
+      75: env.STRIPE_PRICE_PACK_STD_75 || 'price_1SYWQTK5jVZf8VX1zqApkXAK',
+      100: env.STRIPE_PRICE_PACK_STD_100 || 'price_1SYWQcK5jVZf8VX1EP6g57IK',
+    },
+    better: {
+      25: env.STRIPE_PRICE_PACK_PRO_25 || 'price_1SXofrK5jVZf8VX1JI0M5MXx',
+      50: env.STRIPE_PRICE_PACK_PRO_50 || 'price_1SYWRBK5jVZf8VX1Qt1REGpZ',
+      75: env.STRIPE_PRICE_PACK_PRO_75 || 'price_1SYWRKK5jVZf8VX1QauxPjTR',
+      100: env.STRIPE_PRICE_PACK_PRO_100 || 'price_1SYWRUK5jVZf8VX1e59vipvr',
+    },
+  };
+}
+
 app.get('/api/health', async (c) => {
-  return c.json({ 
+  const env = c.env;
+  const db = env.TESCO_DB;
+
+  const configured = {
+    starterMonth: !!env.STRIPE_PRICE_STARTER_MONTHLY,
+    standardMonth: !!env.STRIPE_PRICE_STANDARD_MONTHLY,
+    proMonth: !!env.STRIPE_PRICE_PRO_MONTHLY,
+    starterYear: !!env.STRIPE_PRICE_STARTER_ANNUAL,
+    standardYear: !!env.STRIPE_PRICE_STANDARD_ANNUAL,
+    proYear: !!env.STRIPE_PRICE_PRO_ANNUAL,
+  };
+
+  let migrations: string | null = null;
+  let migrationsNote: string | undefined;
+  try {
+    const row = await db.prepare('SELECT name FROM d1_migrations ORDER BY id DESC LIMIT 1').first() as any;
+    migrations = row?.name || null;
+  } catch (e) {
+    migrationsNote = 'd1_migrations table missing - run scripts/baseline-d1-migrations.sql, then npm run db:migrate:prod';
+  }
+
+  let planColumn = false;
+  try {
+    const col = await db.prepare("SELECT 1 AS ok FROM pragma_table_info('users') WHERE name = 'plan'").first() as any;
+    planColumn = !!col;
+  } catch (e) { /* reported as false */ }
+
+  const body: Record<string, any> = {
     status: 'ok',
-    hasGeminiKey: !!c.env.GEMINI_API_KEY,
-    keyLength: c.env.GEMINI_API_KEY?.length || 0,
-    hasDB: !!c.env.TESCO_DB,
-    hasStripe: !!c.env.STRIPE_SECRET_KEY,
-    hasStripeWebhook: !!c.env.STRIPE_WEBHOOK_SECRET,
-    stripeKeyLength: c.env.STRIPE_SECRET_KEY?.length || 0,
-    hasResend: !!c.env.RESEND_API_KEY,
-    hasGoogleOAuth: !!c.env.GOOGLE_CLIENT_ID && !!c.env.GOOGLE_CLIENT_SECRET,
-    envKeys: Object.keys(c.env).filter(k => !k.includes('KEY') && !k.includes('SECRET'))
-  })
+    stripePrices: {
+      // Starter monthly has a working USD fallback price, so it is buyable even
+      // when its variable is unset - but only in USD.
+      starter: configured.starterMonth || !gbpEnabled(env),
+      standard: configured.standardMonth,
+      pro: configured.proMonth,
+      annual: configured.starterYear && configured.standardYear && configured.proYear,
+    },
+    migrations,
+    ...(migrationsNote ? { migrationsNote } : {}),
+    schema: { planColumn },
+    currency: { gbpEnabled: gbpEnabled(env) },
+    services: {
+      db: !!db,
+      gemini: !!env.GEMINI_API_KEY,
+      stripe: !!env.STRIPE_SECRET_KEY,
+      stripeWebhook: !!env.STRIPE_WEBHOOK_SECRET,
+      resend: !!env.RESEND_API_KEY,
+      googleOAuth: !!env.GOOGLE_CLIENT_ID && !!env.GOOGLE_CLIENT_SECRET,
+      imagesBucket: !!env.IMAGES_BUCKET,
+      cronSecret: !!env.CRON_SECRET,
+    },
+  };
+
+  // The deep check makes 14 Stripe API calls, so it is limited to admins or a
+  // caller presenting CRON_SECRET (the deploy workflow does not use it).
+  const sessionUser = c.get('user') as any;
+  const bearer = c.req.header('Authorization') || '';
+  const deepAllowed = (sessionUser && sessionUser.role === 'admin')
+    || (!!env.CRON_SECRET && bearer === `Bearer ${env.CRON_SECRET}`);
+  if (c.req.query('deep') === '1' && !deepAllowed) {
+    body.stripeCheck = 'admin only';
+  }
+  if (c.req.query('deep') === '1' && deepAllowed && env.STRIPE_SECRET_KEY) {
+    const expected: Array<{ name: string; id?: string; plan: PlanKey; interval: Interval }> = [
+      { name: 'starter/month', id: env.STRIPE_PRICE_STARTER_MONTHLY, plan: 'starter', interval: 'month' },
+      { name: 'standard/month', id: env.STRIPE_PRICE_STANDARD_MONTHLY, plan: 'standard', interval: 'month' },
+      { name: 'pro/month', id: env.STRIPE_PRICE_PRO_MONTHLY, plan: 'pro', interval: 'month' },
+      { name: 'starter/year', id: env.STRIPE_PRICE_STARTER_ANNUAL, plan: 'starter', interval: 'year' },
+      { name: 'standard/year', id: env.STRIPE_PRICE_STANDARD_ANNUAL, plan: 'standard', interval: 'year' },
+      { name: 'pro/year', id: env.STRIPE_PRICE_PRO_ANNUAL, plan: 'pro', interval: 'year' },
+    ];
+    const results: Record<string, string> = {};
+    for (const e of expected) {
+      if (!e.id) { results[e.name] = 'not configured'; continue; }
+      try {
+        const price = await stripeRequest(env.STRIPE_SECRET_KEY, `/prices/${encodeURIComponent(e.id)}?expand[]=currency_options`);
+        const problems: string[] = [];
+        if (!price.active) problems.push('inactive');
+        if (price.recurring?.interval !== e.interval) problems.push(`interval is ${price.recurring?.interval}`);
+        const usdCents = Math.round(PLAN_PRICES.USD[e.plan][e.interval] * 100);
+        const usd = price.currency === 'usd' ? price.unit_amount : price.currency_options?.usd?.unit_amount;
+        if (usd !== usdCents) problems.push(`USD amount ${usd} (expected ${usdCents})`);
+        if (gbpEnabled(env)) {
+          const gbpPence = Math.round(PLAN_PRICES.GBP[e.plan][e.interval] * 100);
+          const gbp = price.currency === 'gbp' ? price.unit_amount : price.currency_options?.gbp?.unit_amount;
+          if (gbp !== gbpPence) problems.push(gbp == null ? 'no GBP option' : `GBP amount ${gbp} (expected ${gbpPence})`);
+        }
+        results[e.name] = problems.length ? problems.join('; ') : 'ok';
+      } catch (err: any) {
+        results[e.name] = 'Stripe error: ' + (err?.message || 'unknown');
+      }
+    }
+    const packs = packPriceIds(env);
+    for (const creditType of ['cheaper', 'better'] as const) {
+      for (const tier of PACK_TIERS) {
+        const name = `pack/${creditType === 'cheaper' ? 'standard' : 'pro'}/${tier}`;
+        try {
+          const price = await stripeRequest(env.STRIPE_SECRET_KEY, `/prices/${encodeURIComponent(packs[creditType][tier])}?expand[]=currency_options`);
+          const problems: string[] = [];
+          if (!price.active) problems.push('inactive');
+          if (price.type !== 'one_time') problems.push(`type is ${price.type}`);
+          const usd = price.currency === 'usd' ? price.unit_amount : price.currency_options?.usd?.unit_amount;
+          if (usd !== PACK_PRICES.USD[tier] * 100) problems.push(`USD amount ${usd} (expected ${PACK_PRICES.USD[tier] * 100})`);
+          if (gbpEnabled(env)) {
+            const gbp = price.currency === 'gbp' ? price.unit_amount : price.currency_options?.gbp?.unit_amount;
+            if (gbp !== PACK_PRICES.GBP[tier] * 100) problems.push(gbp == null ? 'no GBP option' : `GBP amount ${gbp} (expected ${PACK_PRICES.GBP[tier] * 100})`);
+          }
+          results[name] = problems.length ? problems.join('; ') : 'ok';
+        } catch (err: any) {
+          results[name] = 'Stripe error: ' + (err?.message || 'unknown');
+        }
+      }
+    }
+    body.stripeCheck = results;
+  }
+
+  return c.json(body);
 })
 
 // API: Test POST body
@@ -5580,20 +6281,27 @@ app.post('/api/upload', async (c) => {
 // ============================================================================
 // ANONYMOUS TRY-BEFORE-SIGNUP
 // ============================================================================
-// A visitor can generate a few preview variations with no account. For a
-// visual product the demonstration is the sales pitch, and requiring signup
-// before anyone sees a single image was the largest drop-off in the funnel.
+// A visitor can generate one preview image with no account, from their own
+// photo or one of three samples on the homepage. For a visual product the
+// demonstration is the sales pitch, and requiring signup before anyone sees a
+// single image was the largest drop-off in the funnel.
 //
 // This spends real API budget, so it is bounded on three axes:
 //   1. ANON_PREVIEW_LIMIT images per anonymous session
 //   2. ANON_IP_DAILY_LIMIT images per IP per rolling 24h
-//   3. the cheap model only - anonymous users never reach gemini-3-pro-image
+//   3. the Standard model only - anonymous users never reach gemini-3-pro-image
 // Worst case per IP per day is ANON_IP_DAILY_LIMIT * $0.039.
+//
+// The watermark is drawn in the browser. The clean image is stored against the
+// session, so it is what the visitor gets once they sign up and claim it.
 
-const ANON_PREVIEW_LIMIT = 3;      // preview images per anonymous session
-const ANON_IP_DAILY_LIMIT = 6;     // images per IP per rolling 24h - the money limit
+const ANON_PREVIEW_LIMIT = 1;      // preview images per anonymous session
+const ANON_IP_DAILY_LIMIT = 3;     // preview images per IP per rolling 24h - the money limit
 const ANON_SESSION_LIMIT = 10;     // sessions per IP per rolling 24h - stops row spam
-const ANON_MODEL = 'flash';        // cheap model only - never Pro
+const ANON_MODEL = 'flash';        // Standard (gemini-2.5-flash-image) only - never Pro
+// The one shot a preview makes: the environment/lifestyle scene, the most
+// convincing single image. Fixed server-side so clients cannot pick another.
+const ANON_PREVIEW_VARIATION = 8;
 
 /** Hashes a client IP with the session secret so raw IPs are never stored. */
 async function hashIp(ip: string, secret: string): Promise<string> {
@@ -5606,13 +6314,16 @@ function clientIp(c: any): string {
   return c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
 }
 
-/** Images this IP has generated anonymously in the last 24 hours. */
-async function anonImagesLast24h(db: D1Database, ipHash: string): Promise<number> {
+/**
+ * Images this IP has generated anonymously in the last 24 hours, per kind:
+ * 'preview' (homepage) and 'bg_removal' (free tool) are limited separately.
+ */
+async function anonImagesLast24h(db: D1Database, ipHash: string, kind: 'preview' | 'bg_removal' = 'preview'): Promise<number> {
   const row = await db.prepare(`
     SELECT COALESCE(SUM(images_generated), 0) AS total
     FROM anonymous_generations
-    WHERE ip_hash = ? AND created_at > datetime('now', '-1 day')
-  `).bind(ipHash).first() as any;
+    WHERE kind = ? AND ip_hash = ? AND created_at > datetime('now', '-1 day')
+  `).bind(kind, ipHash).first() as any;
   return Number(row?.total || 0);
 }
 
@@ -5641,7 +6352,7 @@ app.post('/api/anon/start', async (c) => {
   // number of sessions would still let one IP fill the table with base64.
   const sessionCount = await db.prepare(`
     SELECT COUNT(*) AS n FROM anonymous_generations
-    WHERE ip_hash = ? AND created_at > datetime('now', '-1 day')
+    WHERE kind = 'preview' AND ip_hash = ? AND created_at > datetime('now', '-1 day')
   `).bind(ipHash).first() as any;
   if (Number(sessionCount?.n || 0) >= ANON_SESSION_LIMIT) {
     return c.json({
@@ -5686,12 +6397,12 @@ app.post('/api/anon/start', async (c) => {
   `).bind(sessionId, productName, ANON_MODEL).run();
 
   await db.prepare(`
-    INSERT INTO anonymous_generations (id, session_id, ip_hash, ip_country, images_generated)
-    VALUES (?, ?, ?, ?, 0)
+    INSERT INTO anonymous_generations (id, session_id, ip_hash, ip_country, images_generated, kind)
+    VALUES (?, ?, ?, ?, 0, 'preview')
   `).bind(generateId(), sessionId, ipHash, c.req.header('cf-ipcountry') || null).run();
 
   c.executionCtx.waitUntil(trackEvent(db, {
-    eventType: 'anon_preview_started',
+    eventType: 'anon_preview_start',
     sessionId,
     ipCountry: c.req.header('cf-ipcountry') || null,
     metadata: { file_type: file.type, file_size: file.size }
@@ -5711,14 +6422,15 @@ app.post('/api/anon/start', async (c) => {
 app.post('/api/anon/generate/:sessionId/:variationIndex', async (c) => {
   const db = c.env.TESCO_DB;
   const sessionId = c.req.param('sessionId');
-  const variationIndex = parseInt(c.req.param('variationIndex'));
+  // The path parameter is kept for compatibility; the shot is fixed.
+  const variationIndex = ANON_PREVIEW_VARIATION;
 
   if (c.get('user')) {
     return c.json({ success: false, error: 'Already signed in', signedIn: true }, 400);
   }
 
   const record = await db.prepare(
-    'SELECT * FROM anonymous_generations WHERE session_id = ?'
+    "SELECT * FROM anonymous_generations WHERE session_id = ? AND kind = 'preview'"
   ).bind(sessionId).first() as any;
   if (!record) return c.json({ success: false, error: 'Unknown preview session' }, 404);
   if (record.claimed_by_user_id) {
@@ -5728,7 +6440,7 @@ app.post('/api/anon/generate/:sessionId/:variationIndex', async (c) => {
   if (record.images_generated >= ANON_PREVIEW_LIMIT) {
     return c.json({
       success: false,
-      error: `Free preview is limited to ${ANON_PREVIEW_LIMIT} images. Sign up free to generate all ${IMAGES_PER_SHOOT}.`,
+      error: `Sign up free to get the other ${IMAGES_PER_SHOOT - ANON_PREVIEW_LIMIT} shots and remove the watermark.`,
       previewExhausted: true,
       needsAuth: true
     }, 402);
@@ -5784,14 +6496,15 @@ app.post('/api/anon/generate/:sessionId/:variationIndex', async (c) => {
     return c.json({ success: false, error: result.error, field: variation.field }, 500);
   }
 
+  const previewKey = await putImageToR2(c.env, sessionId, variationIndex, result.image || '');
   await db.prepare(`
-    INSERT INTO generated_images (session_id, variation_type, variation_index, image_data, model)
-    VALUES (?, ?, ?, ?, ?)
-  `).bind(sessionId, variation.field, variationIndex, result.image, ANON_MODEL).run();
+    INSERT INTO generated_images (session_id, variation_type, variation_index, image_data, model, image_key)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).bind(sessionId, variation.field, variationIndex, previewKey ? '' : result.image, ANON_MODEL, previewKey).run();
 
   const generated = record.images_generated + 1;
   c.executionCtx.waitUntil(trackEvent(db, {
-    eventType: 'anon_preview_generated',
+    eventType: 'anon_preview_complete',
     sessionId,
     metadata: { variation: variation.field, index: generated }
   }));
@@ -5825,6 +6538,7 @@ async function claimAnonymousSession(db: D1Database, sessionId: string, userId: 
 
   await db.prepare('UPDATE sessions SET user_id = ? WHERE id = ? AND user_id IS NULL')
     .bind(userId, sessionId).run();
+  await trackEvent(db, { eventType: 'anon_preview_claim', userId, sessionId }).catch(() => {});
   return true;
 }
 
@@ -6197,6 +6911,8 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
   const clientEmail = c.env.VERTEX_CLIENT_EMAIL
   const privateKey = c.env.VERTEX_PRIVATE_KEY
   
+  // Set once a credit has been reserved, so an unexpected error refunds it.
+  let reserved: { creditType: CreditType; label: string } | null = null
   try {
     const body = await c.req.json().catch(() => ({}))
     const originalImage = body.originalImage
@@ -6227,6 +6943,13 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
     
     if (!originalImage || originalImage.length < 100) {
       return c.json({ success: false, error: 'No image provided', field: variationDefinitions[variationIndex]?.field }, 400)
+    }
+
+    // The session must belong to this user: it is charged and written to below.
+    const owned = await db.prepare('SELECT 1 AS ok FROM sessions WHERE id = ? AND user_id = ?')
+      .bind(sessionId, user.id).first()
+    if (!owned) {
+      return c.json({ success: false, error: 'Session not found', field: variationDefinitions[variationIndex]?.field }, 404)
     }
     
     // Check for API credentials (prefer Gemini Direct, fallback to Vertex)
@@ -6277,6 +7000,35 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
     const modelInfo = MODEL_INFO[modelKey] || MODEL_INFO[DEFAULT_MODEL]
     console.log(`[${variation.field}] Generating with ${modelInfo.name} (${modelKey}) using ${creditTypeName} credits...`)
     
+    // Reserve the credit BEFORE generating. Charging after success let ten
+    // parallel requests all pass the balance check, so a user with 6 credits
+    // received 10 images. A failed generation refunds the credit below.
+    const creditResult = await deductCredits(
+      db,
+      user.id,
+      CREDITS.PER_IMAGE,
+      creditType,
+      'generation',
+      `Image: ${variation.label} (${creditTypeName})`,
+      sessionId,
+      undefined,
+      c.executionCtx,
+      c.env.RESEND_API_KEY,
+      currencyFor(c)
+    )
+    if (!creditResult.success) {
+      return c.json({
+        success: false,
+        error: `Insufficient ${creditTypeName} credits`,
+        required: CREDITS.PER_IMAGE,
+        current: 0,
+        creditType,
+        needsUpgrade: true,
+        field: variation.field
+      }, 402)
+    }
+    reserved = { creditType, label: variation.label }
+
     const startTime = Date.now()
     
     // Extract mime type and base64 data from data URL
@@ -6329,23 +7081,12 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
     
     if (!result.success) {
       console.error(`[${variation.field}] API error:`, result.error)
-      // NO credit deduction on failure
+      // Failed images are free: give the reserved credit back.
+      await addCredits(db, user.id, CREDITS.PER_IMAGE, creditType, 'refund', `Refund: ${variation.label} failed`)
+      reserved = null
       return c.json({ success: false, error: result.error, field: variation.field }, 500)
     }
-    
-    // SUCCESS: Deduct 1 credit for this image (and store the generated image)
-    const creditResult = await deductCredits(
-      db,
-      user.id,
-      CREDITS.PER_IMAGE,
-      creditType,
-      'generation',
-      `Image: ${variation.label} (${creditTypeName})`,
-      sessionId,
-      result.image, // Store the generated image with the transaction
-      c.executionCtx,
-      c.env.RESEND_API_KEY
-    )
+    reserved = null
     
     // Update session stats
     await db.prepare('UPDATE sessions SET generation_count = generation_count + 1, credits_charged = credits_charged + 1 WHERE id = ?')
@@ -6401,7 +7142,10 @@ app.post('/api/generate-single/:sessionId/:variationIndex', async (c) => {
       })
     );
     
-    // NO credit deduction on error
+    // Refund a credit reserved before the error
+    if (reserved) {
+      await addCredits(db, user.id, CREDITS.PER_IMAGE, reserved.creditType, 'refund', `Refund: ${reserved.label} failed`).catch(() => {})
+    }
     return c.json({ success: false, error: errorMsg, field: variationDefinitions[variationIndex]?.field || 'unknown' }, 500)
   }
 })
@@ -6604,12 +7348,13 @@ app.post('/api/regenerate-with-feedback/:sessionId/:variationIndex', async (c) =
       user.id,
       CREDITS.PER_IMAGE,
       creditType,  // 'better' or 'cheaper'
-      creditType === 'better' ? 'generation_pro' : 'generation_standard',
+      'regeneration', // was 'generation_pro'/'generation_standard', rejected by the ledger's CHECK constraint
       `Regenerated with feedback: ${variation.field} (${feedback_reason})`,
       sessionId,
       result.image,
       c.executionCtx,
-      c.env.RESEND_API_KEY
+      c.env.RESEND_API_KEY,
+      currencyFor(c)
     )
     
     // Track in analytics
@@ -6754,7 +7499,8 @@ app.post('/api/regenerate/:sessionId/:variationIndex', async (c) => {
       sessionId,
       result.image, // Store the generated image with the transaction
       c.executionCtx,
-      c.env.RESEND_API_KEY
+      c.env.RESEND_API_KEY,
+      currencyFor(c)
     )
     
     return c.json({ 
@@ -6778,6 +7524,10 @@ app.post('/api/regenerate/:sessionId/:variationIndex', async (c) => {
 
 // API: Generate variations (legacy - kept for compatibility)
 app.post('/api/generate/:id', async (c) => {
+  // Legacy all-in-one generator. Nothing in the app calls it any more, and it
+  // generated ten billed images with no authentication and no credit charge.
+  const caller = c.get('user') as any
+  if (!caller || caller.role !== 'admin') return c.json({ error: 'Not found' }, 404)
   const sessionId = c.req.param('id')
   const db = c.env.TESCO_DB
   
@@ -6856,10 +7606,13 @@ app.post('/api/generate/:id', async (c) => {
 // API: Delete session
 app.delete('/api/sessions/:id', async (c) => {
   try {
+    const user = c.get('user')
+    if (!user) return c.json({ success: false, error: 'Authentication required' }, 401)
     const db = c.env.TESCO_DB
     const id = c.req.param('id')
     
-    await db.prepare('DELETE FROM sessions WHERE id = ?').bind(id).run()
+    // Own sessions only (this used to delete any session by id)
+    await db.prepare('DELETE FROM sessions WHERE id = ? AND user_id = ?').bind(id, user.id).run()
     return c.json({ success: true })
   } catch (error) {
     console.error('Delete error:', error)
@@ -8338,7 +9091,7 @@ app.post('/api/social/generate-caption', async (c) => {
     }
     
     // Get brand knowledge - wrap in try-catch as table may be empty
-    let knowledgeText = 'ShopShot transforms one product photo into 10 professional variations in 25 seconds. Pricing: Free trial, Starter $9.99/mo, Standard $39.99/mo, Pro $59.99/mo.';
+    let knowledgeText = 'ShopShot transforms one product photo into 10 professional variations in 25 seconds. Pricing: free to try, Starter ' + planPrice('USD', 'starter') + '/mo, Standard ' + planPrice('USD', 'standard') + '/mo, Pro ' + planPrice('USD', 'pro') + '/mo (' + planPrice('GBP', 'starter') + '/' + planPrice('GBP', 'standard') + '/' + planPrice('GBP', 'pro') + ' in the UK).';
     try {
       const knowledge = await socialDb.prepare('SELECT section, content FROM brand_knowledge WHERE priority = 1').all() as any;
       if (knowledge.results?.length > 0) {
@@ -9279,8 +10032,13 @@ async function pollVeoOperation(
 // API: Delete all sessions
 app.delete('/api/sessions', async (c) => {
   try {
+    // "Clear history" for the signed-in user. This used to run an unscoped
+    // DELETE FROM sessions with no authentication: one anonymous request
+    // would have deleted every user's history.
+    const user = c.get('user')
+    if (!user) return c.json({ success: false, error: 'Authentication required' }, 401)
     const db = c.env.TESCO_DB
-    await db.prepare('DELETE FROM sessions').run()
+    await db.prepare('DELETE FROM sessions WHERE user_id = ?').bind(user.id).run()
     return c.json({ success: true })
   } catch (error) {
     console.error('Delete all error:', error)
@@ -9291,10 +10049,15 @@ app.delete('/api/sessions', async (c) => {
 // API: Update session (status or name)
 app.patch('/api/sessions/:id', async (c) => {
   try {
+    const user = c.get('user')
+    if (!user) return c.json({ success: false, error: 'Authentication required' }, 401)
     const db = c.env.TESCO_DB
     const id = c.req.param('id')
     const body = await c.req.json()
     const { status, product_name } = body
+    if (!(await db.prepare('SELECT 1 AS ok FROM sessions WHERE id = ? AND user_id = ?').bind(id, user.id).first())) {
+      return c.json({ success: false, error: 'Session not found' }, 404)
+    }
     
     // Update status if provided
     if (status) {
@@ -9459,9 +10222,12 @@ app.post('/api/analytics/track', async (c) => {
     const { event, data } = await c.req.json()
     
     if (!event) return c.json({ success: false, error: 'Event required' }, 400)
+
+    const ua = c.req.header('user-agent') || ''
+    if (isBotTraffic(ua, c.req.header('referer'), null)) return c.json({ success: true })
     
-    await db.prepare(`INSERT INTO analytics_events (event_type, user_id, metadata, user_agent) VALUES (?, ?, ?, ?)`)
-      .bind(event, user?.id || null, JSON.stringify(data || {}), c.req.header('user-agent') || '').run()
+    await db.prepare(`INSERT INTO analytics_events (event_type, user_id, metadata, user_agent, as_org) VALUES (?, ?, ?, ?, ?)`)
+      .bind(String(event).slice(0, 64), user?.id || null, JSON.stringify(data || {}).slice(0, 4000), ua, (c.req.raw as any).cf?.asOrganization || null).run()
     
     return c.json({ success: true })
   } catch (error) {
@@ -9469,17 +10235,50 @@ app.post('/api/analytics/track', async (c) => {
   }
 })
 
-// Background removal tool endpoint
+// Background removal tool endpoint.
+//
+// Free and watermark-free, with or without an account. Each use costs one
+// Standard-model call ($0.039), so it is metered in anonymous_generations
+// (kind 'bg_removal'): BG_ANON_DAILY_LIMIT per IP for visitors, and
+// BG_USER_DAILY_LIMIT per account, which used to be unlimited.
+const BG_ANON_DAILY_LIMIT = 3;
+const BG_USER_DAILY_LIMIT = 20;
+
 app.post('/api/tools/remove-background', async (c) => {
   const user = c.get('user')
-  if (!user) return c.json({ success: false, error: 'Auth required' }, 401)
-  
+  const db = c.env.TESCO_DB
+
   const geminiApiKey = c.env.GEMINI_API_KEY
   if (!geminiApiKey) return c.json({ success: false, error: 'AI not configured' }, 500)
-  
+
+  // Signed-in users are metered per account, visitors per IP. Both are hashed.
+  const meterKey = await hashIp(user ? `user:${user.id}` : clientIp(c), c.env.SESSION_SECRET)
+  const limit = user ? BG_USER_DAILY_LIMIT : BG_ANON_DAILY_LIMIT
+  const used = await anonImagesLast24h(db, meterKey, 'bg_removal')
+  if (used >= limit) {
+    return c.json({
+      success: false,
+      rateLimited: true,
+      needsAuth: !user,
+      error: user
+        ? `You have used today's ${limit} free background removals. Try again tomorrow.`
+        : `You have used today's ${limit} free background removals. Sign up free for ${SIGNUP_CREDITS_TOTAL} credits and more removals.`
+    }, 429)
+  }
+
+  // Reserve the use before spending money; released if the call fails.
+  const meterId = generateId()
+  await db.prepare(`
+    INSERT INTO anonymous_generations (id, session_id, ip_hash, ip_country, images_generated, kind)
+    VALUES (?, ?, ?, ?, 1, 'bg_removal')
+  `).bind(meterId, meterId, meterKey, c.req.header('cf-ipcountry') || null).run()
+  const release = () => db.prepare('DELETE FROM anonymous_generations WHERE id = ?').bind(meterId).run().catch(() => {})
+
   try {
     const { image } = await c.req.json()
-    if (!image) return c.json({ success: false, error: 'Image required' }, 400)
+    if (!image || typeof image !== 'string') { await release(); return c.json({ success: false, error: 'Image required' }, 400) }
+    // ~10MB file as base64
+    if (image.length > 14 * 1024 * 1024) { await release(); return c.json({ success: false, error: 'Image too large. Maximum size is 10MB.' }, 400) }
     
     // Use Gemini to remove background
     const base64Data = image.includes(',') ? image.split(',')[1] : image
@@ -9503,6 +10302,7 @@ app.post('/api/tools/remove-background', async (c) => {
     })
     
     if (!response.ok) {
+      await release()
       return c.json({ success: false, error: 'Background removal failed' }, 500)
     }
     
@@ -9512,17 +10312,27 @@ app.post('/api/tools/remove-background', async (c) => {
       for (const part of data.candidates[0].content.parts) {
         if (part.inlineData?.data) {
           const resultMimeType = part.inlineData.mimeType || 'image/png'
+          c.executionCtx.waitUntil(trackEvent(db, {
+            eventType: 'bg_removal_complete',
+            userId: user?.id,
+            ipCountry: c.req.header('cf-ipcountry') || null,
+            metadata: { anonymous: !user }
+          }))
           return c.json({ 
             success: true, 
-            image: `data:${resultMimeType};base64,${part.inlineData.data}` 
+            image: `data:${resultMimeType};base64,${part.inlineData.data}`,
+            remainingToday: Math.max(0, limit - used - 1),
+            anonymous: !user
           })
         }
       }
     }
     
+    await release()
     return c.json({ success: false, error: 'No result from AI' }, 500)
   } catch (error) {
     console.error('Background removal error:', error)
+    await release()
     return c.json({ success: false, error: 'Background removal failed' }, 500)
   }
 })
@@ -9760,7 +10570,7 @@ function getAuthPageStyles(): string {
 // ============================================================================
 // MARKETING HOMEPAGE - Sells the app to new visitors
 // ============================================================================
-function getMarketingPage(user?: User) {
+function getMarketingPage(user?: User, cur: Currency = 'USD') {
   const isLoggedIn = !!user;
   return `<!DOCTYPE html>
 <html lang="en">
@@ -9929,6 +10739,98 @@ function getMarketingPage(user?: User) {
     .hero-trust-item { display: flex; align-items: center; gap: 6px; }
     .hero-trust-item svg { color: #10B981; }
 
+    /* Two columns: copy on the left, the before/after and try-it on the right,
+       so the product demonstration is above the fold. */
+    .hero-grid {
+      display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+      gap: 56px; align-items: center; max-width: 1200px; margin: 0 auto; width: 100%;
+      text-align: left;
+    }
+    .hero-grid h1, .hero-grid p { margin-left: 0; margin-right: 0; }
+    .hero-grid .hero-ctas, .hero-grid .hero-trust { justify-content: flex-start; flex-wrap: wrap; }
+    .hero-stage { width: 100%; max-width: 440px; justify-self: end; }
+    .hero:has(.hero-grid) { min-height: auto; padding-top: 112px; padding-bottom: 64px; }
+    .hero-grid .hero-badge { margin-bottom: 20px; }
+    .hero-grid .hero-ctas { margin-bottom: 28px; }
+
+    .ba {
+      position: relative; aspect-ratio: 1; border-radius: 20px; overflow: hidden;
+      background: #F3F4F6; box-shadow: 0 24px 60px rgba(79, 70, 229, 0.18);
+      border: 4px solid white; --pos: 50%; user-select: none; touch-action: pan-y;
+    }
+    .ba img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+    .ba-after { clip-path: inset(0 0 0 var(--pos)); }
+    .ba-line {
+      position: absolute; top: 0; bottom: 0; left: var(--pos); width: 3px; margin-left: -1.5px;
+      background: white; box-shadow: 0 0 10px rgba(0,0,0,0.25); pointer-events: none;
+    }
+    .ba-knob {
+      position: absolute; top: 50%; left: 50%; width: 44px; height: 44px; margin: -22px 0 0 -22px;
+      border-radius: 50%; background: white; box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+    }
+    .ba-knob::before, .ba-knob::after {
+      content: ''; position: absolute; top: 50%; width: 0; height: 0; margin-top: -6px;
+      border-top: 6px solid transparent; border-bottom: 6px solid transparent;
+    }
+    .ba-knob::before { left: 10px; border-right: 7px solid #6D28D9; }
+    .ba-knob::after { right: 10px; border-left: 7px solid #6D28D9; }
+    .ba-range {
+      position: absolute; inset: 0; width: 100%; height: 100%; margin: 0;
+      opacity: 0; cursor: ew-resize; -webkit-appearance: none; appearance: none;
+    }
+    .ba:has(.ba-range:focus-visible) { outline: 3px solid #8B5CF6; outline-offset: 3px; }
+    .ba-label {
+      position: absolute; top: 14px; padding: 6px 12px; border-radius: 100px;
+      background: rgba(17, 24, 39, 0.72); color: white; font-size: 12px; font-weight: 700;
+      letter-spacing: 0.02em; pointer-events: none;
+    }
+    .ba-label-left { left: 14px; }
+    .ba-label-right { right: 14px; background: rgba(109, 40, 217, 0.85); }
+    .ba-busy {
+      position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
+      justify-content: center; gap: 12px; background: rgba(255,255,255,0.82);
+      backdrop-filter: blur(3px); text-align: center; padding: 24px;
+    }
+    .ba-busy[hidden] { display: none; }
+    .ba-busy-text { font-size: 16px; font-weight: 700; color: #1F2937; }
+    .ba-busy-time { font-size: 13px; color: #6B7280; font-variant-numeric: tabular-nums; }
+
+    .hero-try { margin-top: 18px; }
+    .hero-samples {
+      display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 12px;
+      font-size: 13px; color: #6B7280;
+    }
+    .hero-sample {
+      display: inline-flex; align-items: center; gap: 8px; padding: 4px 12px 4px 4px;
+      background: white; border: 1px solid #E5E7EB; border-radius: 100px; cursor: pointer;
+      font-size: 13px; font-weight: 600; color: #374151; transition: border-color 0.2s;
+    }
+    .hero-sample:hover { border-color: #8B5CF6; color: #6D28D9; }
+    .hero-sample img { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; }
+    .hero-sample:disabled { opacity: 0.5; cursor: default; }
+    .hero-google {
+      display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+      width: 100%; max-width: 340px; padding: 14px 18px; border-radius: 12px; text-decoration: none;
+      background: #131314; color: #E3E3E3; border: 1px solid #8E918F; font-size: 15px; font-weight: 600;
+    }
+    .hero-google:hover { background: #2A2A2C; }
+    .tryit-email-link { display: block; margin-top: 10px; font-size: 13px; color: #6B7280; }
+
+    @media (max-width: 960px) {
+      .hero-grid { grid-template-columns: 1fr; gap: 28px; text-align: center; }
+      .hero-grid .hero-ctas, .hero-grid .hero-trust { justify-content: center; }
+      .hero-grid h1, .hero-grid p { margin-left: auto; margin-right: auto; }
+      .hero-stage { justify-self: center; }
+    }
+    @media (max-width: 640px) {
+      /* Phones: headline, one line of copy, then straight into the demo. */
+      .hero-badge, .hero-trust, .hero-ctas .btn-secondary, .hero-try-cta, .hero-ctas-anon { display: none !important; }
+      .hero:has(.hero-grid) { padding-top: 88px; padding-bottom: 40px; }
+      .hero-grid p { margin-bottom: 4px; }
+      .hero-grid { gap: 18px; }
+      .hero-samples { justify-content: center; }
+    }
+
     /* ===== PLATFORM LOGOS ===== */
     .platform-bar {
       padding: 32px; background: white;
@@ -9985,57 +10887,38 @@ function getMarketingPage(user?: User) {
     .ticker-item:hover { transform: scale(1.08); box-shadow: 0 12px 40px rgba(99, 102, 241, 0.3); border-color: #8B5CF6; }
     .ticker-item img { width: 100%; height: 100%; object-fit: cover; }
 
-    /* ===== TRY IT NOW ===== */
-    .tryit-section { padding: 72px 32px; background: white; }
-    .tryit-panel { max-width: 900px; margin: 0 auto; }
+    /* ===== TRY IT NOW (in the hero) ===== */
     .tryit-drop {
-      border: 2px dashed #C7D2FE; border-radius: 18px; padding: 48px 24px;
-      text-align: center; cursor: pointer; background: #F8FAFF;
+      display: flex; align-items: center; gap: 14px; text-align: left;
+      border: 2px dashed #C7D2FE; border-radius: 14px; padding: 14px 18px;
+      cursor: pointer; background: rgba(255,255,255,0.85);
       transition: border-color 0.2s, background 0.2s;
     }
-    .tryit-drop:hover, .tryit-drop.dragging { border-color: #8B5CF6; background: #F5F3FF; }
+    .tryit-drop:hover, .tryit-drop:focus-visible, .tryit-drop.dragging { border-color: #8B5CF6; background: #F5F3FF; outline: none; }
     .tryit-drop.busy { pointer-events: none; opacity: 0.6; }
-    .tryit-icon { width: 52px; height: 52px; margin: 0 auto 16px; color: #8B5CF6; }
-    .tryit-icon svg { width: 100%; height: 100%; }
-    .tryit-primary { font-size: 18px; font-weight: 700; color: #1F2937; margin-bottom: 6px; }
-    .tryit-secondary { font-size: 14px; color: #6B7280; }
+    .tryit-drop.attention { animation: tryit-pulse 0.9s ease-in-out 2; }
+    @keyframes tryit-pulse { 50% { border-color: #7C3AED; box-shadow: 0 0 0 6px rgba(139,92,246,0.18); } }
+    .tryit-drop-icon { width: 30px; height: 30px; color: #8B5CF6; flex-shrink: 0; }
+    .tryit-primary { font-size: 15px; font-weight: 700; color: #1F2937; }
+    .tryit-secondary { font-size: 13px; color: #6B7280; }
     .tryit-status {
-      margin-top: 20px; padding: 14px 18px; border-radius: 10px;
+      margin-top: 12px; padding: 10px 14px; border-radius: 10px;
       background: #EFF6FF; border: 1px solid #BFDBFE; color: #1E40AF;
-      font-size: 15px; font-weight: 500; text-align: center;
+      font-size: 14px; font-weight: 500;
     }
     .tryit-status.error { background: #FEF2F2; border-color: #FECACA; color: #B91C1C; }
-    .tryit-results { margin-top: 28px; }
-    .tryit-grid {
-      display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 18px;
-    }
-    .tryit-card {
-      border-radius: 14px; overflow: hidden; background: #F3F4F6;
-      border: 1px solid #E5E7EB; position: relative;
-    }
-    .tryit-card img { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; }
-    .tryit-card .tryit-caption {
-      padding: 10px 12px; font-size: 13px; font-weight: 600; color: #4B5563;
-      background: white; text-align: center;
-    }
-    .tryit-card.pending { display: flex; align-items: center; justify-content: center; aspect-ratio: 1; }
     .tryit-spinner {
-      width: 28px; height: 28px; border: 3px solid #E5E7EB; border-top-color: #8B5CF6;
+      width: 32px; height: 32px; border: 3px solid #E5E7EB; border-top-color: #8B5CF6;
       border-radius: 50%; animation: tryit-spin 0.8s linear infinite;
     }
     @keyframes tryit-spin { to { transform: rotate(360deg); } }
     .tryit-gate {
-      margin-top: 28px; padding: 32px 24px; text-align: center;
+      margin-top: 14px; padding: 20px; text-align: center;
       background: linear-gradient(135deg, #F5F3FF 0%, #EFF6FF 100%);
-      border: 1px solid #DDD6FE; border-radius: 18px;
+      border: 1px solid #DDD6FE; border-radius: 16px;
     }
-    .tryit-gate h3 { font-size: 22px; font-weight: 800; color: #1F2937; margin-bottom: 8px; }
-    .tryit-gate p { font-size: 15px; color: #4B5563; max-width: 520px; margin: 0 auto 20px; line-height: 1.6; }
-    .tryit-gate-note { margin-top: 12px; font-size: 13px; color: #6B7280; }
-    @media (max-width: 640px) {
-      .tryit-section { padding: 48px 20px; }
-      .tryit-drop { padding: 36px 16px; }
-    }
+    .tryit-gate h3 { font-size: 18px; font-weight: 800; color: #1F2937; margin-bottom: 6px; line-height: 1.3; }
+    .tryit-gate p { font-size: 14px; color: #4B5563; margin: 0 auto 14px; line-height: 1.5; }
 
     /* ===== LIGHTBOX ===== */
     .lightbox-overlay {
@@ -10430,75 +11313,97 @@ function getMarketingPage(user?: User) {
 
   <!-- ===== HERO SECTION ===== -->
   <section class="hero">
-    <div class="hero-badge">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-      New: Marketplace Export Presets + Batch Upload + 36 Shot Types
-    </div>
-    <h1>Professional Product Photos That <span class="hero-highlight">Actually Sell</span></h1>
-    <p>Upload one photo. Get 10 marketplace-ready variations in 25 seconds. Export-optimised for eBay, Amazon, Etsy, Depop & more. No design skills needed.</p>
-    <div class="hero-ctas">
-      <a href="${isLoggedIn ? '/app' : '#try-it'}" class="btn-primary">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-        ${isLoggedIn ? 'Open App' : 'Try It Free - No Account Needed'}
-      </a>
-      <button onclick="scrollToVideo()" class="btn-secondary">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8" fill="currentColor"/></svg>
-        Watch Demo
-      </button>
-    </div>
-    <div class="hero-trust">
-      <div class="hero-trust-item">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="#10B981" stroke="none"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-        No account needed to try
+    <div class="hero-grid">
+      <div class="hero-copy">
+        <div class="hero-badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+          New: Marketplace Export Presets + Batch Upload + 36 Shot Types
+        </div>
+        <h1>Professional Product Photos That <span class="hero-highlight">Actually Sell</span></h1>
+        <p>Upload one photo. Get up to ${IMAGES_PER_SHOOT} marketplace-ready shots in about 25 seconds, sized for eBay, Amazon, Etsy, Depop and more. No design skills needed.</p>
+        <div class="hero-ctas${isLoggedIn ? '' : ' hero-ctas-anon'}">
+          ${isLoggedIn ? `
+          <a href="/app" class="btn-primary">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            Open App
+          </a>` : `
+          <a href="#try-it" class="btn-primary hero-try-cta" onclick="heroTryClick(event)">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            Try It Free - No Account Needed
+          </a>`}
+          <button onclick="scrollToVideo()" class="btn-secondary">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8" fill="currentColor"/></svg>
+            Watch Demo
+          </button>
+        </div>
+        <div class="hero-trust">
+          <div class="hero-trust-item">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="#10B981" stroke="none"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            No account needed to try
+          </div>
+          <div class="hero-trust-item">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="#10B981" stroke="none"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            ${SIGNUP_CREDITS_TOTAL} free credits on signup
+          </div>
+          <div class="hero-trust-item">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="#10B981" stroke="none"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            No card required
+          </div>
+        </div>
       </div>
-      <div class="hero-trust-item">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="#10B981" stroke="none"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-        ${SIGNUP_CREDITS_TOTAL} free credits on signup
-      </div>
-      <div class="hero-trust-item">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="#10B981" stroke="none"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-        Results in 25 seconds
+
+      <!-- Before/after slider. The two images in /static/hero/ are
+           placeholders cut from the trainers example; replace them with a
+           matched pair of real photos (same framing, 720x720 or larger). -->
+      <div class="hero-stage" id="try-it">
+        <div class="ba" id="ba">
+          <img src="/static/hero/before.jpg" id="ba-before" alt="Original product photo" width="720" height="720" fetchpriority="high">
+          <img src="/static/hero/after.jpg" id="ba-after" class="ba-after" alt="The same product photographed in a styled scene by ShopShot" width="720" height="720">
+          <span class="ba-label ba-label-left" id="ba-label-left">Before</span>
+          <span class="ba-label ba-label-right" id="ba-label-right">After</span>
+          <div class="ba-line" aria-hidden="true"><span class="ba-knob"></span></div>
+          <input type="range" class="ba-range" id="ba-range" min="0" max="100" value="50" aria-label="Drag to compare the original photo with the ShopShot result">
+          <div class="ba-busy" id="ba-busy" hidden>
+            <div class="tryit-spinner"></div>
+            <div class="ba-busy-text" id="ba-busy-text">Creating your shot...</div>
+            <div class="ba-busy-time" id="ba-busy-time"></div>
+          </div>
+        </div>
+
+        ${isLoggedIn ? '' : `
+        <div class="hero-try">
+          <div id="tryit-drop" class="tryit-drop" role="button" tabindex="0"
+               onclick="document.getElementById('tryit-file').click()"
+               onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();document.getElementById('tryit-file').click();}"
+               ondragover="tryitDragOver(event)" ondragleave="tryitDragLeave(event)" ondrop="tryitDrop(event)">
+            <input type="file" id="tryit-file" accept="image/jpeg,image/png,image/webp" hidden onchange="tryitSelect(event)">
+            <svg class="tryit-drop-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <div>
+              <div class="tryit-primary">Drop your product photo here</div>
+              <div class="tryit-secondary">or click to choose. A phone photo is fine.</div>
+            </div>
+          </div>
+          <div class="hero-samples">
+            <span>Or try a sample:</span>
+            <button type="button" class="hero-sample" onclick="tryitSample('/static/examples/example-3-thumb.jpg', 'White trainers')"><img src="/static/examples/example-3-thumb.jpg" alt="" width="44" height="44" loading="lazy">Trainers</button>
+            <button type="button" class="hero-sample" onclick="tryitSample('/static/examples/example-2-thumb.jpg', 'Skincare serum bottle')"><img src="/static/examples/example-2-thumb.jpg" alt="" width="44" height="44" loading="lazy">Serum</button>
+            <button type="button" class="hero-sample" onclick="tryitSample('/static/examples/example-4-thumb.jpg', 'Scented candle')"><img src="/static/examples/example-4-thumb.jpg" alt="" width="44" height="44" loading="lazy">Candle</button>
+          </div>
+          <div id="tryit-status" class="tryit-status" hidden></div>
+          <div class="tryit-gate" id="tryit-gate" hidden>
+            <h3>Sign up free to get the other ${IMAGES_PER_SHOOT - ANON_PREVIEW_LIMIT} and remove the watermark</h3>
+            <p>Your preview comes with you. ${CREDITS.SIGNUP_CHEAPER} Standard + ${CREDITS.SIGNUP_BETTER} Pro credits, no card.</p>
+            <a id="tryit-google" href="/api/auth/google?redirect=%2Fapp" class="hero-google">
+              <svg viewBox="0 0 24 24" width="20" height="20"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+              Continue with Google
+            </a>
+            <a id="tryit-email" href="/register?email=1" class="tryit-email-link">or sign up with email</a>
+          </div>
+        </div>
+        `}
       </div>
     </div>
   </section>
-
-  <!-- ===== TRY IT NOW (anonymous preview) ===== -->
-  ${isLoggedIn ? '' : `
-  <section class="tryit-section" id="try-it">
-    <div class="section-header">
-      <div class="section-badge">Try It Now</div>
-      <h2 class="section-title">See It On Your Own Product</h2>
-      <p class="section-subtitle">Upload a photo and we'll generate ${ANON_PREVIEW_LIMIT} shots right here. No account, no card, nothing to fill in.</p>
-    </div>
-
-    <div class="tryit-panel">
-      <div id="tryit-drop" class="tryit-drop"
-           onclick="document.getElementById('tryit-file').click()"
-           ondragover="tryitDragOver(event)" ondragleave="tryitDragLeave(event)" ondrop="tryitDrop(event)">
-        <input type="file" id="tryit-file" accept="image/jpeg,image/png,image/webp" hidden onchange="tryitSelect(event)">
-        <div class="tryit-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
-          </svg>
-        </div>
-        <div class="tryit-primary">Drop a product photo, or click to choose</div>
-        <div class="tryit-secondary">JPG, PNG or WebP up to 10MB. A phone photo is fine.</div>
-      </div>
-
-      <div id="tryit-status" class="tryit-status" hidden></div>
-
-      <div id="tryit-results" class="tryit-results" hidden>
-        <div class="tryit-grid" id="tryit-grid"></div>
-        <div class="tryit-gate" id="tryit-gate" hidden>
-          <h3>That's ${ANON_PREVIEW_LIMIT} of ${IMAGES_PER_SHOOT}</h3>
-          <p>Create a free account to generate the full set - plus size reference, flat-lay, in-use and packaging shots, and marketplace export presets.</p>
-          <a id="tryit-signup" href="/register" class="btn-primary">Get the other ${IMAGES_PER_SHOOT - ANON_PREVIEW_LIMIT} shots free</a>
-          <div class="tryit-gate-note">${SIGNUP_CREDITS_TOTAL} free credits. No card. Your previews carry over.</div>
-        </div>
-      </div>
-    </div>
-  </section>
-  `}
 
   <!-- ===== PLATFORM LOGOS ===== -->
   <div class="platform-bar">
@@ -10776,7 +11681,7 @@ function getMarketingPage(user?: User) {
         <p>Need a quick clean background? Our AI-powered background removal tool is free with any account, including the free tier.</p>
         <ul class="feature-bullets">
           <li>AI-powered instant background removal</li>
-          <li>Free on every plan - uses no credits</li>
+          <li>Free, no account needed - uses no credits</li>
           <li>Download with transparent or white background</li>
           <li>Perfect for eBay/Amazon white-bg requirements</li>
         </ul>
@@ -10816,7 +11721,7 @@ function getMarketingPage(user?: User) {
       <!-- Free -->
       <div class="pricing-card">
         <h3>Free</h3>
-        <div class="price">$0</div>
+        <div class="price">${formatMoney(0, cur)}</div>
         <div class="price-note">One-time signup bonus</div>
         <div class="credits-row">
           <div class="credit-badge standard"><div class="count">${CREDITS.SIGNUP_CHEAPER}</div><div class="label">Standard</div></div>
@@ -10835,8 +11740,8 @@ function getMarketingPage(user?: User) {
       <!-- Starter -->
       <div class="pricing-card">
         <h3>Starter</h3>
-        <div class="price">$${PRICING.STARTER}<span>/mo</span></div>
-        <div class="price-note">~11 product shoots/month</div>
+        <div class="price">${planPrice(cur, 'starter')}<span>/mo</span></div>
+        <div class="price-note">${shootsFor(CREDITS.STARTER_CHEAPER)} product shoots a month</div>
         <div class="credits-row">
           <div class="credit-badge standard"><div class="count">${CREDITS.STARTER_CHEAPER}</div><div class="label">Standard</div></div>
           <div class="credit-badge pro"><div class="count">${CREDITS.STARTER_BETTER}</div><div class="label">Pro</div></div>
@@ -10853,7 +11758,7 @@ function getMarketingPage(user?: User) {
       <!-- Standard -->
       <div class="pricing-card featured">
         <h3>Standard</h3>
-        <div class="price">$${PRICING.STANDARD}<span>/mo</span></div>
+        <div class="price">${planPrice(cur, 'standard')}<span>/mo</span></div>
         <div class="price-note">Best for regular sellers</div>
         <div class="credits-row">
           <div class="credit-badge standard"><div class="count">${CREDITS.STANDARD_CHEAPER}</div><div class="label">Standard</div></div>
@@ -10872,7 +11777,7 @@ function getMarketingPage(user?: User) {
       <!-- Pro -->
       <div class="pricing-card">
         <h3>Pro</h3>
-        <div class="price">$${PRICING.PRO}<span>/mo</span></div>
+        <div class="price">${planPrice(cur, 'pro')}<span>/mo</span></div>
         <div class="price-note">For power sellers</div>
         <div class="credits-row">
           <div class="credit-badge standard"><div class="count">${CREDITS.PRO_CHEAPER}</div><div class="label">Standard</div></div>
@@ -11100,11 +12005,34 @@ function getMarketingPage(user?: User) {
     });
 
     // Scroll to video and auto-play
-    // ===== TRY IT NOW: anonymous preview =====
-    // Generates a few variations with no account. Server enforces the real
-    // limits (per-session and per-IP); this is just the UI around it.
-    const TRYIT_PREVIEW_INDEXES = [5, 8, 0]; // Hero (white BG), Environment, Texture
+    // ===== HERO: before/after slider =====
+    (function initBeforeAfter() {
+      const ba = document.getElementById('ba');
+      const range = document.getElementById('ba-range');
+      if (!ba || !range) return;
+      const set = v => ba.style.setProperty('--pos', v + '%');
+      range.addEventListener('input', () => set(range.value));
+      set(range.value);
+    })();
+
+    // ===== TRY IT NOW: one anonymous, watermarked preview =====
+    // The server enforces the real limits (one image per session, three per
+    // IP per day, Standard model only); this is just the UI around it.
     let tryitSession = null;
+    let tryitTimer = null;
+
+    function heroTryClick(e) {
+      e.preventDefault();
+      const stage = document.getElementById('try-it');
+      const drop = document.getElementById('tryit-drop');
+      if (stage) stage.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (drop) {
+        drop.classList.remove('attention');
+        void drop.offsetWidth;
+        drop.classList.add('attention');
+        drop.focus({ preventScroll: true });
+      }
+    }
 
     function tryitDragOver(e) { e.preventDefault(); document.getElementById('tryit-drop').classList.add('dragging'); }
     function tryitDragLeave() { document.getElementById('tryit-drop').classList.remove('dragging'); }
@@ -11112,11 +12040,19 @@ function getMarketingPage(user?: User) {
       e.preventDefault();
       tryitDragLeave();
       const file = e.dataTransfer.files[0];
-      if (file && file.type.startsWith('image/')) tryitRun(file);
+      if (file && file.type.startsWith('image/')) tryitRun(file, 'upload');
     }
     function tryitSelect(e) {
       const file = e.target.files[0];
-      if (file) tryitRun(file);
+      if (file) tryitRun(file, 'upload');
+    }
+    async function tryitSample(src, name) {
+      try {
+        const blob = await (await fetch(src)).blob();
+        tryitRun(new File([blob], name + '.jpg', { type: 'image/jpeg' }), 'sample');
+      } catch (e) {
+        tryitSay('Could not load the sample. Please try again.', true);
+      }
     }
 
     function tryitSay(message, isError) {
@@ -11126,93 +12062,141 @@ function getMarketingPage(user?: User) {
       el.hidden = false;
     }
 
-    async function tryitRun(file) {
-      const drop = document.getElementById('tryit-drop');
-      drop.classList.add('busy');
-      document.getElementById('tryit-results').hidden = true;
-      document.getElementById('tryit-gate').hidden = true;
-      document.getElementById('tryit-grid').innerHTML = '';
-      tryitSay('Uploading your photo...');
+    function tryitBusy(on, text) {
+      const busy = document.getElementById('ba-busy');
+      busy.hidden = !on;
+      document.getElementById('tryit-drop').classList.toggle('busy', on);
+      document.querySelectorAll('.hero-sample').forEach(b => b.disabled = on);
+      clearInterval(tryitTimer);
+      if (on) {
+        document.getElementById('ba-busy-text').textContent = text;
+        const started = Date.now();
+        const timeEl = document.getElementById('ba-busy-time');
+        timeEl.textContent = 'Usually 10 to 25 seconds';
+        tryitTimer = setInterval(() => {
+          timeEl.textContent = Math.round((Date.now() - started) / 1000) + 's  (usually 10 to 25 seconds)';
+        }, 1000);
+      }
+    }
 
-      if (window.ssTrack) window.ssTrack('anon_preview_started', {});
+    // Phone photos are often 4000px and several MB. The model does not need
+    // that, and uploading it is most of the wait on mobile data.
+    function tryitShrink(file) {
+      return new Promise(resolve => {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => {
+          const max = 1600;
+          const scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+          if (scale === 1 && file.size < 2 * 1024 * 1024) { URL.revokeObjectURL(url); resolve(file); return; }
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.round(img.naturalWidth * scale);
+          canvas.height = Math.round(img.naturalHeight * scale);
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#fff';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          URL.revokeObjectURL(url);
+          canvas.toBlob(b => resolve(b ? new File([b], file.name.replace(/\\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' }) : file), 'image/jpeg', 0.9);
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+        img.src = url;
+      });
+    }
+
+    // Draws the preview with a tiled "ShopShot preview" watermark. The clean
+    // image stays on the server and is what the visitor gets after signup.
+    function tryitWatermark(src) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+          const w = img.naturalWidth, h = img.naturalHeight;
+          const canvas = document.createElement('canvas');
+          canvas.width = w; canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0);
+          const size = Math.max(18, Math.round(w / 16));
+          ctx.font = '800 ' + size + 'px Inter, Arial, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.save();
+          ctx.translate(w / 2, h / 2);
+          ctx.rotate(-Math.PI / 7);
+          const stepX = size * 13, stepY = size * 3.4;
+          for (let y = -h; y <= h; y += stepY) {
+            for (let x = -w; x <= w; x += stepX) {
+              const offset = (Math.round(y / stepY) % 2) * stepX / 2;
+              ctx.lineWidth = Math.max(1, size / 14);
+              ctx.strokeStyle = 'rgba(0,0,0,0.18)';
+              ctx.strokeText('ShopShot preview', x + offset, y);
+              ctx.fillStyle = 'rgba(255,255,255,0.42)';
+              ctx.fillText('ShopShot preview', x + offset, y);
+            }
+          }
+          ctx.restore();
+          resolve(canvas.toDataURL('image/jpeg', 0.86));
+        };
+        img.onerror = reject;
+        img.src = src;
+      });
+    }
+
+    function tryitShowResult(beforeSrc, afterSrc) {
+      document.getElementById('ba-before').src = beforeSrc;
+      document.getElementById('ba-after').src = afterSrc;
+      document.getElementById('ba-label-left').textContent = 'Your photo';
+      document.getElementById('ba-label-right').textContent = 'ShopShot';
+      const range = document.getElementById('ba-range');
+      range.value = 35;
+      range.dispatchEvent(new Event('input'));
+    }
+
+    async function tryitRun(rawFile, source) {
+      document.getElementById('tryit-gate').hidden = true;
+      document.getElementById('tryit-status').hidden = true;
+      tryitBusy(true, 'Uploading your photo...');
+      if (window.ssTrack) window.ssTrack('anon_preview_start', { source: source });
 
       try {
+        const file = await tryitShrink(rawFile);
         const form = new FormData();
         form.append('image', file);
         const res = await fetch('/api/anon/start', { method: 'POST', body: form });
         const data = await res.json();
 
         if (!data.success) {
+          tryitBusy(false);
           tryitSay(data.error || 'Something went wrong. Please try again.', true);
           if (data.needsAuth) tryitShowGate();
-          drop.classList.remove('busy');
           return;
         }
 
         tryitSession = data;
-        tryitSay('Generating ' + data.previewLimit + ' professional shots. This takes about 20 seconds...');
-        document.getElementById('tryit-results').hidden = false;
-
-        const grid = document.getElementById('tryit-grid');
-        const wanted = TRYIT_PREVIEW_INDEXES.slice(0, data.previewLimit);
-        wanted.forEach((_, i) => {
-          const card = document.createElement('div');
-          card.className = 'tryit-card pending';
-          card.id = 'tryit-card-' + i;
-          card.innerHTML = '<div class="tryit-spinner"></div>';
-          grid.appendChild(card);
-        });
-
-        let produced = 0;
-        for (let i = 0; i < wanted.length; i++) {
-          const ok = await tryitGenerate(wanted[i], i, data);
-          if (ok) produced++;
-          else break;
-        }
-
-        if (produced > 0) {
-          tryitSay('Done. That is ' + produced + ' of ' + ${'`${IMAGES_PER_SHOOT}`'} + ' shots ShopShot generates for each product.');
-          tryitShowGate();
-          if (window.ssTrack) window.ssTrack('anon_preview_completed', { images: produced });
-        }
-      } catch (err) {
-        console.error('[TryIt]', err);
-        tryitSay('Something went wrong. Please try again.', true);
-      } finally {
-        drop.classList.remove('busy');
-      }
-    }
-
-    async function tryitGenerate(variationIndex, slot, session) {
-      const card = document.getElementById('tryit-card-' + slot);
-      try {
-        const res = await fetch('/api/anon/generate/' + session.sessionId + '/' + variationIndex, {
+        tryitBusy(true, 'Creating your shot...');
+        const started = Date.now();
+        const genRes = await fetch('/api/anon/generate/' + data.sessionId + '/0', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            originalImage: session.originalImage,
-            productName: session.productName
-          })
+          body: JSON.stringify({ originalImage: data.originalImage, productName: data.productName })
         });
-        const data = await res.json();
-        if (!data.success) {
-          if (data.needsAuth || data.rateLimited || data.previewExhausted) {
-            card.remove();
-            tryitSay(data.error, true);
-            tryitShowGate();
-            return false;
-          }
-          card.classList.remove('pending');
-          card.innerHTML = '<div class="tryit-caption">Could not generate this one</div>';
-          return true;
+        const gen = await genRes.json();
+
+        if (!gen.success) {
+          tryitBusy(false);
+          tryitSay(gen.error || 'We could not create a shot from that photo. Please try another.', true);
+          if (gen.needsAuth || gen.rateLimited || gen.previewExhausted) tryitShowGate();
+          return;
         }
-        card.classList.remove('pending');
-        card.innerHTML = '<img src="' + data.image + '" alt="' + data.label + '">' +
-                         '<div class="tryit-caption">' + data.label.replace(/^\d+\.\s*/, '') + '</div>';
-        return true;
-      } catch (e) {
-        card.remove();
-        return false;
+
+        const marked = await tryitWatermark(gen.image);
+        tryitShowResult(data.originalImage, marked);
+        tryitBusy(false);
+        tryitShowGate();
+        if (window.ssTrack) window.ssTrack('anon_preview_complete', { source: source, seconds: Math.round((Date.now() - started) / 1000) });
+      } catch (err) {
+        console.error('[TryIt]', err);
+        tryitBusy(false);
+        tryitSay('Something went wrong. Please try again.', true);
       }
     }
 
@@ -11220,12 +12204,12 @@ function getMarketingPage(user?: User) {
       const gate = document.getElementById('tryit-gate');
       if (!gate) return;
       gate.hidden = false;
-      const link = document.getElementById('tryit-signup');
-      if (link && tryitSession) {
-        // Carry the preview session so the images follow them into the account
-        link.href = '/register?anon=' + encodeURIComponent(tryitSession.sessionId);
+      if (tryitSession) {
+        // Carry the preview session so the image follows them into the account
+        const anon = encodeURIComponent(tryitSession.sessionId);
+        document.getElementById('tryit-google').href = '/api/auth/google?redirect=%2Fapp&anon=' + anon;
+        document.getElementById('tryit-email').href = '/register?email=1&anon=' + anon;
       }
-      if (window.ssTrack) window.ssTrack('anon_preview_gate_shown', {});
     }
 
     function scrollToVideo() {
@@ -11320,7 +12304,7 @@ function getMarketingPage(user?: User) {
 </html>`
 }
 
-function getHomePage(user?: User) {
+function getHomePage(user?: User, cur: Currency = 'USD') {
   const isLoggedIn = !!user;
   return `<!DOCTYPE html>
 <html lang="en">
@@ -11919,6 +12903,19 @@ function getHomePage(user?: User) {
     }
     
     /* Upload zone - glassmorphism (75% size) */
+    .upload-zone-focus { outline: 3px solid #8B5CF6; outline-offset: 4px; }
+    .shot-picker { margin: 4px 0 12px; padding: 12px; background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 12px; }
+    .shot-picker-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+    .shot-picker-title { font-size: 13px; font-weight: 700; color: #334155; }
+    .shot-picker-actions button { background: none; border: none; color: #7C3AED; font-size: 12px; font-weight: 600; cursor: pointer; padding: 2px 6px; }
+    .shot-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+    .shot-option { display: flex; align-items: center; gap: 8px; padding: 7px 9px; background: white; border: 1px solid #E2E8F0; border-radius: 8px; font-size: 12.5px; color: #334155; cursor: pointer; }
+    .shot-option:has(input:checked) { border-color: #A78BFA; background: #F5F3FF; }
+    .shot-option input { accent-color: #7C3AED; width: 15px; height: 15px; flex-shrink: 0; }
+    .shot-note { margin-top: 8px; font-size: 12px; color: #64748B; }
+    .shot-note.short { color: #B45309; font-weight: 600; }
+    .shot-note a { color: #7C3AED; font-weight: 600; }
+    .upload-zone:focus-visible { outline: 3px solid #8B5CF6; outline-offset: 4px; }
     .upload-zone {
       width: 100%;
       min-height: 135px;
@@ -13247,6 +14244,18 @@ function getHomePage(user?: User) {
       text-align: center;
     }
     .paywall-icon { font-size: 48px; margin-bottom: 16px; }
+    .paywall-modal { max-height: 92vh; overflow-y: auto; }
+    .paywall-packs { margin: 4px 0 16px; }
+    .paywall-packs-title { font-size: 13px; font-weight: 700; color: #374151; margin-bottom: 8px; }
+    .paywall-packs-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+    .paywall-packs .pack-card { padding: 8px 4px; border: 1px solid #E5E7EB; border-radius: 10px; cursor: pointer; background: #F9FAFB; }
+    .paywall-packs .pack-card:hover { border-color: #8B5CF6; background: white; }
+    .paywall-packs .pack-price { font-size: 16px; font-weight: 800; color: #1F2937; }
+    .paywall-packs .pack-credits { font-size: 11px; font-weight: 600; color: #059669; margin: 2px 0 6px; }
+    .paywall-packs .pack-credits.better { color: #7C3AED; }
+    .paywall-packs .pack-btn { width: 100%; border: none; border-radius: 6px; padding: 5px 0; font-size: 11px; font-weight: 700; color: white; background: #10B981; cursor: pointer; }
+    .paywall-packs .pack-btn.better { background: #7C3AED; }
+    @media (max-width: 420px) { .paywall-packs-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
     .paywall-title { font-size: 22px; font-weight: 700; color: #1F2937; margin-bottom: 8px; }
     .paywall-text { font-size: 14px; color: #6B7280; margin-bottom: 24px; line-height: 1.5; }
     .paywall-credits { display: flex; justify-content: center; gap: 8px; margin-bottom: 16px; }
@@ -13391,18 +14400,25 @@ function getHomePage(user?: User) {
         
         <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-bottom:16px;">
           <div style="background:#F3F4F6; border-radius:8px; padding:12px; text-align:center;">
-            <div style="font-size:18px; font-weight:700; color:#1F2937;">$9.99/mo</div>
-            <div style="font-size:12px; color:#6B7280;">Starter • ~11 shoots</div>
+            <div style="font-size:18px; font-weight:700; color:#1F2937;">${planPrice(cur, 'starter')}/mo</div>
+            <div style="font-size:12px; color:#6B7280;">Starter • ${shootsFor(CREDITS.STARTER_CHEAPER)} shoots</div>
           </div>
           <div style="background:#F0F9FF; border-radius:8px; padding:12px; text-align:center; border:2px solid #3B82F6;">
-            <div style="font-size:18px; font-weight:700; color:#1F2937;">$39.99/mo</div>
-            <div style="font-size:12px; color:#6B7280;">Standard • ~55 shoots ⭐</div>
+            <div style="font-size:18px; font-weight:700; color:#1F2937;">${planPrice(cur, 'standard')}/mo</div>
+            <div style="font-size:12px; color:#6B7280;">Standard • ${shootsFor(CREDITS.STANDARD_CHEAPER)} shoots ⭐</div>
           </div>
         </div>
         
+        <!-- Pay as you go: same packs and prices as /pricing -->
+        <div class="paywall-packs">
+          <div class="paywall-packs-title">Or top up, no subscription</div>
+          <div class="paywall-packs-grid" id="paywall-packs-cheaper">${packCardsHtml('cheaper', cur, { loggedIn: true, compact: true })}</div>
+          <div class="paywall-packs-grid" id="paywall-packs-better" style="display:none">${packCardsHtml('better', cur, { loggedIn: true, compact: true })}</div>
+        </div>
+
         <div class="paywall-btns">
           <a href="/pricing" class="paywall-btn paywall-btn-primary" style="background:linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%)">
-            🚀 Get More Credits
+            🚀 See All Plans
           </a>
           <button onclick="closePaywall()" class="paywall-btn paywall-btn-secondary">Maybe Later</button>
         </div>
@@ -13465,18 +14481,18 @@ function getHomePage(user?: User) {
              had already signed up. Shown on ?welcome=1 and dismissible. -->
         <div id="welcome-panel" class="welcome-panel" style="display:none">
           <button class="welcome-dismiss" onclick="dismissWelcome()" aria-label="Dismiss">&times;</button>
-          <div class="welcome-title">Welcome${user?.name ? `, ${user.name.split(' ')[0]}` : ''} - you have ${CREDITS.SIGNUP_CHEAPER} Standard and ${CREDITS.SIGNUP_BETTER} Pro credits</div>
-          <div class="welcome-sub">Your ${CREDITS.SIGNUP_CHEAPER} Standard credits cover one complete ${IMAGES_PER_SHOOT}-shot set. Nothing to pay, no card needed.</div>
+          <div class="welcome-title">Welcome${user?.name ? `, ${escapeHtmlServer(user.name.split(' ')[0])}` : ''}. You have <span id="welcome-std">${user?.cheaper_credits ?? CREDITS.SIGNUP_CHEAPER}</span> Standard and <span id="welcome-pro">${user?.better_credits ?? CREDITS.SIGNUP_BETTER}</span> Pro credits</div>
+          <div class="welcome-sub">One credit makes one image, and you choose which shots to make. You also get ${CREDITS.DRIP_CHEAPER} more Standard credits every Monday for your first ${CREDITS.DRIP_WEEKS} weeks. Nothing to pay, no card needed.</div>
           <div class="welcome-steps">
             <div class="welcome-step"><span class="ws-num">1</span><div><strong>Upload one photo</strong><br>Any clear shot of your product. A phone photo is fine.</div></div>
-            <div class="welcome-step"><span class="ws-num">2</span><div><strong>Pick a size and quality</strong><br>Standard is fast and reliable. Start there.</div></div>
-            <div class="welcome-step"><span class="ws-num">3</span><div><strong>Generate and export</strong><br>${IMAGES_PER_SHOOT} shots in ~25 seconds, sized for each marketplace.</div></div>
+            <div class="welcome-step"><span class="ws-num">2</span><div><strong>Pick your shots</strong><br>Tick the ones you want. Standard quality is fast and reliable; start there.</div></div>
+            <div class="welcome-step"><span class="ws-num">3</span><div><strong>Generate and export</strong><br>Ready in about 25 seconds, sized for each marketplace.</div></div>
           </div>
         </div>
 
         <div class="upload-header">
           <h1>Upload Your Product Photo</h1>
-          <p>Upload your best shot - get 10 professional variations in ~25 seconds</p>
+          <p>Upload your best shot, then choose up to 10 professional shots. Ready in about 25 seconds.</p>
         </div>
 
       <!-- Upload Zone -->
@@ -13543,7 +14559,7 @@ function getHomePage(user?: User) {
           </button>
         </div>
         <div id="model-credit-info" class="model-credit-info">
-          <strong>10 <span id="selected-credit-type">Standard</span> credits</strong> will be used for this generation. 
+          <strong><span id="selected-shot-count">10</span> <span id="selected-credit-type">Standard</span> credits</strong> will be used for this generation. 
           You have: <strong id="available-credit-count">--</strong> <span id="credit-type-label">Standard</span> credits
         </div>
         <div id="nano-warning" class="nano-warning">
@@ -13618,6 +14634,19 @@ function getHomePage(user?: User) {
           <i class="fas fa-layer-group" style="color:#F97316;"></i>
           <span>Batch Mode</span>
         </button>
+      </div>
+
+      <!-- Shot picker: one credit per ticked image -->
+      <div id="shot-picker" class="shot-picker">
+        <div class="shot-picker-head">
+          <span class="shot-picker-title">Choose your shots</span>
+          <span class="shot-picker-actions">
+            <button type="button" onclick="shotPickAll(true)">All</button>
+            <button type="button" onclick="shotPickAll(false)">None</button>
+          </span>
+        </div>
+        <div id="shot-grid" class="shot-grid"></div>
+        <div id="shot-note" class="shot-note">1 credit per image.</div>
       </div>
 
       <!-- Generate Button -->
@@ -13837,10 +14866,41 @@ function getHomePage(user?: User) {
         }
       }
       
+      // Show the packs for the credit type they ran out of
+      const isPro = creditType === 'better';
+      const stdPacks = document.getElementById('paywall-packs-cheaper');
+      const proPacks = document.getElementById('paywall-packs-better');
+      if (stdPacks) stdPacks.style.display = isPro ? 'none' : 'grid';
+      if (proPacks) proPacks.style.display = isPro ? 'grid' : 'none';
+
       // Update credits indicator
       updateCreditsDisplay();
       
       if (modal) modal.classList.add('show');
+    }
+
+    // Credit pack checkout from the paywall. Prices match /pricing because
+    // both come from PACK_PRICES; currency matches checkout via currencyFor().
+    const PAYWALL_PACK_VALUES = ${JSON.stringify(PACK_PRICES[cur])};
+    async function startPackCheckout(creditType, amount) {
+      const value = PAYWALL_PACK_VALUES[amount];
+      if (window.ssTrack) window.ssTrack('begin_checkout', {
+        currency: '${cur}',
+        value: value,
+        items: [{ item_id: 'pack_' + creditType + '_' + amount, item_name: 'Credit pack', item_category: 'credit_pack', price: value, quantity: 1 }]
+      });
+      try {
+        const res = await fetch('/api/billing/create-checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'pack', creditType: creditType, amount: amount })
+        });
+        const data = await res.json();
+        if (data.success && data.url) { window.location.href = data.url; return; }
+        showError(data.error || 'Could not start checkout. Please try again.');
+      } catch (e) {
+        showError('Could not start checkout. Please try again.');
+      }
     }
     
     // Check if user has enough credits for the selected model
@@ -13888,6 +14948,79 @@ function getHomePage(user?: User) {
       flash: { name: 'Standard', time: '~25s' }
     };
 
+    // ----- Shot picker -----
+    // Each ticked shot costs one credit, so users choose what to spend on.
+    // Indexes refer to variationDefs (0 is the original photo).
+    let selectedShots = new Set();
+    let shotPickerTouched = false;
+    // When the balance cannot cover every shot, preselect the most useful
+    // ones first: listing hero, lifestyle, then detail shots.
+    const SHOT_PRIORITY = ['hero_white', 'environment_context', 'inuse_action', 'flatlay_styled', 'scale_reference', 'multi_angle', 'macro_texture', 'label_branding', 'construction_detail', 'color_finish'];
+
+    function shotBalance() {
+      const v = selectedModel === 'nano' ? window.currentBetterCredits : window.currentCheaperCredits;
+      return typeof v === 'number' ? v : null;
+    }
+
+    function renderShotPicker(resetSelection) {
+      const grid = document.getElementById('shot-grid');
+      if (!grid) return;
+      if (resetSelection) {
+        selectedShots = new Set();
+        for (let i = 1; i < variationDefs.length; i++) selectedShots.add(i);
+        const bal = shotBalance();
+        if (!shotPickerTouched && bal !== null && bal < selectedShots.size) {
+          const order = Array.from(selectedShots).sort((a, b) => {
+            const pa = SHOT_PRIORITY.indexOf(variationDefs[a].field), pb = SHOT_PRIORITY.indexOf(variationDefs[b].field);
+            return (pa === -1 ? 99 : pa) - (pb === -1 ? 99 : pb);
+          });
+          selectedShots = new Set(order.slice(0, Math.max(0, bal)));
+        }
+      }
+      grid.innerHTML = variationDefs.map((v, i) => {
+        if (v.isOriginal) return '';
+        const name = v.label.replace(/^\\d+\\.\\s*/, '');
+        return '<label class="shot-option"><input type="checkbox" ' + (selectedShots.has(i) ? 'checked ' : '') +
+          'onchange="shotToggle(' + i + ', this.checked)"><span>' + name + '</span></label>';
+      }).join('');
+      updateGenerateLabel();
+    }
+
+    function shotToggle(i, on) {
+      shotPickerTouched = true;
+      if (on) selectedShots.add(i); else selectedShots.delete(i);
+      updateGenerateLabel();
+    }
+
+    function shotPickAll(on) {
+      shotPickerTouched = true;
+      selectedShots = new Set();
+      if (on) for (let i = 1; i < variationDefs.length; i++) selectedShots.add(i);
+      renderShotPicker(false);
+    }
+
+    function updateGenerateLabel() {
+      const countEl = document.getElementById('selected-shot-count');
+      if (countEl) countEl.textContent = selectedShots.size;
+      const btn = document.getElementById('generate-btn');
+      const note = document.getElementById('shot-note');
+      const n = selectedShots.size;
+      const bal = shotBalance();
+      const kind = selectedModel === 'nano' ? 'Pro' : 'Standard';
+      if (note) {
+        if (bal !== null && n > bal) {
+          note.className = 'shot-note short';
+          note.innerHTML = n + ' shots need ' + n + ' ' + kind + ' credits and you have ' + bal + '. Untick some, or <a href="/pricing">get more credits</a>.';
+        } else {
+          note.className = 'shot-note';
+          note.textContent = '1 credit per image. ' + n + ' selected' + (bal !== null ? ', you have ' + bal + ' ' + kind + ' credits.' : '.');
+        }
+      }
+      if (btn && btn.textContent !== 'Uploading...') {
+        btn.textContent = n === 0 ? 'Choose at least one shot' : 'Generate ' + n + ' shot' + (n === 1 ? '' : 's') + ' (' + n + ' credit' + (n === 1 ? '' : 's') + ')';
+      }
+    }
+
     // Sidebar
     // First-run welcome panel. Shows on ?welcome=1 (set by the post-signup
     // redirect) and for any user who has not dismissed it and has no sessions.
@@ -13903,9 +15036,13 @@ function getHomePage(user?: User) {
       try {
         const p = new URLSearchParams(window.location.search);
         if (p.get('signup') === 'google' && window.ssTrack) {
-          window.ssTrack('sign_up', { method: 'google', plan: 'free' });
+          window.ssTrack('sign_up', { method: 'google', plan: 'free', from_preview: p.get('from_preview') === '1' });
         } else if (p.get('login') === 'google' && window.ssTrack) {
           window.ssTrack('login', { method: 'google' });
+        }
+        // A homepage preview was attached to this new account.
+        if (p.get('from_preview') === '1' && window.ssTrack) {
+          window.ssTrack('anon_preview_claim', {});
         }
       } catch (e) {}
     })();
@@ -13919,6 +15056,21 @@ function getHomePage(user?: User) {
       if (isWelcome || !dismissed) {
         panel.style.display = 'block';
         if (isWelcome && window.ssTrack) window.ssTrack('onboarding_started', {});
+      }
+      // New accounts land with the upload box in focus: keyboard users can
+      // press Enter to choose a file, and everyone sees where to start.
+      // (Browsers do not allow opening the file picker without a click.)
+      if (isWelcome) {
+        const zone = document.getElementById('upload-zone');
+        if (zone) {
+          zone.setAttribute('tabindex', '0');
+          zone.classList.add('upload-zone-focus');
+          zone.scrollIntoView({ block: 'center' });
+          try { zone.focus({ preventScroll: true }); } catch (e) { zone.focus(); }
+          zone.addEventListener('keydown', function(ev) {
+            if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); document.getElementById('file-input').click(); }
+          });
+        }
       }
     }
     maybeShowWelcome();
@@ -14045,6 +15197,8 @@ function getHomePage(user?: User) {
         if (creditCountEl) creditCountEl.textContent = window.currentCheaperCredits || '--';
       }
       
+      updateGenerateLabel();
+
       // Show warning for Nano Banana Pro (preview model with rate limits)
       const warning = document.getElementById('nano-warning');
       if (warning) {
@@ -14162,7 +15316,7 @@ function getHomePage(user?: User) {
           loadSessions();
           // Enable generate button now that upload is complete
           document.getElementById('generate-btn').disabled = false;
-          document.getElementById('generate-btn').textContent = 'Generate 10 Professional Shots';
+          document.getElementById('generate-btn').textContent = ''; updateGenerateLabel();
         } else if (data.needsAuth) {
           // Server says not authenticated - redirect to signup
           window.location.href = '/get-started?redirect=' + encodeURIComponent(window.location.pathname);
@@ -14172,14 +15326,14 @@ function getHomePage(user?: User) {
           showError(data.error || 'Upload failed');
           // Reset button on error
           document.getElementById('generate-btn').disabled = false;
-          document.getElementById('generate-btn').textContent = 'Generate 10 Professional Shots';
+          document.getElementById('generate-btn').textContent = ''; updateGenerateLabel();
         }
       } catch (e) { 
         console.error('Upload failed:', e);
         showError('Upload failed. Please try again.');
         // Reset button on error
         document.getElementById('generate-btn').disabled = false;
-        document.getElementById('generate-btn').textContent = 'Generate 10 Professional Shots';
+        document.getElementById('generate-btn').textContent = ''; updateGenerateLabel();
       }
     }
 
@@ -14206,6 +15360,16 @@ function getHomePage(user?: User) {
       } catch (e) {
         // Auth check failed - redirect to signup
         window.location.href = '/get-started?redirect=' + encodeURIComponent(window.location.pathname);
+        return;
+      }
+
+      if (selectedShots.size === 0) {
+        showError('Tick at least one shot to generate.');
+        return;
+      }
+      const bal = shotBalance();
+      if (bal !== null && selectedShots.size > bal) {
+        showPaywallModal(selectedShots.size, bal, selectedModel === 'nano' ? 'better' : 'cheaper');
         return;
       }
 
@@ -14241,7 +15405,9 @@ function getHomePage(user?: User) {
       const grid = document.getElementById('thumb-grid');
       lightboxImages = [];
       
+      const chosen = Array.from(selectedShots).sort((a, b) => a - b);
       grid.innerHTML = variationDefs.map((v, i) => {
+        if (!v.isOriginal && !selectedShots.has(i)) return '';
         if (v.isOriginal) {
           lightboxImages.push({ src: currentOriginalImage, label: 'Original' });
           return '<div class="image-card" id="card-' + i + '">' +
@@ -14263,7 +15429,7 @@ function getHomePage(user?: User) {
       console.log('[Generate] Starting ALL ' + (variationDefs.length - 1) + ' variations in parallel...');
       
       const allPromises = [];
-      for (let i = 1; i < variationDefs.length; i++) {
+      for (const i of chosen) {
         allPromises.push(generateSingle(i, startTime));
       }
       
@@ -14274,7 +15440,7 @@ function getHomePage(user?: User) {
       if (window.ssTrack) {
         const rendered = document.querySelectorAll('.image-card img').length;
         window.ssTrack('generation_complete', {
-          variations_requested: variationDefs.length,
+          variations_requested: chosen.length,
           variations_rendered: rendered,
           seconds_elapsed: Math.round((Date.now() - startTime) / 1000)
         });
@@ -14961,8 +16127,10 @@ function getHomePage(user?: User) {
           }
           
           // Store current credits for paywall checks
+          const firstLoad = typeof window.currentCheaperCredits !== 'number';
           window.currentCheaperCredits = cheaperCredits;
           window.currentBetterCredits = betterCredits;
+          if (typeof renderShotPicker === 'function') renderShotPicker(firstLoad);
           
           // Update the model-specific credit display
           const creditCountEl = document.getElementById('available-credit-count');
@@ -15950,6 +17118,7 @@ function getHomePage(user?: User) {
         variationDefs.length = 0;
         newDefs.forEach(d => variationDefs.push(d));
       }
+      if (typeof renderShotPicker === 'function') { renderShotPicker(true); return; }
       
       // Update generate button text
       const genBtn = document.getElementById('generate-btn');
@@ -17139,6 +18308,21 @@ function getLoginPage() {
     }
     .google-btn:hover { background: #F9FAFB; border-color: #D1D5DB; }
     .google-btn svg { width: 20px; height: 20px; }
+    /* Google is the primary route: 54 of the first 67 accounts chose it. Dark
+       variant per Google's sign-in branding (fill #131314, text #E3E3E3). */
+    .google-btn.google-primary {
+      background: #131314; color: #E3E3E3; border: 1px solid #8E918F;
+      padding: 16px 20px; font-size: 16px; box-shadow: 0 4px 14px rgba(0,0,0,0.18);
+    }
+    .google-btn.google-primary:hover { background: #2A2A2C; border-color: #8E918F; }
+    .google-note { margin-top: 10px; font-size: 12px; color: #6B7280; text-align: center; line-height: 1.5; }
+    .google-note a { color: #6B7280; text-decoration: underline; }
+    .email-toggle {
+      display: block; width: 100%; margin-top: 18px; padding: 12px; background: none;
+      border: 1px solid #E5E7EB; border-radius: 12px; font-size: 14px; font-weight: 600;
+      color: #4B5563; cursor: pointer;
+    }
+    .email-toggle:hover { border-color: #C4B5FD; color: #6D28D9; }
     .info-msg {
       padding: 12px 16px;
       background: #FEF3C7;
@@ -17169,12 +18353,12 @@ function getLoginPage() {
       <p class="auth-subtitle">Log in to continue generating product photos</p>
       
       <!-- Google Sign In -->
-      <button onclick="signInWithGoogle()" class="google-btn" style="margin-top: 20px;">
+      <button onclick="signInWithGoogle()" class="google-btn google-primary" style="margin-top: 20px;">
         <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
         Continue with Google
       </button>
       
-      <div class="divider"><span>or</span></div>
+      <div class="divider"><span>or log in with email</span></div>
       
       <div id="info-msg" class="info-msg" style="display: none;"></div>
       <div id="error-msg" class="auth-error"></div>
@@ -17201,7 +18385,8 @@ function getLoginPage() {
   <script>
     // Get redirect param from URL
     const urlParams = new URLSearchParams(window.location.search);
-    const redirectTo = urlParams.get('redirect');
+    // Same-site paths only: a full URL or javascript: here would be an open redirect.
+    const redirectTo = (function(v) { return (v && v.charAt(0) === '/' && v.charAt(1) !== '/' && v.indexOf('\\\\') === -1) ? v : null; })(urlParams.get('redirect'));
     const errorCode = urlParams.get('error');
     
     // Show error from Google OAuth
@@ -17297,7 +18482,7 @@ function getLoginPage() {
 // ============================================================================
 // REGISTER PAGE
 // ============================================================================
-function getRegisterPage() {
+function getRegisterPage(cur: Currency = 'USD') {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -17384,6 +18569,21 @@ function getRegisterPage() {
     }
     .google-btn:hover { background: #F9FAFB; border-color: #D1D5DB; }
     .google-btn svg { width: 20px; height: 20px; }
+    /* Google is the primary route: 54 of the first 67 accounts chose it. Dark
+       variant per Google's sign-in branding (fill #131314, text #E3E3E3). */
+    .google-btn.google-primary {
+      background: #131314; color: #E3E3E3; border: 1px solid #8E918F;
+      padding: 16px 20px; font-size: 16px; box-shadow: 0 4px 14px rgba(0,0,0,0.18);
+    }
+    .google-btn.google-primary:hover { background: #2A2A2C; border-color: #8E918F; }
+    .google-note { margin-top: 10px; font-size: 12px; color: #6B7280; text-align: center; line-height: 1.5; }
+    .google-note a { color: #6B7280; text-decoration: underline; }
+    .email-toggle {
+      display: block; width: 100%; margin-top: 18px; padding: 12px; background: none;
+      border: 1px solid #E5E7EB; border-radius: 12px; font-size: 14px; font-weight: 600;
+      color: #4B5563; cursor: pointer;
+    }
+    .email-toggle:hover { border-color: #C4B5FD; color: #6D28D9; }
     .password-requirements {
       margin-top: 8px;
       font-size: 12px;
@@ -17462,19 +18662,22 @@ function getRegisterPage() {
         <h1 class="auth-title" id="page-title">Create Account</h1>
         <p class="auth-subtitle" id="page-subtitle">Start generating professional product photos</p>
         <div style="text-align:center;" id="badge-container">
-          <span class="bonus-badge">🎁 Get ${CREDITS.SIGNUP_CHEAPER + CREDITS.SIGNUP_BETTER} free credits on signup!</span>
+          <span class="bonus-badge">🎁 ${CREDITS.SIGNUP_CHEAPER} Standard + ${CREDITS.SIGNUP_BETTER} Pro credits free, then ${CREDITS.DRIP_CHEAPER} more every week for ${CREDITS.DRIP_WEEKS} weeks</span>
         </div>
         
         <!-- Google Sign In -->
-        <button onclick="signInWithGoogle()" class="google-btn" style="margin-top: 20px;">
+        <button onclick="signInWithGoogle()" class="google-btn google-primary" style="margin-top: 20px;">
           <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
           Continue with Google
         </button>
-        
-        <div class="divider"><span>or</span></div>
+        <p class="google-note">One click, no password to remember. By continuing you agree to our <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</p>
         
         <div id="error-msg" class="auth-error"></div>
         
+        <button type="button" class="email-toggle" id="email-toggle" onclick="showEmailSignup()">Sign up with email instead</button>
+        
+        <div id="email-signup" hidden>
+        <div class="divider"><span>sign up with email</span></div>
         <form class="auth-form" onsubmit="handleRegister(event)">
           <div class="form-group">
             <label class="form-label">Name (optional)</label>
@@ -17522,6 +18725,7 @@ function getRegisterPage() {
           
           <button type="submit" id="submit-btn" class="auth-btn">Create Account</button>
         </form>
+        </div>
         
         <p class="auth-footer" id="login-link">
           Already have an account? <a href="/login">Log in</a>
@@ -17561,7 +18765,8 @@ function getRegisterPage() {
   <script>
     // Get params from URL
     const urlParams = new URLSearchParams(window.location.search);
-    const redirectTo = urlParams.get('redirect');
+    // Same-site paths only: a full URL or javascript: here would be an open redirect.
+    const redirectTo = (function(v) { return (v && v.charAt(0) === '/' && v.charAt(1) !== '/' && v.indexOf('\\\\') === -1) ? v : null; })(urlParams.get('redirect'));
     const selectedPlan = urlParams.get('plan');
     const selectedInterval = urlParams.get('interval') === 'year' ? 'year' : 'month';
     // Anonymous preview session to attach to the new account, if they came
@@ -17579,20 +18784,29 @@ function getRegisterPage() {
     if (selectedPlan === 'starter') {
       title.textContent = 'Get Starter Plan';
       subtitle.textContent = 'Create account to start your subscription';
-      badge.innerHTML = '<span class="plan-badge starter">🚀 Starter Plan - ' + (selectedInterval === 'year' ? '$${PRICING.STARTER_ANNUAL}/year' : '$${PRICING.STARTER}/month') + '</span>';
+      badge.innerHTML = '<span class="plan-badge starter">🚀 Starter Plan - ' + (selectedInterval === 'year' ? '${planPrice(cur, 'starter', 'year')}/year' : '${planPrice(cur, 'starter')}/month') + '</span>';
       btn.textContent = 'Create Account & Subscribe';
     } else if (selectedPlan === 'standard') {
       title.textContent = 'Get Standard Plan';
       subtitle.textContent = 'Create account to start your subscription';
-      badge.innerHTML = '<span class="plan-badge standard">⚡ Standard Plan - ' + (selectedInterval === 'year' ? '$${PRICING.STANDARD_ANNUAL}/year' : '$${PRICING.STANDARD}/month') + '</span>';
+      badge.innerHTML = '<span class="plan-badge standard">⚡ Standard Plan - ' + (selectedInterval === 'year' ? '${planPrice(cur, 'standard', 'year')}/year' : '${planPrice(cur, 'standard')}/month') + '</span>';
       btn.textContent = 'Create Account & Subscribe';
     } else if (selectedPlan === 'pro') {
       title.textContent = 'Get Pro Plan';
       subtitle.textContent = 'Create account to start your subscription';
-      badge.innerHTML = '<span class="plan-badge pro">👑 Pro Plan - ' + (selectedInterval === 'year' ? '$${PRICING.PRO_ANNUAL}/year' : '$${PRICING.PRO}/month') + '</span>';
+      badge.innerHTML = '<span class="plan-badge pro">👑 Pro Plan - ' + (selectedInterval === 'year' ? '${planPrice(cur, 'pro', 'year')}/year' : '${planPrice(cur, 'pro')}/month') + '</span>';
       btn.textContent = 'Create Account & Subscribe';
     }
     
+    // The email form is one click away; Google is the default route.
+    function showEmailSignup() {
+      document.getElementById('email-signup').hidden = false;
+      document.getElementById('email-toggle').hidden = true;
+      const first = document.getElementById('email');
+      if (first) first.focus();
+    }
+    if (urlParams.get('email') === '1') showEmailSignup();
+
     // Google Sign In (register page)
     function signInWithGoogle() {
       let url = '/api/auth/google';
@@ -17605,6 +18819,8 @@ function getRegisterPage() {
       const urlParams = new URLSearchParams(window.location.search);
       const ref = urlParams.get('ref');
       if (ref) params.push('ref=' + encodeURIComponent(ref));
+      // Carry the homepage preview so it is attached to the new account
+      if (anonSessionId) params.push('anon=' + encodeURIComponent(anonSessionId));
       url += '?' + params.join('&');
       window.location.href = url;
     }
@@ -17825,7 +19041,7 @@ function getRegisterPage() {
               window.location.href = '/pricing?signup=success&checkout=failed';
             }
           } else {
-            window.location.href = redirectTo || '/app?welcome=1';
+            window.location.href = redirectTo || ('/app?welcome=1' + (anonSessionId ? '&from_preview=1' : ''));
           }
         } else {
           errEl.textContent = data.error || 'Verification failed';
@@ -17887,7 +19103,7 @@ function getRegisterPage() {
 // ============================================================================
 // GET STARTED PAGE (75% Pricing Left, 25% Login Right - Light Theme)
 // ============================================================================
-function getGetStartedPage() {
+function getGetStartedPage(cur: Currency = 'USD') {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -18356,6 +19572,18 @@ function getGetStartedPage() {
       transform: translateY(-1px);
       box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
     }
+    .gs-google {
+      display: flex; align-items: center; justify-content: center; gap: 12px;
+      width: 100%; padding: 15px 18px; border-radius: 12px; text-decoration: none;
+      background: #131314; color: #E3E3E3; border: 1px solid #8E918F;
+      font-size: 15px; font-weight: 600; box-shadow: 0 4px 14px rgba(0,0,0,0.18);
+    }
+    .gs-google:hover { background: #2A2A2C; }
+    .gs-google-note { margin: 10px 0 0; font-size: 12px; color: #6B7280; text-align: center; line-height: 1.5; }
+    .gs-google-note a { color: #6B7280; }
+    .gs-divider { display: flex; align-items: center; margin: 20px 0; color: #9CA3AF; font-size: 13px; }
+    .gs-divider::before, .gs-divider::after { content: ''; flex: 1; height: 1px; background: #E5E7EB; }
+    .gs-divider span { padding: 0 12px; }
   </style>
 </head>
 <body>
@@ -18378,15 +19606,15 @@ function getGetStartedPage() {
     <section class="pricing-section">
       <div class="pricing-header">
         <h1>Simple, Transparent Pricing</h1>
-        <p>Start free with ${SIGNUP_CREDITS_TOTAL} credits - enough for a complete ${IMAGES_PER_SHOOT}-shot set. Upgrade anytime for more.</p>
+        <p>Start free: ${CREDITS.SIGNUP_CHEAPER} Standard and ${CREDITS.SIGNUP_BETTER} Pro images, then ${CREDITS.DRIP_CHEAPER} more Standard images every week for your first ${CREDITS.DRIP_WEEKS} weeks. Upgrade any time.</p>
       </div>
       
       <div class="pricing-grid">
         <!-- Free Plan -->
         <div class="pricing-card">
           <h3>Free</h3>
-          <div class="price">$0</div>
-          <div class="price-note">One-time signup bonus</div>
+          <div class="price">${formatMoney(0, cur)}</div>
+          <div class="price-note">At signup, then ${CREDITS.DRIP_CHEAPER} a week for ${CREDITS.DRIP_WEEKS} weeks</div>
           <div class="credits">
             <div class="credit-badge standard">
               <div class="count">${CREDITS.SIGNUP_CHEAPER}</div>
@@ -18398,7 +19626,7 @@ function getGetStartedPage() {
             </div>
           </div>
           <ul>
-            <li>10 images per product (10 credits)</li>
+            <li>1 credit per image; you choose which shots</li>
             <li>High-resolution downloads</li>
             <li>All variation types</li>
           </ul>
@@ -18410,8 +19638,8 @@ function getGetStartedPage() {
         <!-- Starter Plan -->
         <div class="pricing-card">
           <h3>Starter</h3>
-          <div class="price">$${PRICING.STARTER}<span>/mo</span></div>
-          <div class="price-note">~11 product shoots</div>
+          <div class="price">${planPrice(cur, 'starter')}<span>/mo</span></div>
+          <div class="price-note">${shootsFor(CREDITS.STARTER_CHEAPER)} product shoots a month</div>
           <div class="credits">
             <div class="credit-badge standard">
               <div class="count">${CREDITS.STARTER_CHEAPER}</div>
@@ -18435,7 +19663,7 @@ function getGetStartedPage() {
         <!-- Standard Plan -->
         <div class="pricing-card featured">
           <h3>Standard</h3>
-          <div class="price">$${PRICING.STANDARD}<span>/mo</span></div>
+          <div class="price">${planPrice(cur, 'standard')}<span>/mo</span></div>
           <div class="price-note">Best for regular sellers</div>
           <div class="credits">
             <div class="credit-badge standard">
@@ -18461,7 +19689,7 @@ function getGetStartedPage() {
         <!-- Pro Plan -->
         <div class="pricing-card">
           <h3>Pro</h3>
-          <div class="price">$${PRICING.PRO}<span>/mo</span></div>
+          <div class="price">${planPrice(cur, 'pro')}<span>/mo</span></div>
           <div class="price-note">For power users</div>
           <div class="credits">
             <div class="credit-badge standard">
@@ -18497,7 +19725,7 @@ function getGetStartedPage() {
         <div class="feature-item">
           <div class="feature-icon">⚡</div>
           <div class="feature-text">
-            <h4>Ready in 36 Seconds</h4>
+            <h4>Ready in About 25 Seconds</h4>
             <p>AI-powered generation, faster than making coffee</p>
           </div>
         </div>
@@ -18519,6 +19747,13 @@ function getGetStartedPage() {
       </div>
       
       <div id="error-msg" class="error-msg"></div>
+
+      <a href="/api/auth/google?redirect=" id="gs-google" class="gs-google">
+        <svg viewBox="0 0 24 24" width="20" height="20"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+        Continue with Google
+      </a>
+      <p class="gs-google-note">New or returning, one click. By continuing you agree to our <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</p>
+      <div class="gs-divider"><span>or log in with email</span></div>
       
       <!-- Login Form -->
       <form id="login-form" onsubmit="handleLogin(event)">
@@ -18534,7 +19769,7 @@ function getGetStartedPage() {
           Log In
         </button>
         <p class="auth-footer">
-          <a href="#">Forgot your password?</a>
+          <a href="/forgot-password">Forgot your password?</a>
         </p>
       </form>
       
@@ -18553,7 +19788,9 @@ function getGetStartedPage() {
 
   <script>
     const urlParams = new URLSearchParams(window.location.search);
-    const redirectTo = urlParams.get('redirect') || '/';
+    // Same-site paths only: a full URL or javascript: here would be an open redirect.
+    const redirectTo = (function(v) { return (v && v.charAt(0) === '/' && v.charAt(1) !== '/' && v.indexOf('\\\\') === -1) ? v : null; })(urlParams.get('redirect')) || '/';
+    document.getElementById('gs-google').href = '/api/auth/google?redirect=' + encodeURIComponent(redirectTo === '/' ? '/app' : redirectTo);
     
     async function handleLogin(e) {
       e.preventDefault();
@@ -18601,7 +19838,7 @@ function getGetStartedPage() {
 // ============================================================================
 type PlanAvailability = { month: Record<string, boolean>; year: Record<string, boolean> };
 
-function getPricingPage(user?: User, availability?: PlanAvailability) {
+function getPricingPage(user?: User, availability?: PlanAvailability, cur: Currency = 'USD') {
   // Default to available so local dev and any caller without env still renders.
   const avail: PlanAvailability = availability || {
     month: { starter: true, standard: true, pro: true },
@@ -18621,8 +19858,8 @@ function getPricingPage(user?: User, availability?: PlanAvailability) {
   <title>Pricing - ShopShot</title>
   <link rel="canonical" href="https://www.shopshot.co.uk/pricing">
   ${socialTags({
-    title: 'ShopShot Pricing - Plans from $9.99/month',
-    description: 'Start free with credits for a complete 10-shot set. Paid plans from $9.99/month with a 7-day money-back guarantee. Cancel anytime.',
+    title: `ShopShot Pricing - Plans from ${planPrice(cur, 'starter')} a month`,
+    description: `Start free, no card needed. Paid plans from ${planPrice(cur, 'starter')} a month with a 7-day money-back guarantee. Cancel anytime.`,
     url: 'https://www.shopshot.co.uk/pricing'
   })}
   <link rel="icon" type="image/x-icon" href="/favicon.ico"><link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
@@ -18861,7 +20098,7 @@ function getPricingPage(user?: User, availability?: PlanAvailability) {
       <div class="plan-card ${!isStarter && !isStandard && !isPro && user ? 'current' : ''}">
         ${!isStarter && !isStandard && !isPro && user ? '<div class="badge current">Current Plan</div>' : ''}
         <div class="plan-name">Free</div>
-        <div class="plan-price">$0</div>
+        <div class="plan-price">${formatMoney(0, cur)}</div>
         <div class="plan-period">to get started</div>
         
         <div class="plan-credits">
@@ -18896,8 +20133,8 @@ function getPricingPage(user?: User, availability?: PlanAvailability) {
       <div class="plan-card ${isStarter ? 'current' : ''}">
         ${isStarter ? '<div class="badge current">Current Plan</div>' : '<div class="badge" style="background:#10B981;color:white;">New!</div>'}
         <div class="plan-name">Starter</div>
-        <div class="plan-price"><span class="price-month">$${PRICING.STARTER}<span>/mo</span></span><span class="price-year" hidden>$${PRICING.STARTER_ANNUAL}<span>/yr</span></span></div>
-        <div class="plan-period">${Math.floor(CREDITS.STARTER_CHEAPER / IMAGES_PER_SHOOT)} shoots a month</div>
+        <div class="plan-price"><span class="price-month">${planPrice(cur, 'starter')}<span>/mo</span></span><span class="price-year" hidden>${planPrice(cur, 'starter', 'year')}<span>/yr</span></span></div>
+        <div class="plan-period">${shootsFor(CREDITS.STARTER_CHEAPER)} shoots a month</div>
         
         <div class="plan-credits">
           <div class="credit-row">
@@ -18938,8 +20175,8 @@ function getPricingPage(user?: User, availability?: PlanAvailability) {
       <div class="plan-card featured ${isStandard ? 'current' : ''}">
         ${isStandard ? '<div class="badge current">Current Plan</div>' : '<div class="badge popular">Most Popular</div>'}
         <div class="plan-name">Standard</div>
-        <div class="plan-price"><span class="price-month">$${PRICING.STANDARD}<span>/mo</span></span><span class="price-year" hidden>$${PRICING.STANDARD_ANNUAL}<span>/yr</span></span></div>
-        <div class="plan-period">${Math.floor(CREDITS.STANDARD_CHEAPER / IMAGES_PER_SHOOT)} shoots a month</div>
+        <div class="plan-price"><span class="price-month">${planPrice(cur, 'standard')}<span>/mo</span></span><span class="price-year" hidden>${planPrice(cur, 'standard', 'year')}<span>/yr</span></span></div>
+        <div class="plan-period">${shootsFor(CREDITS.STANDARD_CHEAPER)} shoots a month</div>
         
         <div class="plan-credits">
           <div class="credit-row">
@@ -18980,8 +20217,8 @@ function getPricingPage(user?: User, availability?: PlanAvailability) {
       <div class="plan-card ${isPro ? 'current' : ''}">
         ${isPro ? '<div class="badge current">Current Plan</div>' : '<div class="badge best">Best Quality</div>'}
         <div class="plan-name">Pro</div>
-        <div class="plan-price"><span class="price-month">$${PRICING.PRO}<span>/mo</span></span><span class="price-year" hidden>$${PRICING.PRO_ANNUAL}<span>/yr</span></span></div>
-        <div class="plan-period">${Math.floor(CREDITS.PRO_CHEAPER / IMAGES_PER_SHOOT)} shoots a month</div>
+        <div class="plan-price"><span class="price-month">${planPrice(cur, 'pro')}<span>/mo</span></span><span class="price-year" hidden>${planPrice(cur, 'pro', 'year')}<span>/yr</span></span></div>
+        <div class="plan-period">${shootsFor(CREDITS.PRO_CHEAPER)} shoots a month</div>
         
         <div class="plan-credits">
           <div class="credit-row">
@@ -19027,34 +20264,34 @@ function getPricingPage(user?: User, availability?: PlanAvailability) {
           <tr style="border-bottom:2px solid #E5E7EB;">
             <th style="text-align:left;padding:12px 8px;font-weight:600;">Plan</th>
             <th style="text-align:center;padding:12px 8px;font-weight:600;">Price</th>
-            <th style="text-align:center;padding:12px 8px;font-weight:600;">Shoots/Month</th>
+            <th style="text-align:center;padding:12px 8px;font-weight:600;">${IMAGES_PER_SHOOT}-image shoots a month</th>
             <th style="text-align:left;padding:12px 8px;font-weight:600;">Best For</th>
           </tr>
         </thead>
         <tbody>
           <tr style="border-bottom:1px solid #E5E7EB;">
             <td style="padding:12px 8px;font-weight:500;">Free</td>
-            <td style="text-align:center;padding:12px 8px;">$0</td>
-            <td style="text-align:center;padding:12px 8px;">~1</td>
+            <td style="text-align:center;padding:12px 8px;">${formatMoney(0, cur)}</td>
+            <td style="text-align:center;padding:12px 8px;">${CREDITS.SIGNUP_CHEAPER} images, then ${CREDITS.DRIP_CHEAPER} a week for ${CREDITS.DRIP_WEEKS} weeks</td>
             <td style="padding:12px 8px;color:#6B7280;">Trying it out</td>
           </tr>
           <tr style="border-bottom:1px solid #E5E7EB;">
             <td style="padding:12px 8px;font-weight:500;">Starter</td>
-            <td style="text-align:center;padding:12px 8px;">$9.99</td>
-            <td style="text-align:center;padding:12px 8px;">~11</td>
+            <td style="text-align:center;padding:12px 8px;">${planPrice(cur, 'starter')}</td>
+            <td style="text-align:center;padding:12px 8px;">${shootsFor(CREDITS.STARTER_CHEAPER)}</td>
             <td style="padding:12px 8px;color:#6B7280;">Casual sellers, testing</td>
           </tr>
           <tr style="border-bottom:1px solid #E5E7EB;background:#F0F9FF;">
             <td style="padding:12px 8px;font-weight:600;">Standard ⭐</td>
-            <td style="text-align:center;padding:12px 8px;font-weight:600;">$39.99</td>
-            <td style="text-align:center;padding:12px 8px;font-weight:600;">~55</td>
+            <td style="text-align:center;padding:12px 8px;font-weight:600;">${planPrice(cur, 'standard')}</td>
+            <td style="text-align:center;padding:12px 8px;font-weight:600;">${shootsFor(CREDITS.STANDARD_CHEAPER)}</td>
             <td style="padding:12px 8px;color:#6B7280;">Regular sellers</td>
           </tr>
           <tr>
             <td style="padding:12px 8px;font-weight:500;">Pro</td>
-            <td style="text-align:center;padding:12px 8px;">$59.99</td>
-            <td style="text-align:center;padding:12px 8px;">~97 (premium)</td>
-            <td style="padding:12px 8px;color:#6B7280;">Quality-focused, marketing</td>
+            <td style="text-align:center;padding:12px 8px;">${planPrice(cur, 'pro')}</td>
+            <td style="text-align:center;padding:12px 8px;">${shootsFor(CREDITS.PRO_CHEAPER)}</td>
+            <td style="padding:12px 8px;color:#6B7280;">High volume, agencies</td>
           </tr>
         </tbody>
       </table>
@@ -19082,59 +20319,11 @@ function getPricingPage(user?: User, availability?: PlanAvailability) {
       </div>
       
       <!-- Cheaper/Standard Packs -->
-      <div id="packs-cheaper" class="packs-grid">
-        <div class="pack-card cheaper" onclick="${user ? "startPackCheckout('cheaper', 25)" : "window.location='/register'"}">
-          <div class="pack-price">$25</div>
-          <div class="pack-credits cheaper">${CREDITS.PACKS.CHEAPER.PACK_25} credits</div>
-          <div class="pack-per">$0.063 per credit</div>
-          <button class="pack-btn cheaper">Buy Now</button>
-        </div>
-        <div class="pack-card cheaper" onclick="${user ? "startPackCheckout('cheaper', 50)" : "window.location='/register'"}">
-          <div class="pack-price">$50</div>
-          <div class="pack-credits cheaper">${CREDITS.PACKS.CHEAPER.PACK_50} credits</div>
-          <div class="pack-per">$0.063 per credit</div>
-          <button class="pack-btn cheaper">Buy Now</button>
-        </div>
-        <div class="pack-card cheaper" onclick="${user ? "startPackCheckout('cheaper', 75)" : "window.location='/register'"}">
-          <div class="pack-price">$75</div>
-          <div class="pack-credits cheaper">${CREDITS.PACKS.CHEAPER.PACK_75} credits</div>
-          <div class="pack-per">$0.063 per credit</div>
-          <button class="pack-btn cheaper">Buy Now</button>
-        </div>
-        <div class="pack-card cheaper" onclick="${user ? "startPackCheckout('cheaper', 100)" : "window.location='/register'"}">
-          <div class="pack-price">$100</div>
-          <div class="pack-credits cheaper">${CREDITS.PACKS.CHEAPER.PACK_100} credits</div>
-          <div class="pack-per">$0.063 per credit</div>
-          <button class="pack-btn cheaper">Buy Now</button>
-        </div>
+      <div id="packs-cheaper" class="packs-grid">${packCardsHtml('cheaper', cur, { loggedIn: !!user })}
       </div>
       
       <!-- Better/Pro Packs -->
-      <div id="packs-better" class="packs-grid hidden">
-        <div class="pack-card better" onclick="${user ? "startPackCheckout('better', 25)" : "window.location='/register'"}">
-          <div class="pack-price">$25</div>
-          <div class="pack-credits better">${CREDITS.PACKS.BETTER.PACK_25} credits</div>
-          <div class="pack-per">$0.22 per credit</div>
-          <button class="pack-btn better">Buy Now</button>
-        </div>
-        <div class="pack-card better" onclick="${user ? "startPackCheckout('better', 50)" : "window.location='/register'"}">
-          <div class="pack-price">$50</div>
-          <div class="pack-credits better">${CREDITS.PACKS.BETTER.PACK_50} credits</div>
-          <div class="pack-per">$0.22 per credit</div>
-          <button class="pack-btn better">Buy Now</button>
-        </div>
-        <div class="pack-card better" onclick="${user ? "startPackCheckout('better', 75)" : "window.location='/register'"}">
-          <div class="pack-price">$75</div>
-          <div class="pack-credits better">${CREDITS.PACKS.BETTER.PACK_75} credits</div>
-          <div class="pack-per">$0.22 per credit</div>
-          <button class="pack-btn better">Buy Now</button>
-        </div>
-        <div class="pack-card better" onclick="${user ? "startPackCheckout('better', 100)" : "window.location='/register'"}">
-          <div class="pack-price">$100</div>
-          <div class="pack-credits better">${CREDITS.PACKS.BETTER.PACK_100} credits</div>
-          <div class="pack-per">$0.22 per credit</div>
-          <button class="pack-btn better">Buy Now</button>
-        </div>
+      <div id="packs-better" class="packs-grid hidden">${packCardsHtml('better', cur, { loggedIn: !!user })}
       </div>
       
       ${!user ? '<p style="text-align:center;color:#6B7280;margin-top:24px;font-size:14px;">Please <a href="/register" style="color:#3B82F6;">sign up</a> or <a href="/login" style="color:#3B82F6;">log in</a> to purchase credit packs.</p>' : ''}
@@ -19325,8 +20514,8 @@ function getPricingPage(user?: User, availability?: PlanAvailability) {
     }
 
     const PLAN_PRICES = {
-      month: { starter: ${PRICING.STARTER}, standard: ${PRICING.STANDARD}, pro: ${PRICING.PRO} },
-      year:  { starter: ${PRICING.STARTER_ANNUAL}, standard: ${PRICING.STANDARD_ANNUAL}, pro: ${PRICING.PRO_ANNUAL} }
+      month: { starter: ${PLAN_PRICES[cur].starter.month}, standard: ${PLAN_PRICES[cur].standard.month}, pro: ${PLAN_PRICES[cur].pro.month} },
+      year:  { starter: ${PLAN_PRICES[cur].starter.year}, standard: ${PLAN_PRICES[cur].standard.year}, pro: ${PLAN_PRICES[cur].pro.year} }
     };
 
     function startCheckout(plan) {
@@ -19342,7 +20531,7 @@ function getPricingPage(user?: User, availability?: PlanAvailability) {
           plan: plan,
           interval: billingInterval,
           item_category: 'subscription',
-          currency: 'USD',
+          currency: '${cur}',
           value: value,
           items: [{ item_id: plan + '_' + billingInterval, item_name: 'ShopShot ' + plan, item_category: 'subscription', price: value, quantity: 1 }]
         });
@@ -19373,13 +20562,18 @@ function getPricingPage(user?: User, availability?: PlanAvailability) {
       }
     }
     
+    // Pack tiers are identified by their USD amount (25/50/75/100); this maps a
+    // tier to what the visitor actually pays in their currency.
+    const PACK_VALUES = ${JSON.stringify(PACK_PRICES[cur])};
+
     function startPackCheckout(creditType, amount) {
+      const packValue = PACK_VALUES[amount];
       if (window.ssTrack) window.ssTrack('begin_checkout', {
         credit_type: creditType,
         item_category: 'credit_pack',
-        currency: 'USD',
-        value: amount,
-        items: [{ item_id: 'pack_' + creditType + '_' + amount, item_name: 'Credit pack', item_category: 'credit_pack', price: amount, quantity: 1 }]
+        currency: '${cur}',
+        value: packValue,
+        items: [{ item_id: 'pack_' + creditType + '_' + amount, item_name: 'Credit pack', item_category: 'credit_pack', price: packValue, quantity: 1 }]
       });
       ${!user ? 'window.location.href = "/register?redirect=" + encodeURIComponent("/pricing"); return;' : ''}
       showCheckoutModal('pack', null, creditType, amount);
@@ -19482,7 +20676,7 @@ function getPricingPage(user?: User, availability?: PlanAvailability) {
 // ============================================================================
 // DASHBOARD PAGE
 // ============================================================================
-function getDashboardPage(user: User) {
+function getDashboardPage(user: User, cur: Currency = 'USD') {
   const planName = user.subscription_plan === 'pro' ? 'Pro' : user.subscription_plan === 'standard' ? 'Standard' : 'Free';
   const totalCredits = user.cheaper_credits + user.better_credits;
   
@@ -19795,10 +20989,12 @@ function getDashboardPage(user: User) {
     }
     loadHistory();
     
-    // Purchase tracking. This previously fired only 'purchase_complete' and a
-    // Google Ads conversion, never GA4's standard 'purchase' event, and it
-    // hard-coded GBP on a site that prices in USD with no value at all - so no
-    // revenue was ever recorded.
+    // Purchase tracking: GA4's standard 'purchase' event with revenue.
+    // Currency comes from the success URL, which create-checkout fills with the
+    // currency Stripe actually charged, and the Stripe Checkout Session ID is
+    // the transaction_id. The ID is remembered so a refresh or back-navigation
+    // cannot send the same purchase twice (GA4 dedupes by transaction_id too,
+    // but only within one property and not for the Ads conversion).
     (function() {
       const urlParams = new URLSearchParams(window.location.search);
       if (urlParams.get('checkout') !== 'success') return;
@@ -19806,37 +21002,46 @@ function getDashboardPage(user: User) {
       const purchaseType = urlParams.get('type') || 'unknown';
       const plan = urlParams.get('plan') || '';
       const interval = urlParams.get('interval') === 'year' ? 'year' : 'month';
-      const packAmount = parseFloat(urlParams.get('amount') || '');
+      const packTier = parseInt(urlParams.get('amount') || '', 10);
+      const currency = urlParams.get('currency') === 'GBP' ? 'GBP' : (urlParams.get('currency') === 'USD' ? 'USD' : '${cur}');
+      const sessionId = urlParams.get('session_id') || '';
 
-      const PLAN_PRICES = {
-        month: { starter: ${PRICING.STARTER}, standard: ${PRICING.STANDARD}, pro: ${PRICING.PRO} },
-        year:  { starter: ${PRICING.STARTER_ANNUAL}, standard: ${PRICING.STANDARD_ANNUAL}, pro: ${PRICING.PRO_ANNUAL} }
-      };
+      const ALL_PLAN_PRICES = ${JSON.stringify(PLAN_PRICES)};
+      const ALL_PACK_PRICES = ${JSON.stringify(PACK_PRICES)};
 
       const isSubscription = purchaseType === 'subscription';
-      const value = isSubscription ? (PLAN_PRICES[interval] || {})[plan] : (isNaN(packAmount) ? undefined : packAmount);
-      const itemId = isSubscription ? (plan + '_' + interval) : ('pack_' + (packAmount || ''));
+      const value = isSubscription
+        ? ((ALL_PLAN_PRICES[currency] || {})[plan] || {})[interval]
+        : (ALL_PACK_PRICES[currency] || {})[packTier];
+      const itemId = isSubscription ? (plan + '_' + interval) : ('pack_' + (packTier || ''));
       const itemName = isSubscription ? ('ShopShot ' + plan) : 'Credit pack';
 
-      // GA4 standard purchase event, through the same helper as the rest of the
-      // funnel so it is consistent and carries revenue.
-      if (window.ssTrack) {
-        window.ssTrack('purchase', {
-          transaction_id: urlParams.get('session_id') || (itemId + '_' + Date.now()),
-          currency: 'USD',
-          value: value,
-          item_category: isSubscription ? 'subscription' : 'credit_pack',
-          items: [{ item_id: itemId, item_name: itemName, item_category: isSubscription ? 'subscription' : 'credit_pack', price: value, quantity: 1 }]
-        });
-      }
+      const SEEN_KEY = 'ss_purchases_tracked';
+      let seen = [];
+      try { seen = JSON.parse(localStorage.getItem(SEEN_KEY) || '[]'); } catch (e) {}
+      const alreadyTracked = sessionId && seen.indexOf(sessionId) !== -1;
 
-      // Google Ads conversion. Currency corrected from GBP to USD.
-      if (typeof gtag !== 'undefined') {
-        gtag('event', 'ads_conversion_PURCHASE_1', {
-          'transaction_type': purchaseType,
-          'currency': 'USD',
-          'value': value
-        });
+      if (!alreadyTracked) {
+        if (window.ssTrack) {
+          window.ssTrack('purchase', {
+            transaction_id: sessionId || (itemId + '_' + Date.now()),
+            currency: currency,
+            value: value,
+            items: [{ item_id: itemId, item_name: itemName, item_category: isSubscription ? 'subscription' : 'credit_pack', price: value, quantity: 1 }]
+          });
+        }
+        if (window.ssTrack) {
+          window.ssTrack('ads_conversion_PURCHASE_1', {
+            'transaction_id': sessionId || undefined,
+            'transaction_type': purchaseType,
+            'currency': currency,
+            'value': value
+          });
+        }
+        if (sessionId) {
+          seen.push(sessionId);
+          try { localStorage.setItem(SEEN_KEY, JSON.stringify(seen.slice(-20))); } catch (e) {}
+        }
       }
 
       // Clean up URL (remove checkout params) after tracking
@@ -25568,7 +26773,7 @@ function getBackgroundRemovalPage(user?: User) {
   <link rel="canonical" href="https://www.shopshot.co.uk/tools/remove-background">
   ${socialTags({
     title: 'Free AI Background Remover for Product Photos',
-    description: 'Remove backgrounds from product photos instantly with AI. Free on every ShopShot plan, including the free tier. Uses no credits.',
+    description: 'Remove backgrounds from product photos instantly with AI. Free, no account and no watermark.',
     url: 'https://www.shopshot.co.uk/tools/remove-background'
   })}
   <meta name="description" content="Remove backgrounds from product photos instantly using AI. Free tool by ShopShot - upload your image and get a clean white background in seconds.">
@@ -25625,9 +26830,17 @@ function getBackgroundRemovalPage(user?: User) {
       </h1>
       <p class="text-lg text-brand-gray max-w-xl mx-auto">
         Upload any product photo and get a clean white background in seconds.
-        Free on every plan, including the free tier - uses no credits.
+        No account needed, no watermark, no credits used.
       </p>
     </div>
+
+    ${isLoggedIn ? '' : `
+    <!-- Sign-up banner. The tool works without an account; this is the offer. -->
+    <div class="max-w-xl mx-auto mb-6 flex flex-col sm:flex-row items-center gap-3 justify-between bg-white border border-purple-200 rounded-2xl px-5 py-4 shadow-sm">
+      <p class="text-sm text-brand-dark text-center sm:text-left"><strong>Sign up for ${SIGNUP_CREDITS_TOTAL} free credits</strong> and turn this photo into studio and lifestyle shots for your listings.</p>
+      <a href="/register?redirect=${encodeURIComponent('/app')}" onclick="if(window.ssTrack)window.ssTrack('bg_tool_signup_click',{})" class="shrink-0 bg-gradient-to-r from-blue-500 to-purple-500 text-white text-sm font-semibold px-4 py-2 rounded-xl">Sign up free</a>
+    </div>
+    `}
 
     <!-- Upload Area -->
     <div class="max-w-xl mx-auto">
@@ -25638,7 +26851,7 @@ function getBackgroundRemovalPage(user?: User) {
            ondrop="event.preventDefault(); this.classList.remove('border-purple-500','bg-purple-50/50'); handleBgDrop(event)">
         <i class="fas fa-cloud-upload text-4xl text-brand-gray mb-3"></i>
         <p class="text-brand-dark font-semibold mb-1">Drop your product image here</p>
-        <p class="text-sm text-brand-gray">or click to browse. JPG, PNG up to 10MB</p>
+        <p class="text-sm text-brand-gray">or click to browse. JPG, PNG up to 10MB. ${isLoggedIn ? `Up to ${BG_USER_DAILY_LIMIT} a day.` : `${BG_ANON_DAILY_LIMIT} free a day without an account.`}</p>
         <input type="file" id="bg-file-input" accept="image/*" class="hidden" onchange="handleBgFile(event)">
       </div>
 
@@ -25676,9 +26889,9 @@ function getBackgroundRemovalPage(user?: User) {
     <!-- CTA Banner -->
     <div class="mt-16 bg-gradient-to-r from-blue-500 to-purple-500 rounded-2xl p-8 text-center text-white">
       <h2 class="text-2xl font-bold mb-3">Need more than background removal?</h2>
-      <p class="text-white/80 mb-6 max-w-lg mx-auto">ShopShot generates 10 professional product photos from a single upload. Studio shots, lifestyle scenes, marketplace-ready images - all in seconds.</p>
-      <a href="/get-started" class="inline-block bg-white text-brand-dark px-8 py-3 rounded-xl font-bold shadow-lg hover:shadow-xl transition">
-        Get 8 Free Credits <i class="fas fa-arrow-right ml-2"></i>
+      <p class="text-white/80 mb-6 max-w-lg mx-auto">ShopShot makes up to ${IMAGES_PER_SHOOT} professional product photos from a single upload: studio shots, lifestyle scenes and marketplace-ready images, in about 25 seconds.</p>
+      <a href="/register" class="inline-block bg-white text-brand-dark px-8 py-3 rounded-xl font-bold shadow-lg hover:shadow-xl transition">
+        Get ${SIGNUP_CREDITS_TOTAL} Free Credits <i class="fas fa-arrow-right ml-2"></i>
       </a>
     </div>
   </main>
@@ -25697,12 +26910,7 @@ function getBackgroundRemovalPage(user?: User) {
     }
     
     async function processBgImage(file) {
-      ${!isLoggedIn ? `
-      // The API requires an account. Send the visitor to signup and bring them
-      // straight back here rather than failing with a raw error.
-      window.location.href = '/register?redirect=' + encodeURIComponent('/tools/remove-background');
-      return;
-      ` : ''}
+      if (window.ssTrack) window.ssTrack('bg_removal_start', {});
       const reader = new FileReader();
       reader.onload = async (e) => {
         const imageData = e.target.result;
@@ -25724,6 +26932,12 @@ function getBackgroundRemovalPage(user?: User) {
             bgResultImage = data.image;
             document.getElementById('bg-result-img').src = data.image;
             document.getElementById('bg-download-btn').classList.remove('hidden');
+            if (window.ssTrack) window.ssTrack('bg_removal_complete', { anonymous: !!data.anonymous });
+          } else if (data.needsAuth) {
+            document.getElementById('bg-result-area').classList.add('hidden');
+            if (confirm(data.error + ' Create a free account now?')) {
+              window.location.href = '/register?redirect=' + encodeURIComponent('/tools/remove-background');
+            }
           } else {
             alert('Background removal failed: ' + (data.error || 'Please try again'));
           }

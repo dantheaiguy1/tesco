@@ -4,7 +4,7 @@
 import { CREDITS, SIGNUP_CREDITS_TOTAL, IMAGES_PER_SHOOT } from './config/constants';
 import { GTM_HEAD, GTM_BODY } from './config/analytics';
 
-// Google Tag Manager + Google Analytics snippets
+// Google Analytics (consent-gated) snippets
 
 const LEGAL_FOOTER_HTML = `
   <footer class="bg-gray-900 text-white py-12 mt-20">
@@ -231,9 +231,9 @@ export function getPrivacyPage(): string {
 
         <h3>Analytics:</h3>
         <ul>
-          <li><strong>Google Analytics 4</strong> and <strong>Google Tag Manager</strong> (usage measurement)</li>
+          <li><strong>Google Analytics 4</strong> (usage measurement)</li>
           <li>Receives page views and product events such as sign-up, upload and generation completion, along with device type and country-level location</li>
-          <li><strong>Only after you accept analytics cookies.</strong> Analytics storage is denied by default and no analytics cookie is set until you consent</li>
+          <li><strong>Only after you accept analytics cookies.</strong> The Google Analytics script is not loaded at all until you accept, and if you reject it is never loaded</li>
           <li>Subject to <a href="https://policies.google.com/privacy" target="_blank">Google's privacy policy</a></li>
         </ul>
         
@@ -897,7 +897,7 @@ export function getCookiesPage(): string {
           <li>Images are processed by third-party AI providers and not stored beyond the generation session</li>
         </ul>
         
-        <h3>Google Analytics 4 &amp; Google Tag Manager (Analytics)</h3>
+        <h3>Google Analytics 4 (Analytics)</h3>
         <ul>
           <li><strong>Purpose:</strong> Understanding which parts of the Service are used, and where people encounter problems</li>
           <li><strong>Data Collected:</strong> Pages viewed, referring site, approximate location (country level), device and browser type, and product events such as sign-up, upload and generation completion</li>
@@ -955,7 +955,7 @@ export function getCookiesPage(): string {
 
         <p><strong>Requires your consent:</strong></p>
         <ul>
-          <li>Google Analytics 4 and Google Tag Manager (see section 3)</li>
+          <li>Google Analytics 4 (see section 3)</li>
         </ul>
 
         <p>You can change your mind at any time: <a href="#" onclick="if(window.ssCookieSettings){ssCookieSettings();}return false;">reopen your cookie choices</a>, or clear cookies for this site in your browser. Your choice is remembered for six months.</p>

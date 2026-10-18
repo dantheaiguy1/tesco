@@ -3,7 +3,7 @@
 import { SIGNUP_CREDITS_TOTAL } from './config/constants';
 import { GTM_HEAD, GTM_BODY } from './config/analytics';
 
-// Google Tag Manager + Google Analytics snippets
+// Google Analytics (consent-gated) snippets
 
 // Promo banner for blog pages - links to homepage with SEO-optimized anchor
 const BLOG_PROMO_BANNER = `
@@ -119,7 +119,8 @@ const BLOG_STYLES = `
   </style>
 `;
 
-// Internal linking map - each post links to 3-5 related posts
+// Related posts: each post links to 3-5 others ("Related Guides You Might
+// Like", and in the Markdown copy). Every slug here is checked to exist.
 const INTERNAL_LINKS: Record<string, string[]> = {
   "ai-product-photography-guide": ["ai-product-image-generation", "product-photos-without-photographer", "white-background-product-photos", "ecommerce-product-photography-guide", "bulk-product-images-shopify"],
   "white-background-product-photos": ["amazon-product-images-requirements", "amazon-product-photography", "ai-product-photography-guide", "white-background-product-photos-guide"],
@@ -305,7 +306,7 @@ const FAQ_DATA: Record<string, Array<{question: string, answer: string}>> = {
   ],
   "ai-background-removal-guide": [
     { question: "How accurate is AI background removal?", answer: "Modern AI background removal achieves pixel-perfect accuracy in under 2 seconds, handling complex edges like hair, fur, and transparent objects. It matches or exceeds manual Photoshop editing for most products." },
-    { question: "Is AI background removal free?", answer: "Many tools offer free background removal for basic use. ShopShot includes a free standalone tool at shopshot.co.uk/tools/remove-background. For full AI scene generation, subscription plans start at £9.99/month." },
+    { question: "Is AI background removal free?", answer: "Many tools offer free background removal for basic use. ShopShot includes a free standalone tool at shopshot.co.uk/tools/remove-background. For full AI scene generation, plans start from around £8-10 a month." },
     { question: "What background colour does Amazon require?", answer: "Amazon requires pure white backgrounds with RGB values of 255, 255, 255 for main product images. AI background removal tools can generate Amazon-compliant white backgrounds automatically." },
     { question: "Can AI remove backgrounds from transparent products?", answer: "Yes, advanced AI models handle transparent and translucent products like glass, bottles, and clear packaging. For best results, photograph transparent products against a mid-grey background." }
   ],
@@ -334,7 +335,7 @@ const FAQ_DATA: Record<string, Array<{question: string, answer: string}>> = {
     { question: "How does AI photography help reduce returns?", answer: "AI generates complete image sets (10 variations) including scale references, detail close-ups, and multi-angle views at no extra cost. More comprehensive imagery means fewer customer surprises and fewer returns." }
   ],
   "ai-product-photography-small-business": [
-    { question: "Can small businesses afford AI product photography?", answer: "Yes, AI photography plans start from £9.99/month - less than a single professional photo shoot. Most tools offer free trials with 10-15 credits to test before committing." },
+    { question: "Can small businesses afford AI product photography?", answer: "Yes, AI photography plans start from around £8-10 a month - less than a single professional photo shoot. Most tools offer free trials with 10-15 credits to test before committing." },
     { question: "Do I need professional equipment for AI product photography?", answer: "No. A smartphone from the last 3 years, a window or basic ring light, and an AI photography subscription is all you need. The AI handles background removal, lighting correction, and professional scene generation." },
     { question: "How do small businesses compete visually with big brands?", answer: "AI product photography eliminates the visual gap. Upload a smartphone photo and get 10 professional variations in 25 seconds that look like they came from a £500 photoshoot. The quality is indistinguishable from big-brand imagery." },
     { question: "What's the ROI of AI product photography for small businesses?", answer: "AI photography typically delivers 2-5x ROI through increased conversions, reduced returns, and higher perceived value. For the price of one traditional photoshoot, you can run AI photography for an entire year." }
@@ -2862,11 +2863,21 @@ export function getBlogIndexPage(): string {
   // Sort posts by date (newest first) and get featured post
   const sortedPosts = [...blogPosts].sort((a, b) => new Date(b.publishDate).getTime() - new Date(a.publishDate).getTime());
   const featuredPost = sortedPosts.find(p => p.featured) || sortedPosts[0];
-  const allPosts = sortedPosts;
+  // The ten most recent as cards; every other article stays one click away in
+  // the compact archive list below, so no post loses its link from the index.
+  const latestPosts = sortedPosts.slice(0, 10);
+  const olderPosts = sortedPosts.slice(10);
   const popularPosts = getPopularPosts();
   const categories = getCategories();
+  const shortDate = (d: string) => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 
-  const postCards = allPosts.map(post => `
+  const archiveList = olderPosts.map(post => `
+    <li class="py-3 border-b border-gray-100 last:border-0 flex items-baseline justify-between gap-4">
+      <a href="/blog/${post.slug}" class="text-gray-900 hover:text-purple-600 font-medium">${post.title}</a>
+      <time datetime="${post.publishDate}" class="text-sm text-gray-500 whitespace-nowrap">${shortDate(post.publishDate)}</time>
+    </li>`).join('');
+
+  const postCards = latestPosts.map(post => `
     <article class="blog-card bg-white rounded-xl shadow-md overflow-hidden">
       <a href="/blog/${post.slug}">
         <picture>
@@ -2883,7 +2894,7 @@ export function getBlogIndexPage(): string {
         <p class="mt-2 text-gray-600 text-sm line-clamp-2">${post.excerpt}</p>
         <div class="mt-4 flex items-center justify-between text-sm text-gray-500">
           <span>${post.readTime} min read</span>
-          <span>${new Date(post.publishDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+          <time datetime="${post.publishDate}">${shortDate(post.publishDate)}</time>
         </div>
         <a href="/blog/${post.slug}" class="mt-4 inline-flex items-center text-purple-600 font-semibold hover:text-purple-700">
           Read More <svg class="ml-1 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
@@ -2992,10 +3003,15 @@ export function getBlogIndexPage(): string {
     <div class="lg:flex lg:gap-12">
       <!-- Posts Grid -->
       <div class="lg:w-2/3">
-        <h2 class="text-2xl font-bold text-gray-900 mb-8">All Articles</h2>
+        <h2 class="text-2xl font-bold text-gray-900 mb-8">Latest Articles</h2>
         <div class="grid md:grid-cols-2 gap-8">
           ${postCards}
         </div>
+        ${olderPosts.length ? `
+        <h2 class="text-2xl font-bold text-gray-900 mt-14 mb-4">All Articles</h2>
+        <ul class="bg-white rounded-xl shadow-md px-6 py-2">
+          ${archiveList}
+        </ul>` : ''}
       </div>
 
       <!-- Sidebar -->
@@ -3093,6 +3109,15 @@ export function getBlogPostPage(slug: string): string | null {
           ${headings.map(h => `<li><a href="#${h.id}">${h.text}</a></li>`).join('\n          ')}
         </ul>
       </nav>` : '';
+
+  // Every post points to the free background remover: it is the most useful
+  // thing on the site for a reader who is not ready to sign up, and the
+  // strongest internal link we can give that page.
+  const freeToolHtml = slug === 'ai-background-removal-guide' ? '' : `
+      <div class="related-reads" style="background:#ECFDF5;border-color:#A7F3D0;">
+        <h4>Free tool: remove a product background</h4>
+        <p style="margin:0;color:#065F46;">Get a clean white background on any product photo in seconds. No account and no watermark. <a href="/tools/remove-background" style="font-weight:600;">Try the free background remover</a>.</p>
+      </div>`;
 
   // Generate Internal Links HTML
   const internalLinksHtml = internalLinks.length > 0 ? `
@@ -3264,7 +3289,7 @@ ${tocHtml}
         <div class="prose max-w-none">
           ${contentWithIds}
         </div>
-${internalLinksHtml}${faqHtml}
+${freeToolHtml}${internalLinksHtml}${faqHtml}
         <!-- CTA -->
         <div class="mt-12 p-8 bg-gradient-to-r from-purple-600 to-indigo-600 rounded-xl text-white text-center">
           <h3 class="text-2xl font-bold mb-3">Ready to Transform Your Product Photography?</h3>

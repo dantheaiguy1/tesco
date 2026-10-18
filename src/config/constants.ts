@@ -4,10 +4,19 @@
 
 export const CREDITS = {
   // Signup bonus (free tier).
-  // MUST be >= the 10 credits a full shoot costs, otherwise a free user can
-  // never see a completed set and hits the paywall mid-generation.
-  SIGNUP_CHEAPER: 10,         // Free cheaper credits on registration - exactly one full shoot
-  SIGNUP_BETTER: 3,           // Free better credits on registration - a taste of Pro quality
+  // Since Oct 2026 users choose which shots to generate and pay 1 credit per
+  // image, so the grant no longer has to cover a fixed 10-image set. The
+  // anonymous homepage preview is what demonstrates the product now; the
+  // signup grant plus the weekly drip below is about giving people a reason
+  // to come back, not a bigger one-off gift.
+  SIGNUP_CHEAPER: 6,          // Free Standard credits on registration
+  SIGNUP_BETTER: 2,           // Free Pro credits on registration - a taste of Pro quality
+
+  // Free weekly drip for new accounts: DRIP_CHEAPER Standard credits on each
+  // Monday (00:00 UTC) after signup, for the first DRIP_WEEKS Mondays.
+  // Granted lazily on the next authenticated request - see accrueFreeDrip().
+  DRIP_CHEAPER: 4,
+  DRIP_WEEKS: 4,
 
   // Per-image costs (always 1 credit of the appropriate type)
   PER_IMAGE: 1,
@@ -30,44 +39,124 @@ export const CREDITS = {
   REFERRAL_CHEAPER: 5,        // 5 standard credits per successful referral
   REFERRAL_BETTER: 3,         // 3 pro credits per successful referral
   
-  // Credit pack amounts (for top-ups)
+  // Credit pack amounts (one-off top-ups), keyed by pack tier.
+  //
+  // Re-sized Oct 2026. The previous grants (400/800/1200/1600 Standard for
+  // $25-$100) worked out at ~$0.06 per image, roughly half the per-image price
+  // of the cheapest subscription, with credits that never expire. Pay-as-you-go
+  // undercut every plan, so there was no reason to subscribe. Packs now carry a
+  // modest premium over subscriptions instead (~$0.16-0.18 per Standard image
+  // against Starter's ~$0.13), with a volume discount between pack sizes.
+  // The Stripe pack prices and their dollar amounts are unchanged; only the
+  // credits our webhook grants for them changed.
   PACKS: {
     CHEAPER: {
-      PACK_25: 400,
-      PACK_50: 800,
-      PACK_75: 1200,
-      PACK_100: 1600,
+      PACK_25: 140,
+      PACK_50: 290,
+      PACK_75: 450,
+      PACK_100: 620,
     },
     BETTER: {
-      PACK_25: 115,
-      PACK_50: 230,
-      PACK_75: 350,
-      PACK_100: 465,
+      PACK_25: 41,
+      PACK_50: 85,
+      PACK_75: 130,
+      PACK_100: 182,
     }
   }
 }
 
-export const PRICING = {
-  // Subscriptions (monthly) - USD
-  STARTER: 9.99,
-  STANDARD: 29.99,
-  PRO: 79.99,
+// ============================================================================
+// PRICES AND CURRENCY
+// ============================================================================
+// Two display/checkout currencies. GBP for visitors in the UK, USD for
+// everyone else. Each Stripe Price object carries both currencies
+// (currency_options), and create-checkout always passes the currency
+// explicitly, so the currency on the page and the currency at checkout are
+// decided by the same function and cannot disagree.
+//
+// GBP is gated behind the CURRENCY_GBP_ENABLED env flag so the site stays
+// all-USD (and therefore consistent with checkout) until every Stripe price
+// has had its GBP option added. See DEPLOY_CHECKLIST.md.
 
-  // Subscriptions (annual, billed once) - USD.
-  // Priced at 10x the monthly rate: "two months free", the most legible annual
-  // offer and the industry norm. Credits still accrue monthly (see
-  // accrueSubscriptionCredits) so an annual subscriber cannot draw twelve
-  // months of COGS in week one.
-  STARTER_ANNUAL: 99.00,
-  STANDARD_ANNUAL: 299.00,
-  PRO_ANNUAL: 799.00,
+export type Currency = 'USD' | 'GBP';
+export type PlanKey = 'starter' | 'standard' | 'pro';
+export type Interval = 'month' | 'year';
+export type PackTier = 25 | 50 | 75 | 100;
 
-  // Credit packs
-  PACK_25: 25.00,
-  PACK_50: 50.00,
-  PACK_75: 75.00,
-  PACK_100: 100.00,
+// Annual is 10x monthly, rounded down to a whole unit ("two months free").
+// GBP figures are set at UK price points rather than converted to the penny.
+export const PLAN_PRICES: Record<Currency, Record<PlanKey, Record<Interval, number>>> = {
+  USD: {
+    starter:  { month: 9.99,  year: 99 },
+    standard: { month: 29.99, year: 299 },
+    pro:      { month: 79.99, year: 799 },
+  },
+  GBP: {
+    starter:  { month: 7.99,  year: 79 },
+    standard: { month: 24.99, year: 249 },
+    pro:      { month: 64.99, year: 649 },
+  },
+};
+
+export const PACK_TIERS: PackTier[] = [25, 50, 75, 100];
+
+export const PACK_PRICES: Record<Currency, Record<PackTier, number>> = {
+  USD: { 25: 25, 50: 50, 75: 75, 100: 100 },
+  GBP: { 25: 20, 50: 40, 75: 60, 100: 80 },
+};
+
+export const CURRENCY_SYMBOL: Record<Currency, string> = { USD: '$', GBP: '£' };
+
+/**
+ * The currency a visitor sees and pays in. Logged-in users keep the currency
+ * recorded at signup, so they see the same prices on every device and network.
+ * Everyone else is decided by Cloudflare's CF-IPCountry header.
+ */
+export function resolveCurrency(opts: { gbpEnabled: boolean; country?: string | null; userCurrency?: string | null }): Currency {
+  if (!opts.gbpEnabled) return 'USD';
+  if (opts.userCurrency === 'GBP' || opts.userCurrency === 'USD') return opts.userCurrency;
+  return opts.country === 'GB' ? 'GBP' : 'USD';
 }
+
+/** "$9.99", "£7.99", "$99", "£79" - whole amounts drop the pence. */
+export function formatMoney(amount: number, currency: Currency): string {
+  const sym = CURRENCY_SYMBOL[currency];
+  return Number.isInteger(amount) ? `${sym}${amount}` : `${sym}${amount.toFixed(2)}`;
+}
+
+export function planPrice(currency: Currency, plan: PlanKey, interval: Interval = 'month'): string {
+  return formatMoney(PLAN_PRICES[currency][plan][interval], currency);
+}
+
+export function packPrice(currency: Currency, tier: PackTier): string {
+  return formatMoney(PACK_PRICES[currency][tier], currency);
+}
+
+/** Whole shoots a Standard credit allowance buys, at IMAGES_PER_SHOOT per shoot. */
+export function shootsFor(cheaperCredits: number): number {
+  return Math.floor(cheaperCredits / IMAGES_PER_SHOOT);
+}
+
+// Legacy USD-only view of PLAN_PRICES, kept for the few server-side uses that
+// genuinely mean USD (unit-economics maths). Do not use for anything a visitor
+// sees - use planPrice() with the resolved currency instead.
+export const PRICING = {
+  STARTER: PLAN_PRICES.USD.starter.month,
+  STANDARD: PLAN_PRICES.USD.standard.month,
+  PRO: PLAN_PRICES.USD.pro.month,
+  STARTER_ANNUAL: PLAN_PRICES.USD.starter.year,
+  STANDARD_ANNUAL: PLAN_PRICES.USD.standard.year,
+  PRO_ANNUAL: PLAN_PRICES.USD.pro.year,
+  PACK_25: PACK_PRICES.USD[25],
+  PACK_50: PACK_PRICES.USD[50],
+  PACK_75: PACK_PRICES.USD[75],
+  PACK_100: PACK_PRICES.USD[100],
+}
+
+// First-month discount, promoted in the paywall modal. Must be a percent-off
+// coupon in Stripe: a fixed-amount coupon only works in its own currency and
+// would stop applying the moment a GBP checkout uses it.
+export const WELCOME_COUPON = { CODE: 'WELCOME20', PERCENT_OFF: 20 };
 
 // Months of allocation you pay for on an annual plan. 10 of 12 = 16.7% off.
 export const ANNUAL_MONTHS_CHARGED = 10;
@@ -99,7 +188,7 @@ export function planGrossMargin(priceUsd: number, cheaper: number, better: numbe
 }
 
 // At 100% utilisation, after Stripe fees:
-//   Free      13 credits one-off              COGS $0.79   (acquisition cost)
+//   Free       6 std + 2 pro, plus 4 std/week x4  COGS $1.13 max (acquisition cost)
 //   Starter   $9.99   60 std +  5 pro         COGS $3.01   GM ~68%   $0.154/image
 //   Standard  $29.99 200 std + 18 pro         COGS $10.21  GM ~65%   $0.138/image
 //   Pro       $79.99 600 std + 60 pro         COGS $31.44  GM ~59%   $0.121/image
