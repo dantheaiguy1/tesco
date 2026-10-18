@@ -1,0 +1,61 @@
+# Claude Code on GitHub. Work starts when an issue is labelled "ready" (Aiden, Dan's phone
+# assistant, raises briefs this way: the brief, then the label) or when someone with write
+# access mentions @claude in a comment. Claude Code works on a branch and opens a pull request
+# with its report; Dan merges (nothing merges automatically).
+# Model by label: model:fable, model:opus (the default), model:sonnet.
+# It has no deploy rights: no environment and no deploy secrets, only the repository.
+# Needs the repository secret CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`).
+# GitHub only runs this from the default branch.
+name: Claude Code
+
+on:
+  issues:
+    types: [labeled]
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+  actions: read
+
+jobs:
+  claude:
+    if: >-
+      (github.event_name == 'issues' && github.event.label.name == 'ready') ||
+      (github.event_name != 'issues' && contains(github.event.comment.body, '@claude') &&
+       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    concurrency:
+      group: claude-${{ github.event.issue.number || github.event.pull_request.number }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Model from the labels
+        id: model
+        env:
+          LABELS: ${{ toJSON(github.event.issue.labels.*.name) }}${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          case "$LABELS" in
+            *'"model:fable"'*) m=claude-fable-5-1 ;;
+            *'"model:sonnet"'*) m=claude-sonnet-5-5 ;;
+            *) m=claude-opus-5-5 ;;
+          esac
+          echo "model=$m" >> "$GITHUB_OUTPUT"
+      - uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          trigger_phrase: '@claude'
+          label_trigger: ready
+          claude_args: >-
+            --model ${{ steps.model.outputs.model }}
+            --max-turns 120
+            --allowedTools "Read,Edit,Write,Glob,Grep,Bash(npm:*),Bash(pnpm:*),Bash(yarn:*),Bash(node:*),Bash(npx tsc:*),Bash(npx vitest:*),Bash(npx playwright:*),Bash(npx eslint:*),Bash(npx prettier:*),Bash(python3:*),Bash(git:*),Bash(ls:*),Bash(cat:*)"
+            --disallowedTools "Bash(npx wrangler:*),Bash(wrangler:*),Bash(curl:*),Bash(gh:*)"
