@@ -2330,10 +2330,10 @@ interface TrackEventOptions {
   eventType: string;
   userId?: string | null;
   sessionId?: string | null;
-  pageUrl?: string;
-  referrer?: string;
-  userAgent?: string;
-  ipCountry?: string;
+  pageUrl?: string | null;
+  referrer?: string | null;
+  userAgent?: string | null;
+  ipCountry?: string | null;
   metadata?: Record<string, any>;
 }
 
@@ -5842,20 +5842,27 @@ app.post('/api/upload', async (c) => {
 // ============================================================================
 // ANONYMOUS TRY-BEFORE-SIGNUP
 // ============================================================================
-// A visitor can generate a few preview variations with no account. For a
-// visual product the demonstration is the sales pitch, and requiring signup
-// before anyone sees a single image was the largest drop-off in the funnel.
+// A visitor can generate one preview image with no account, from their own
+// photo or one of three samples on the homepage. For a visual product the
+// demonstration is the sales pitch, and requiring signup before anyone sees a
+// single image was the largest drop-off in the funnel.
 //
 // This spends real API budget, so it is bounded on three axes:
 //   1. ANON_PREVIEW_LIMIT images per anonymous session
 //   2. ANON_IP_DAILY_LIMIT images per IP per rolling 24h
-//   3. the cheap model only - anonymous users never reach gemini-3-pro-image
+//   3. the Standard model only - anonymous users never reach gemini-3-pro-image
 // Worst case per IP per day is ANON_IP_DAILY_LIMIT * $0.039.
+//
+// The watermark is drawn in the browser. The clean image is stored against the
+// session, so it is what the visitor gets once they sign up and claim it.
 
-const ANON_PREVIEW_LIMIT = 3;      // preview images per anonymous session
-const ANON_IP_DAILY_LIMIT = 6;     // images per IP per rolling 24h - the money limit
+const ANON_PREVIEW_LIMIT = 1;      // preview images per anonymous session
+const ANON_IP_DAILY_LIMIT = 3;     // preview images per IP per rolling 24h - the money limit
 const ANON_SESSION_LIMIT = 10;     // sessions per IP per rolling 24h - stops row spam
-const ANON_MODEL = 'flash';        // cheap model only - never Pro
+const ANON_MODEL = 'flash';        // Standard (gemini-2.5-flash-image) only - never Pro
+// The one shot a preview makes: the environment/lifestyle scene, the most
+// convincing single image. Fixed server-side so clients cannot pick another.
+const ANON_PREVIEW_VARIATION = 8;
 
 /** Hashes a client IP with the session secret so raw IPs are never stored. */
 async function hashIp(ip: string, secret: string): Promise<string> {
@@ -5868,13 +5875,16 @@ function clientIp(c: any): string {
   return c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
 }
 
-/** Images this IP has generated anonymously in the last 24 hours. */
-async function anonImagesLast24h(db: D1Database, ipHash: string): Promise<number> {
+/**
+ * Images this IP has generated anonymously in the last 24 hours, per kind:
+ * 'preview' (homepage) and 'bg_removal' (free tool) are limited separately.
+ */
+async function anonImagesLast24h(db: D1Database, ipHash: string, kind: 'preview' | 'bg_removal' = 'preview'): Promise<number> {
   const row = await db.prepare(`
     SELECT COALESCE(SUM(images_generated), 0) AS total
     FROM anonymous_generations
-    WHERE ip_hash = ? AND created_at > datetime('now', '-1 day')
-  `).bind(ipHash).first() as any;
+    WHERE kind = ? AND ip_hash = ? AND created_at > datetime('now', '-1 day')
+  `).bind(kind, ipHash).first() as any;
   return Number(row?.total || 0);
 }
 
@@ -5903,7 +5913,7 @@ app.post('/api/anon/start', async (c) => {
   // number of sessions would still let one IP fill the table with base64.
   const sessionCount = await db.prepare(`
     SELECT COUNT(*) AS n FROM anonymous_generations
-    WHERE ip_hash = ? AND created_at > datetime('now', '-1 day')
+    WHERE kind = 'preview' AND ip_hash = ? AND created_at > datetime('now', '-1 day')
   `).bind(ipHash).first() as any;
   if (Number(sessionCount?.n || 0) >= ANON_SESSION_LIMIT) {
     return c.json({
@@ -5948,12 +5958,12 @@ app.post('/api/anon/start', async (c) => {
   `).bind(sessionId, productName, ANON_MODEL).run();
 
   await db.prepare(`
-    INSERT INTO anonymous_generations (id, session_id, ip_hash, ip_country, images_generated)
-    VALUES (?, ?, ?, ?, 0)
+    INSERT INTO anonymous_generations (id, session_id, ip_hash, ip_country, images_generated, kind)
+    VALUES (?, ?, ?, ?, 0, 'preview')
   `).bind(generateId(), sessionId, ipHash, c.req.header('cf-ipcountry') || null).run();
 
   c.executionCtx.waitUntil(trackEvent(db, {
-    eventType: 'anon_preview_started',
+    eventType: 'anon_preview_start',
     sessionId,
     ipCountry: c.req.header('cf-ipcountry') || null,
     metadata: { file_type: file.type, file_size: file.size }
@@ -5973,14 +5983,15 @@ app.post('/api/anon/start', async (c) => {
 app.post('/api/anon/generate/:sessionId/:variationIndex', async (c) => {
   const db = c.env.TESCO_DB;
   const sessionId = c.req.param('sessionId');
-  const variationIndex = parseInt(c.req.param('variationIndex'));
+  // The path parameter is kept for compatibility; the shot is fixed.
+  const variationIndex = ANON_PREVIEW_VARIATION;
 
   if (c.get('user')) {
     return c.json({ success: false, error: 'Already signed in', signedIn: true }, 400);
   }
 
   const record = await db.prepare(
-    'SELECT * FROM anonymous_generations WHERE session_id = ?'
+    "SELECT * FROM anonymous_generations WHERE session_id = ? AND kind = 'preview'"
   ).bind(sessionId).first() as any;
   if (!record) return c.json({ success: false, error: 'Unknown preview session' }, 404);
   if (record.claimed_by_user_id) {
@@ -5990,7 +6001,7 @@ app.post('/api/anon/generate/:sessionId/:variationIndex', async (c) => {
   if (record.images_generated >= ANON_PREVIEW_LIMIT) {
     return c.json({
       success: false,
-      error: `Free preview is limited to ${ANON_PREVIEW_LIMIT} images. Sign up free to generate all ${IMAGES_PER_SHOOT}.`,
+      error: `Sign up free to get the other ${IMAGES_PER_SHOOT - ANON_PREVIEW_LIMIT} shots and remove the watermark.`,
       previewExhausted: true,
       needsAuth: true
     }, 402);
@@ -6053,7 +6064,7 @@ app.post('/api/anon/generate/:sessionId/:variationIndex', async (c) => {
 
   const generated = record.images_generated + 1;
   c.executionCtx.waitUntil(trackEvent(db, {
-    eventType: 'anon_preview_generated',
+    eventType: 'anon_preview_complete',
     sessionId,
     metadata: { variation: variation.field, index: generated }
   }));
@@ -6087,6 +6098,7 @@ async function claimAnonymousSession(db: D1Database, sessionId: string, userId: 
 
   await db.prepare('UPDATE sessions SET user_id = ? WHERE id = ? AND user_id IS NULL')
     .bind(userId, sessionId).run();
+  await trackEvent(db, { eventType: 'anon_preview_claim', userId, sessionId }).catch(() => {});
   return true;
 }
 
@@ -9734,17 +9746,50 @@ app.post('/api/analytics/track', async (c) => {
   }
 })
 
-// Background removal tool endpoint
+// Background removal tool endpoint.
+//
+// Free and watermark-free, with or without an account. Each use costs one
+// Standard-model call ($0.039), so it is metered in anonymous_generations
+// (kind 'bg_removal'): BG_ANON_DAILY_LIMIT per IP for visitors, and
+// BG_USER_DAILY_LIMIT per account, which used to be unlimited.
+const BG_ANON_DAILY_LIMIT = 3;
+const BG_USER_DAILY_LIMIT = 20;
+
 app.post('/api/tools/remove-background', async (c) => {
   const user = c.get('user')
-  if (!user) return c.json({ success: false, error: 'Auth required' }, 401)
-  
+  const db = c.env.TESCO_DB
+
   const geminiApiKey = c.env.GEMINI_API_KEY
   if (!geminiApiKey) return c.json({ success: false, error: 'AI not configured' }, 500)
-  
+
+  // Signed-in users are metered per account, visitors per IP. Both are hashed.
+  const meterKey = await hashIp(user ? `user:${user.id}` : clientIp(c), c.env.SESSION_SECRET)
+  const limit = user ? BG_USER_DAILY_LIMIT : BG_ANON_DAILY_LIMIT
+  const used = await anonImagesLast24h(db, meterKey, 'bg_removal')
+  if (used >= limit) {
+    return c.json({
+      success: false,
+      rateLimited: true,
+      needsAuth: !user,
+      error: user
+        ? `You have used today's ${limit} free background removals. Try again tomorrow.`
+        : `You have used today's ${limit} free background removals. Sign up free for ${SIGNUP_CREDITS_TOTAL} credits and more removals.`
+    }, 429)
+  }
+
+  // Reserve the use before spending money; released if the call fails.
+  const meterId = generateId()
+  await db.prepare(`
+    INSERT INTO anonymous_generations (id, session_id, ip_hash, ip_country, images_generated, kind)
+    VALUES (?, ?, ?, ?, 1, 'bg_removal')
+  `).bind(meterId, meterId, meterKey, c.req.header('cf-ipcountry') || null).run()
+  const release = () => db.prepare('DELETE FROM anonymous_generations WHERE id = ?').bind(meterId).run().catch(() => {})
+
   try {
     const { image } = await c.req.json()
-    if (!image) return c.json({ success: false, error: 'Image required' }, 400)
+    if (!image || typeof image !== 'string') { await release(); return c.json({ success: false, error: 'Image required' }, 400) }
+    // ~10MB file as base64
+    if (image.length > 14 * 1024 * 1024) { await release(); return c.json({ success: false, error: 'Image too large. Maximum size is 10MB.' }, 400) }
     
     // Use Gemini to remove background
     const base64Data = image.includes(',') ? image.split(',')[1] : image
@@ -9768,6 +9813,7 @@ app.post('/api/tools/remove-background', async (c) => {
     })
     
     if (!response.ok) {
+      await release()
       return c.json({ success: false, error: 'Background removal failed' }, 500)
     }
     
@@ -9777,17 +9823,27 @@ app.post('/api/tools/remove-background', async (c) => {
       for (const part of data.candidates[0].content.parts) {
         if (part.inlineData?.data) {
           const resultMimeType = part.inlineData.mimeType || 'image/png'
+          c.executionCtx.waitUntil(trackEvent(db, {
+            eventType: 'bg_removal_complete',
+            userId: user?.id,
+            ipCountry: c.req.header('cf-ipcountry') || null,
+            metadata: { anonymous: !user }
+          }))
           return c.json({ 
             success: true, 
-            image: `data:${resultMimeType};base64,${part.inlineData.data}` 
+            image: `data:${resultMimeType};base64,${part.inlineData.data}`,
+            remainingToday: Math.max(0, limit - used - 1),
+            anonymous: !user
           })
         }
       }
     }
     
+    await release()
     return c.json({ success: false, error: 'No result from AI' }, 500)
   } catch (error) {
     console.error('Background removal error:', error)
+    await release()
     return c.json({ success: false, error: 'Background removal failed' }, 500)
   }
 })
@@ -10194,6 +10250,98 @@ function getMarketingPage(user?: User, cur: Currency = 'USD') {
     .hero-trust-item { display: flex; align-items: center; gap: 6px; }
     .hero-trust-item svg { color: #10B981; }
 
+    /* Two columns: copy on the left, the before/after and try-it on the right,
+       so the product demonstration is above the fold. */
+    .hero-grid {
+      display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+      gap: 56px; align-items: center; max-width: 1200px; margin: 0 auto; width: 100%;
+      text-align: left;
+    }
+    .hero-grid h1, .hero-grid p { margin-left: 0; margin-right: 0; }
+    .hero-grid .hero-ctas, .hero-grid .hero-trust { justify-content: flex-start; flex-wrap: wrap; }
+    .hero-stage { width: 100%; max-width: 440px; justify-self: end; }
+    .hero:has(.hero-grid) { min-height: auto; padding-top: 112px; padding-bottom: 64px; }
+    .hero-grid .hero-badge { margin-bottom: 20px; }
+    .hero-grid .hero-ctas { margin-bottom: 28px; }
+
+    .ba {
+      position: relative; aspect-ratio: 1; border-radius: 20px; overflow: hidden;
+      background: #F3F4F6; box-shadow: 0 24px 60px rgba(79, 70, 229, 0.18);
+      border: 4px solid white; --pos: 50%; user-select: none; touch-action: pan-y;
+    }
+    .ba img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+    .ba-after { clip-path: inset(0 0 0 var(--pos)); }
+    .ba-line {
+      position: absolute; top: 0; bottom: 0; left: var(--pos); width: 3px; margin-left: -1.5px;
+      background: white; box-shadow: 0 0 10px rgba(0,0,0,0.25); pointer-events: none;
+    }
+    .ba-knob {
+      position: absolute; top: 50%; left: 50%; width: 44px; height: 44px; margin: -22px 0 0 -22px;
+      border-radius: 50%; background: white; box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+    }
+    .ba-knob::before, .ba-knob::after {
+      content: ''; position: absolute; top: 50%; width: 0; height: 0; margin-top: -6px;
+      border-top: 6px solid transparent; border-bottom: 6px solid transparent;
+    }
+    .ba-knob::before { left: 10px; border-right: 7px solid #6D28D9; }
+    .ba-knob::after { right: 10px; border-left: 7px solid #6D28D9; }
+    .ba-range {
+      position: absolute; inset: 0; width: 100%; height: 100%; margin: 0;
+      opacity: 0; cursor: ew-resize; -webkit-appearance: none; appearance: none;
+    }
+    .ba:has(.ba-range:focus-visible) { outline: 3px solid #8B5CF6; outline-offset: 3px; }
+    .ba-label {
+      position: absolute; top: 14px; padding: 6px 12px; border-radius: 100px;
+      background: rgba(17, 24, 39, 0.72); color: white; font-size: 12px; font-weight: 700;
+      letter-spacing: 0.02em; pointer-events: none;
+    }
+    .ba-label-left { left: 14px; }
+    .ba-label-right { right: 14px; background: rgba(109, 40, 217, 0.85); }
+    .ba-busy {
+      position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
+      justify-content: center; gap: 12px; background: rgba(255,255,255,0.82);
+      backdrop-filter: blur(3px); text-align: center; padding: 24px;
+    }
+    .ba-busy[hidden] { display: none; }
+    .ba-busy-text { font-size: 16px; font-weight: 700; color: #1F2937; }
+    .ba-busy-time { font-size: 13px; color: #6B7280; font-variant-numeric: tabular-nums; }
+
+    .hero-try { margin-top: 18px; }
+    .hero-samples {
+      display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 12px;
+      font-size: 13px; color: #6B7280;
+    }
+    .hero-sample {
+      display: inline-flex; align-items: center; gap: 8px; padding: 4px 12px 4px 4px;
+      background: white; border: 1px solid #E5E7EB; border-radius: 100px; cursor: pointer;
+      font-size: 13px; font-weight: 600; color: #374151; transition: border-color 0.2s;
+    }
+    .hero-sample:hover { border-color: #8B5CF6; color: #6D28D9; }
+    .hero-sample img { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; }
+    .hero-sample:disabled { opacity: 0.5; cursor: default; }
+    .hero-google {
+      display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+      width: 100%; max-width: 340px; padding: 14px 18px; border-radius: 12px; text-decoration: none;
+      background: #131314; color: #E3E3E3; border: 1px solid #8E918F; font-size: 15px; font-weight: 600;
+    }
+    .hero-google:hover { background: #2A2A2C; }
+    .tryit-email-link { display: block; margin-top: 10px; font-size: 13px; color: #6B7280; }
+
+    @media (max-width: 960px) {
+      .hero-grid { grid-template-columns: 1fr; gap: 28px; text-align: center; }
+      .hero-grid .hero-ctas, .hero-grid .hero-trust { justify-content: center; }
+      .hero-grid h1, .hero-grid p { margin-left: auto; margin-right: auto; }
+      .hero-stage { justify-self: center; }
+    }
+    @media (max-width: 640px) {
+      /* Phones: headline, one line of copy, then straight into the demo. */
+      .hero-badge, .hero-trust, .hero-ctas .btn-secondary, .hero-try-cta, .hero-ctas-anon { display: none !important; }
+      .hero:has(.hero-grid) { padding-top: 88px; padding-bottom: 40px; }
+      .hero-grid p { margin-bottom: 4px; }
+      .hero-grid { gap: 18px; }
+      .hero-samples { justify-content: center; }
+    }
+
     /* ===== PLATFORM LOGOS ===== */
     .platform-bar {
       padding: 32px; background: white;
@@ -10250,57 +10398,38 @@ function getMarketingPage(user?: User, cur: Currency = 'USD') {
     .ticker-item:hover { transform: scale(1.08); box-shadow: 0 12px 40px rgba(99, 102, 241, 0.3); border-color: #8B5CF6; }
     .ticker-item img { width: 100%; height: 100%; object-fit: cover; }
 
-    /* ===== TRY IT NOW ===== */
-    .tryit-section { padding: 72px 32px; background: white; }
-    .tryit-panel { max-width: 900px; margin: 0 auto; }
+    /* ===== TRY IT NOW (in the hero) ===== */
     .tryit-drop {
-      border: 2px dashed #C7D2FE; border-radius: 18px; padding: 48px 24px;
-      text-align: center; cursor: pointer; background: #F8FAFF;
+      display: flex; align-items: center; gap: 14px; text-align: left;
+      border: 2px dashed #C7D2FE; border-radius: 14px; padding: 14px 18px;
+      cursor: pointer; background: rgba(255,255,255,0.85);
       transition: border-color 0.2s, background 0.2s;
     }
-    .tryit-drop:hover, .tryit-drop.dragging { border-color: #8B5CF6; background: #F5F3FF; }
+    .tryit-drop:hover, .tryit-drop:focus-visible, .tryit-drop.dragging { border-color: #8B5CF6; background: #F5F3FF; outline: none; }
     .tryit-drop.busy { pointer-events: none; opacity: 0.6; }
-    .tryit-icon { width: 52px; height: 52px; margin: 0 auto 16px; color: #8B5CF6; }
-    .tryit-icon svg { width: 100%; height: 100%; }
-    .tryit-primary { font-size: 18px; font-weight: 700; color: #1F2937; margin-bottom: 6px; }
-    .tryit-secondary { font-size: 14px; color: #6B7280; }
+    .tryit-drop.attention { animation: tryit-pulse 0.9s ease-in-out 2; }
+    @keyframes tryit-pulse { 50% { border-color: #7C3AED; box-shadow: 0 0 0 6px rgba(139,92,246,0.18); } }
+    .tryit-drop-icon { width: 30px; height: 30px; color: #8B5CF6; flex-shrink: 0; }
+    .tryit-primary { font-size: 15px; font-weight: 700; color: #1F2937; }
+    .tryit-secondary { font-size: 13px; color: #6B7280; }
     .tryit-status {
-      margin-top: 20px; padding: 14px 18px; border-radius: 10px;
+      margin-top: 12px; padding: 10px 14px; border-radius: 10px;
       background: #EFF6FF; border: 1px solid #BFDBFE; color: #1E40AF;
-      font-size: 15px; font-weight: 500; text-align: center;
+      font-size: 14px; font-weight: 500;
     }
     .tryit-status.error { background: #FEF2F2; border-color: #FECACA; color: #B91C1C; }
-    .tryit-results { margin-top: 28px; }
-    .tryit-grid {
-      display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 18px;
-    }
-    .tryit-card {
-      border-radius: 14px; overflow: hidden; background: #F3F4F6;
-      border: 1px solid #E5E7EB; position: relative;
-    }
-    .tryit-card img { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; }
-    .tryit-card .tryit-caption {
-      padding: 10px 12px; font-size: 13px; font-weight: 600; color: #4B5563;
-      background: white; text-align: center;
-    }
-    .tryit-card.pending { display: flex; align-items: center; justify-content: center; aspect-ratio: 1; }
     .tryit-spinner {
-      width: 28px; height: 28px; border: 3px solid #E5E7EB; border-top-color: #8B5CF6;
+      width: 32px; height: 32px; border: 3px solid #E5E7EB; border-top-color: #8B5CF6;
       border-radius: 50%; animation: tryit-spin 0.8s linear infinite;
     }
     @keyframes tryit-spin { to { transform: rotate(360deg); } }
     .tryit-gate {
-      margin-top: 28px; padding: 32px 24px; text-align: center;
+      margin-top: 14px; padding: 20px; text-align: center;
       background: linear-gradient(135deg, #F5F3FF 0%, #EFF6FF 100%);
-      border: 1px solid #DDD6FE; border-radius: 18px;
+      border: 1px solid #DDD6FE; border-radius: 16px;
     }
-    .tryit-gate h3 { font-size: 22px; font-weight: 800; color: #1F2937; margin-bottom: 8px; }
-    .tryit-gate p { font-size: 15px; color: #4B5563; max-width: 520px; margin: 0 auto 20px; line-height: 1.6; }
-    .tryit-gate-note { margin-top: 12px; font-size: 13px; color: #6B7280; }
-    @media (max-width: 640px) {
-      .tryit-section { padding: 48px 20px; }
-      .tryit-drop { padding: 36px 16px; }
-    }
+    .tryit-gate h3 { font-size: 18px; font-weight: 800; color: #1F2937; margin-bottom: 6px; line-height: 1.3; }
+    .tryit-gate p { font-size: 14px; color: #4B5563; margin: 0 auto 14px; line-height: 1.5; }
 
     /* ===== LIGHTBOX ===== */
     .lightbox-overlay {
@@ -10695,75 +10824,97 @@ function getMarketingPage(user?: User, cur: Currency = 'USD') {
 
   <!-- ===== HERO SECTION ===== -->
   <section class="hero">
-    <div class="hero-badge">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-      New: Marketplace Export Presets + Batch Upload + 36 Shot Types
-    </div>
-    <h1>Professional Product Photos That <span class="hero-highlight">Actually Sell</span></h1>
-    <p>Upload one photo. Get 10 marketplace-ready variations in 25 seconds. Export-optimised for eBay, Amazon, Etsy, Depop & more. No design skills needed.</p>
-    <div class="hero-ctas">
-      <a href="${isLoggedIn ? '/app' : '#try-it'}" class="btn-primary">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-        ${isLoggedIn ? 'Open App' : 'Try It Free - No Account Needed'}
-      </a>
-      <button onclick="scrollToVideo()" class="btn-secondary">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8" fill="currentColor"/></svg>
-        Watch Demo
-      </button>
-    </div>
-    <div class="hero-trust">
-      <div class="hero-trust-item">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="#10B981" stroke="none"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-        No account needed to try
+    <div class="hero-grid">
+      <div class="hero-copy">
+        <div class="hero-badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+          New: Marketplace Export Presets + Batch Upload + 36 Shot Types
+        </div>
+        <h1>Professional Product Photos That <span class="hero-highlight">Actually Sell</span></h1>
+        <p>Upload one photo. Get up to ${IMAGES_PER_SHOOT} marketplace-ready shots in about 25 seconds, sized for eBay, Amazon, Etsy, Depop and more. No design skills needed.</p>
+        <div class="hero-ctas${isLoggedIn ? '' : ' hero-ctas-anon'}">
+          ${isLoggedIn ? `
+          <a href="/app" class="btn-primary">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            Open App
+          </a>` : `
+          <a href="#try-it" class="btn-primary hero-try-cta" onclick="heroTryClick(event)">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            Try It Free - No Account Needed
+          </a>`}
+          <button onclick="scrollToVideo()" class="btn-secondary">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8" fill="currentColor"/></svg>
+            Watch Demo
+          </button>
+        </div>
+        <div class="hero-trust">
+          <div class="hero-trust-item">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="#10B981" stroke="none"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            No account needed to try
+          </div>
+          <div class="hero-trust-item">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="#10B981" stroke="none"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            ${SIGNUP_CREDITS_TOTAL} free credits on signup
+          </div>
+          <div class="hero-trust-item">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="#10B981" stroke="none"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            No card required
+          </div>
+        </div>
       </div>
-      <div class="hero-trust-item">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="#10B981" stroke="none"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-        ${SIGNUP_CREDITS_TOTAL} free credits on signup
-      </div>
-      <div class="hero-trust-item">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="#10B981" stroke="none"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-        Results in 25 seconds
+
+      <!-- Before/after slider. The two images in /static/hero/ are
+           placeholders cut from the trainers example; replace them with a
+           matched pair of real photos (same framing, 720x720 or larger). -->
+      <div class="hero-stage" id="try-it">
+        <div class="ba" id="ba">
+          <img src="/static/hero/before.jpg" id="ba-before" alt="Original product photo" width="720" height="720" fetchpriority="high">
+          <img src="/static/hero/after.jpg" id="ba-after" class="ba-after" alt="The same product photographed in a styled scene by ShopShot" width="720" height="720">
+          <span class="ba-label ba-label-left" id="ba-label-left">Before</span>
+          <span class="ba-label ba-label-right" id="ba-label-right">After</span>
+          <div class="ba-line" aria-hidden="true"><span class="ba-knob"></span></div>
+          <input type="range" class="ba-range" id="ba-range" min="0" max="100" value="50" aria-label="Drag to compare the original photo with the ShopShot result">
+          <div class="ba-busy" id="ba-busy" hidden>
+            <div class="tryit-spinner"></div>
+            <div class="ba-busy-text" id="ba-busy-text">Creating your shot...</div>
+            <div class="ba-busy-time" id="ba-busy-time"></div>
+          </div>
+        </div>
+
+        ${isLoggedIn ? '' : `
+        <div class="hero-try">
+          <div id="tryit-drop" class="tryit-drop" role="button" tabindex="0"
+               onclick="document.getElementById('tryit-file').click()"
+               onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();document.getElementById('tryit-file').click();}"
+               ondragover="tryitDragOver(event)" ondragleave="tryitDragLeave(event)" ondrop="tryitDrop(event)">
+            <input type="file" id="tryit-file" accept="image/jpeg,image/png,image/webp" hidden onchange="tryitSelect(event)">
+            <svg class="tryit-drop-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <div>
+              <div class="tryit-primary">Drop your product photo here</div>
+              <div class="tryit-secondary">or click to choose. A phone photo is fine.</div>
+            </div>
+          </div>
+          <div class="hero-samples">
+            <span>Or try a sample:</span>
+            <button type="button" class="hero-sample" onclick="tryitSample('/static/examples/example-3-thumb.jpg', 'White trainers')"><img src="/static/examples/example-3-thumb.jpg" alt="" width="44" height="44" loading="lazy">Trainers</button>
+            <button type="button" class="hero-sample" onclick="tryitSample('/static/examples/example-2-thumb.jpg', 'Skincare serum bottle')"><img src="/static/examples/example-2-thumb.jpg" alt="" width="44" height="44" loading="lazy">Serum</button>
+            <button type="button" class="hero-sample" onclick="tryitSample('/static/examples/example-4-thumb.jpg', 'Scented candle')"><img src="/static/examples/example-4-thumb.jpg" alt="" width="44" height="44" loading="lazy">Candle</button>
+          </div>
+          <div id="tryit-status" class="tryit-status" hidden></div>
+          <div class="tryit-gate" id="tryit-gate" hidden>
+            <h3>Sign up free to get the other ${IMAGES_PER_SHOOT - ANON_PREVIEW_LIMIT} and remove the watermark</h3>
+            <p>Your preview comes with you. ${CREDITS.SIGNUP_CHEAPER} Standard + ${CREDITS.SIGNUP_BETTER} Pro credits, no card.</p>
+            <a id="tryit-google" href="/api/auth/google?redirect=%2Fapp" class="hero-google">
+              <svg viewBox="0 0 24 24" width="20" height="20"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+              Continue with Google
+            </a>
+            <a id="tryit-email" href="/register?email=1" class="tryit-email-link">or sign up with email</a>
+          </div>
+        </div>
+        `}
       </div>
     </div>
   </section>
-
-  <!-- ===== TRY IT NOW (anonymous preview) ===== -->
-  ${isLoggedIn ? '' : `
-  <section class="tryit-section" id="try-it">
-    <div class="section-header">
-      <div class="section-badge">Try It Now</div>
-      <h2 class="section-title">See It On Your Own Product</h2>
-      <p class="section-subtitle">Upload a photo and we'll generate ${ANON_PREVIEW_LIMIT} shots right here. No account, no card, nothing to fill in.</p>
-    </div>
-
-    <div class="tryit-panel">
-      <div id="tryit-drop" class="tryit-drop"
-           onclick="document.getElementById('tryit-file').click()"
-           ondragover="tryitDragOver(event)" ondragleave="tryitDragLeave(event)" ondrop="tryitDrop(event)">
-        <input type="file" id="tryit-file" accept="image/jpeg,image/png,image/webp" hidden onchange="tryitSelect(event)">
-        <div class="tryit-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
-          </svg>
-        </div>
-        <div class="tryit-primary">Drop a product photo, or click to choose</div>
-        <div class="tryit-secondary">JPG, PNG or WebP up to 10MB. A phone photo is fine.</div>
-      </div>
-
-      <div id="tryit-status" class="tryit-status" hidden></div>
-
-      <div id="tryit-results" class="tryit-results" hidden>
-        <div class="tryit-grid" id="tryit-grid"></div>
-        <div class="tryit-gate" id="tryit-gate" hidden>
-          <h3>That's ${ANON_PREVIEW_LIMIT} of ${IMAGES_PER_SHOOT}</h3>
-          <p>Create a free account to generate the full set - plus size reference, flat-lay, in-use and packaging shots, and marketplace export presets.</p>
-          <a id="tryit-signup" href="/register" class="btn-primary">Get the other ${IMAGES_PER_SHOOT - ANON_PREVIEW_LIMIT} shots free</a>
-          <div class="tryit-gate-note">${SIGNUP_CREDITS_TOTAL} free credits. No card. Your previews carry over.</div>
-        </div>
-      </div>
-    </div>
-  </section>
-  `}
 
   <!-- ===== PLATFORM LOGOS ===== -->
   <div class="platform-bar">
@@ -11041,7 +11192,7 @@ function getMarketingPage(user?: User, cur: Currency = 'USD') {
         <p>Need a quick clean background? Our AI-powered background removal tool is free with any account, including the free tier.</p>
         <ul class="feature-bullets">
           <li>AI-powered instant background removal</li>
-          <li>Free on every plan - uses no credits</li>
+          <li>Free, no account needed - uses no credits</li>
           <li>Download with transparent or white background</li>
           <li>Perfect for eBay/Amazon white-bg requirements</li>
         </ul>
@@ -11365,11 +11516,34 @@ function getMarketingPage(user?: User, cur: Currency = 'USD') {
     });
 
     // Scroll to video and auto-play
-    // ===== TRY IT NOW: anonymous preview =====
-    // Generates a few variations with no account. Server enforces the real
-    // limits (per-session and per-IP); this is just the UI around it.
-    const TRYIT_PREVIEW_INDEXES = [5, 8, 0]; // Hero (white BG), Environment, Texture
+    // ===== HERO: before/after slider =====
+    (function initBeforeAfter() {
+      const ba = document.getElementById('ba');
+      const range = document.getElementById('ba-range');
+      if (!ba || !range) return;
+      const set = v => ba.style.setProperty('--pos', v + '%');
+      range.addEventListener('input', () => set(range.value));
+      set(range.value);
+    })();
+
+    // ===== TRY IT NOW: one anonymous, watermarked preview =====
+    // The server enforces the real limits (one image per session, three per
+    // IP per day, Standard model only); this is just the UI around it.
     let tryitSession = null;
+    let tryitTimer = null;
+
+    function heroTryClick(e) {
+      e.preventDefault();
+      const stage = document.getElementById('try-it');
+      const drop = document.getElementById('tryit-drop');
+      if (stage) stage.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (drop) {
+        drop.classList.remove('attention');
+        void drop.offsetWidth;
+        drop.classList.add('attention');
+        drop.focus({ preventScroll: true });
+      }
+    }
 
     function tryitDragOver(e) { e.preventDefault(); document.getElementById('tryit-drop').classList.add('dragging'); }
     function tryitDragLeave() { document.getElementById('tryit-drop').classList.remove('dragging'); }
@@ -11377,11 +11551,19 @@ function getMarketingPage(user?: User, cur: Currency = 'USD') {
       e.preventDefault();
       tryitDragLeave();
       const file = e.dataTransfer.files[0];
-      if (file && file.type.startsWith('image/')) tryitRun(file);
+      if (file && file.type.startsWith('image/')) tryitRun(file, 'upload');
     }
     function tryitSelect(e) {
       const file = e.target.files[0];
-      if (file) tryitRun(file);
+      if (file) tryitRun(file, 'upload');
+    }
+    async function tryitSample(src, name) {
+      try {
+        const blob = await (await fetch(src)).blob();
+        tryitRun(new File([blob], name + '.jpg', { type: 'image/jpeg' }), 'sample');
+      } catch (e) {
+        tryitSay('Could not load the sample. Please try again.', true);
+      }
     }
 
     function tryitSay(message, isError) {
@@ -11391,93 +11573,141 @@ function getMarketingPage(user?: User, cur: Currency = 'USD') {
       el.hidden = false;
     }
 
-    async function tryitRun(file) {
-      const drop = document.getElementById('tryit-drop');
-      drop.classList.add('busy');
-      document.getElementById('tryit-results').hidden = true;
-      document.getElementById('tryit-gate').hidden = true;
-      document.getElementById('tryit-grid').innerHTML = '';
-      tryitSay('Uploading your photo...');
+    function tryitBusy(on, text) {
+      const busy = document.getElementById('ba-busy');
+      busy.hidden = !on;
+      document.getElementById('tryit-drop').classList.toggle('busy', on);
+      document.querySelectorAll('.hero-sample').forEach(b => b.disabled = on);
+      clearInterval(tryitTimer);
+      if (on) {
+        document.getElementById('ba-busy-text').textContent = text;
+        const started = Date.now();
+        const timeEl = document.getElementById('ba-busy-time');
+        timeEl.textContent = 'Usually 10 to 25 seconds';
+        tryitTimer = setInterval(() => {
+          timeEl.textContent = Math.round((Date.now() - started) / 1000) + 's  (usually 10 to 25 seconds)';
+        }, 1000);
+      }
+    }
 
-      if (window.ssTrack) window.ssTrack('anon_preview_started', {});
+    // Phone photos are often 4000px and several MB. The model does not need
+    // that, and uploading it is most of the wait on mobile data.
+    function tryitShrink(file) {
+      return new Promise(resolve => {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => {
+          const max = 1600;
+          const scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+          if (scale === 1 && file.size < 2 * 1024 * 1024) { URL.revokeObjectURL(url); resolve(file); return; }
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.round(img.naturalWidth * scale);
+          canvas.height = Math.round(img.naturalHeight * scale);
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#fff';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          URL.revokeObjectURL(url);
+          canvas.toBlob(b => resolve(b ? new File([b], file.name.replace(/\\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' }) : file), 'image/jpeg', 0.9);
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+        img.src = url;
+      });
+    }
+
+    // Draws the preview with a tiled "ShopShot preview" watermark. The clean
+    // image stays on the server and is what the visitor gets after signup.
+    function tryitWatermark(src) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+          const w = img.naturalWidth, h = img.naturalHeight;
+          const canvas = document.createElement('canvas');
+          canvas.width = w; canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0);
+          const size = Math.max(18, Math.round(w / 16));
+          ctx.font = '800 ' + size + 'px Inter, Arial, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.save();
+          ctx.translate(w / 2, h / 2);
+          ctx.rotate(-Math.PI / 7);
+          const stepX = size * 13, stepY = size * 3.4;
+          for (let y = -h; y <= h; y += stepY) {
+            for (let x = -w; x <= w; x += stepX) {
+              const offset = (Math.round(y / stepY) % 2) * stepX / 2;
+              ctx.lineWidth = Math.max(1, size / 14);
+              ctx.strokeStyle = 'rgba(0,0,0,0.18)';
+              ctx.strokeText('ShopShot preview', x + offset, y);
+              ctx.fillStyle = 'rgba(255,255,255,0.42)';
+              ctx.fillText('ShopShot preview', x + offset, y);
+            }
+          }
+          ctx.restore();
+          resolve(canvas.toDataURL('image/jpeg', 0.86));
+        };
+        img.onerror = reject;
+        img.src = src;
+      });
+    }
+
+    function tryitShowResult(beforeSrc, afterSrc) {
+      document.getElementById('ba-before').src = beforeSrc;
+      document.getElementById('ba-after').src = afterSrc;
+      document.getElementById('ba-label-left').textContent = 'Your photo';
+      document.getElementById('ba-label-right').textContent = 'ShopShot';
+      const range = document.getElementById('ba-range');
+      range.value = 35;
+      range.dispatchEvent(new Event('input'));
+    }
+
+    async function tryitRun(rawFile, source) {
+      document.getElementById('tryit-gate').hidden = true;
+      document.getElementById('tryit-status').hidden = true;
+      tryitBusy(true, 'Uploading your photo...');
+      if (window.ssTrack) window.ssTrack('anon_preview_start', { source: source });
 
       try {
+        const file = await tryitShrink(rawFile);
         const form = new FormData();
         form.append('image', file);
         const res = await fetch('/api/anon/start', { method: 'POST', body: form });
         const data = await res.json();
 
         if (!data.success) {
+          tryitBusy(false);
           tryitSay(data.error || 'Something went wrong. Please try again.', true);
           if (data.needsAuth) tryitShowGate();
-          drop.classList.remove('busy');
           return;
         }
 
         tryitSession = data;
-        tryitSay('Generating ' + data.previewLimit + ' professional shots. This takes about 20 seconds...');
-        document.getElementById('tryit-results').hidden = false;
-
-        const grid = document.getElementById('tryit-grid');
-        const wanted = TRYIT_PREVIEW_INDEXES.slice(0, data.previewLimit);
-        wanted.forEach((_, i) => {
-          const card = document.createElement('div');
-          card.className = 'tryit-card pending';
-          card.id = 'tryit-card-' + i;
-          card.innerHTML = '<div class="tryit-spinner"></div>';
-          grid.appendChild(card);
-        });
-
-        let produced = 0;
-        for (let i = 0; i < wanted.length; i++) {
-          const ok = await tryitGenerate(wanted[i], i, data);
-          if (ok) produced++;
-          else break;
-        }
-
-        if (produced > 0) {
-          tryitSay('Done. That is ' + produced + ' of ' + ${'`${IMAGES_PER_SHOOT}`'} + ' shots ShopShot generates for each product.');
-          tryitShowGate();
-          if (window.ssTrack) window.ssTrack('anon_preview_completed', { images: produced });
-        }
-      } catch (err) {
-        console.error('[TryIt]', err);
-        tryitSay('Something went wrong. Please try again.', true);
-      } finally {
-        drop.classList.remove('busy');
-      }
-    }
-
-    async function tryitGenerate(variationIndex, slot, session) {
-      const card = document.getElementById('tryit-card-' + slot);
-      try {
-        const res = await fetch('/api/anon/generate/' + session.sessionId + '/' + variationIndex, {
+        tryitBusy(true, 'Creating your shot...');
+        const started = Date.now();
+        const genRes = await fetch('/api/anon/generate/' + data.sessionId + '/0', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            originalImage: session.originalImage,
-            productName: session.productName
-          })
+          body: JSON.stringify({ originalImage: data.originalImage, productName: data.productName })
         });
-        const data = await res.json();
-        if (!data.success) {
-          if (data.needsAuth || data.rateLimited || data.previewExhausted) {
-            card.remove();
-            tryitSay(data.error, true);
-            tryitShowGate();
-            return false;
-          }
-          card.classList.remove('pending');
-          card.innerHTML = '<div class="tryit-caption">Could not generate this one</div>';
-          return true;
+        const gen = await genRes.json();
+
+        if (!gen.success) {
+          tryitBusy(false);
+          tryitSay(gen.error || 'We could not create a shot from that photo. Please try another.', true);
+          if (gen.needsAuth || gen.rateLimited || gen.previewExhausted) tryitShowGate();
+          return;
         }
-        card.classList.remove('pending');
-        card.innerHTML = '<img src="' + data.image + '" alt="' + data.label + '">' +
-                         '<div class="tryit-caption">' + data.label.replace(/^\d+\.\s*/, '') + '</div>';
-        return true;
-      } catch (e) {
-        card.remove();
-        return false;
+
+        const marked = await tryitWatermark(gen.image);
+        tryitShowResult(data.originalImage, marked);
+        tryitBusy(false);
+        tryitShowGate();
+        if (window.ssTrack) window.ssTrack('anon_preview_complete', { source: source, seconds: Math.round((Date.now() - started) / 1000) });
+      } catch (err) {
+        console.error('[TryIt]', err);
+        tryitBusy(false);
+        tryitSay('Something went wrong. Please try again.', true);
       }
     }
 
@@ -11485,12 +11715,12 @@ function getMarketingPage(user?: User, cur: Currency = 'USD') {
       const gate = document.getElementById('tryit-gate');
       if (!gate) return;
       gate.hidden = false;
-      const link = document.getElementById('tryit-signup');
-      if (link && tryitSession) {
-        // Carry the preview session so the images follow them into the account
-        link.href = '/register?anon=' + encodeURIComponent(tryitSession.sessionId);
+      if (tryitSession) {
+        // Carry the preview session so the image follows them into the account
+        const anon = encodeURIComponent(tryitSession.sessionId);
+        document.getElementById('tryit-google').href = '/api/auth/google?redirect=%2Fapp&anon=' + anon;
+        document.getElementById('tryit-email').href = '/register?email=1&anon=' + anon;
       }
-      if (window.ssTrack) window.ssTrack('anon_preview_gate_shown', {});
     }
 
     function scrollToVideo() {
@@ -14170,9 +14400,13 @@ function getHomePage(user?: User, cur: Currency = 'USD') {
       try {
         const p = new URLSearchParams(window.location.search);
         if (p.get('signup') === 'google' && window.ssTrack) {
-          window.ssTrack('sign_up', { method: 'google', plan: 'free' });
+          window.ssTrack('sign_up', { method: 'google', plan: 'free', from_preview: p.get('from_preview') === '1' });
         } else if (p.get('login') === 'google' && window.ssTrack) {
           window.ssTrack('login', { method: 'google' });
+        }
+        // A homepage preview was attached to this new account.
+        if (p.get('from_preview') === '1' && window.ssTrack) {
+          window.ssTrack('anon_preview_claim', {});
         }
       } catch (e) {}
     })();
@@ -18154,7 +18388,7 @@ function getRegisterPage(cur: Currency = 'USD') {
               window.location.href = '/pricing?signup=success&checkout=failed';
             }
           } else {
-            window.location.href = redirectTo || '/app?welcome=1';
+            window.location.href = redirectTo || ('/app?welcome=1' + (anonSessionId ? '&from_preview=1' : ''));
           }
         } else {
           errEl.textContent = data.error || 'Verification failed';
@@ -25886,7 +26120,7 @@ function getBackgroundRemovalPage(user?: User) {
   <link rel="canonical" href="https://www.shopshot.co.uk/tools/remove-background">
   ${socialTags({
     title: 'Free AI Background Remover for Product Photos',
-    description: 'Remove backgrounds from product photos instantly with AI. Free on every ShopShot plan, including the free tier. Uses no credits.',
+    description: 'Remove backgrounds from product photos instantly with AI. Free, no account and no watermark.',
     url: 'https://www.shopshot.co.uk/tools/remove-background'
   })}
   <meta name="description" content="Remove backgrounds from product photos instantly using AI. Free tool by ShopShot - upload your image and get a clean white background in seconds.">
@@ -25943,9 +26177,17 @@ function getBackgroundRemovalPage(user?: User) {
       </h1>
       <p class="text-lg text-brand-gray max-w-xl mx-auto">
         Upload any product photo and get a clean white background in seconds.
-        Free on every plan, including the free tier - uses no credits.
+        No account needed, no watermark, no credits used.
       </p>
     </div>
+
+    ${isLoggedIn ? '' : `
+    <!-- Sign-up banner. The tool works without an account; this is the offer. -->
+    <div class="max-w-xl mx-auto mb-6 flex flex-col sm:flex-row items-center gap-3 justify-between bg-white border border-purple-200 rounded-2xl px-5 py-4 shadow-sm">
+      <p class="text-sm text-brand-dark text-center sm:text-left"><strong>Sign up for ${SIGNUP_CREDITS_TOTAL} free credits</strong> and turn this photo into studio and lifestyle shots for your listings.</p>
+      <a href="/register?redirect=${encodeURIComponent('/app')}" onclick="if(window.ssTrack)window.ssTrack('bg_tool_signup_click',{})" class="shrink-0 bg-gradient-to-r from-blue-500 to-purple-500 text-white text-sm font-semibold px-4 py-2 rounded-xl">Sign up free</a>
+    </div>
+    `}
 
     <!-- Upload Area -->
     <div class="max-w-xl mx-auto">
@@ -25956,7 +26198,7 @@ function getBackgroundRemovalPage(user?: User) {
            ondrop="event.preventDefault(); this.classList.remove('border-purple-500','bg-purple-50/50'); handleBgDrop(event)">
         <i class="fas fa-cloud-upload text-4xl text-brand-gray mb-3"></i>
         <p class="text-brand-dark font-semibold mb-1">Drop your product image here</p>
-        <p class="text-sm text-brand-gray">or click to browse. JPG, PNG up to 10MB</p>
+        <p class="text-sm text-brand-gray">or click to browse. JPG, PNG up to 10MB. ${isLoggedIn ? `Up to ${BG_USER_DAILY_LIMIT} a day.` : `${BG_ANON_DAILY_LIMIT} free a day without an account.`}</p>
         <input type="file" id="bg-file-input" accept="image/*" class="hidden" onchange="handleBgFile(event)">
       </div>
 
@@ -25994,9 +26236,9 @@ function getBackgroundRemovalPage(user?: User) {
     <!-- CTA Banner -->
     <div class="mt-16 bg-gradient-to-r from-blue-500 to-purple-500 rounded-2xl p-8 text-center text-white">
       <h2 class="text-2xl font-bold mb-3">Need more than background removal?</h2>
-      <p class="text-white/80 mb-6 max-w-lg mx-auto">ShopShot generates 10 professional product photos from a single upload. Studio shots, lifestyle scenes, marketplace-ready images - all in seconds.</p>
-      <a href="/get-started" class="inline-block bg-white text-brand-dark px-8 py-3 rounded-xl font-bold shadow-lg hover:shadow-xl transition">
-        Get 8 Free Credits <i class="fas fa-arrow-right ml-2"></i>
+      <p class="text-white/80 mb-6 max-w-lg mx-auto">ShopShot makes up to ${IMAGES_PER_SHOOT} professional product photos from a single upload: studio shots, lifestyle scenes and marketplace-ready images, in about 25 seconds.</p>
+      <a href="/register" class="inline-block bg-white text-brand-dark px-8 py-3 rounded-xl font-bold shadow-lg hover:shadow-xl transition">
+        Get ${SIGNUP_CREDITS_TOTAL} Free Credits <i class="fas fa-arrow-right ml-2"></i>
       </a>
     </div>
   </main>
@@ -26015,12 +26257,7 @@ function getBackgroundRemovalPage(user?: User) {
     }
     
     async function processBgImage(file) {
-      ${!isLoggedIn ? `
-      // The API requires an account. Send the visitor to signup and bring them
-      // straight back here rather than failing with a raw error.
-      window.location.href = '/register?redirect=' + encodeURIComponent('/tools/remove-background');
-      return;
-      ` : ''}
+      if (window.ssTrack) window.ssTrack('bg_removal_start', {});
       const reader = new FileReader();
       reader.onload = async (e) => {
         const imageData = e.target.result;
@@ -26042,6 +26279,12 @@ function getBackgroundRemovalPage(user?: User) {
             bgResultImage = data.image;
             document.getElementById('bg-result-img').src = data.image;
             document.getElementById('bg-download-btn').classList.remove('hidden');
+            if (window.ssTrack) window.ssTrack('bg_removal_complete', { anonymous: !!data.anonymous });
+          } else if (data.needsAuth) {
+            document.getElementById('bg-result-area').classList.add('hidden');
+            if (confirm(data.error + ' Create a free account now?')) {
+              window.location.href = '/register?redirect=' + encodeURIComponent('/tools/remove-background');
+            }
           } else {
             alert('Background removal failed: ' + (data.error || 'Please try again'));
           }
