@@ -1453,7 +1453,7 @@ async function getUserFromSession(db: D1Database, sessionId: string): Promise<Us
     created_at: session.created_at || null,
     // Missing column (migration not yet applied) reads as fully dripped.
     drip_count: session.drip_count ?? CREDITS.DRIP_WEEKS
-  } as User;
+  } as unknown as User;
 }
 
 // ============================================================================
@@ -3441,8 +3441,8 @@ app.get('/api/admin/system-health', async (c) => {
     
     // Database size estimate (count images * avg size)
     const imageCount = await db.prepare(`
-      SELECT COUNT(*) as count FROM generated_images WHERE image_data IS NOT NULL
-    `).first() as any
+      SELECT COUNT(*) as count FROM generated_images WHERE image_data IS NOT NULL AND image_data != ''
+    `).first() as any // images still held in D1 (not yet in R2)
     const estimatedStorageMB = ((imageCount?.count || 0) * 0.15).toFixed(1) // ~150KB per image avg
     
     return c.json({
@@ -3504,7 +3504,7 @@ app.get('/api/admin/recent-activity', async (c) => {
       FROM generated_images gi
       JOIN sessions s ON gi.session_id = s.id
       LEFT JOIN users u ON s.user_id = u.id
-      WHERE gi.status = 'completed' AND gi.created_at > ${sinceClause}
+      WHERE gi.created_at > ${sinceClause}
       ORDER BY gi.created_at DESC
       LIMIT 20
     `).all() as any
@@ -4003,13 +4003,15 @@ app.get('/api/admin/analytics/events', async (c) => {
       if ((e.event_type === 'generation_completed' || e.event_type === 'image_uploaded') && e.session_id) {
         // Get the most recent generated image for this session
         const txn = await db.prepare(`
-          SELECT image_data FROM credit_transactions 
-          WHERE session_id = ? AND image_data IS NOT NULL AND image_data != ''
+          SELECT image_data, image_key FROM credit_transactions 
+          WHERE session_id = ? AND ((image_data IS NOT NULL AND image_data != '') OR image_key IS NOT NULL)
           ORDER BY created_at DESC LIMIT 1
         `).bind(e.session_id).first() as any
         
-        if (txn?.image_data) {
-          e.generated_image = txn.image_data
+        // Old ledger images may have been moved to R2 by migrate-images-to-r2.ts
+        const image = txn?.image_data || (txn?.image_key ? await getImageFromR2(c.env, txn.image_key).catch(() => null) : null)
+        if (image) {
+          e.generated_image = image
         }
       }
       return e
@@ -4127,9 +4129,9 @@ app.get('/api/sessions/:id', async (c) => {
     let images: any[] = []
     try {
       const imagesResult = await db.prepare(
-        'SELECT variation_type, variation_index, image_data FROM generated_images WHERE session_id = ? ORDER BY variation_index'
+        'SELECT variation_type, variation_index, image_data, image_key FROM generated_images WHERE session_id = ? ORDER BY variation_index'
       ).bind(id).all()
-      images = imagesResult.results || []
+      images = await hydrateImages(c.env, (imagesResult.results || []) as any[])
     } catch (imgError) {
       console.error('Error fetching images (table may not exist):', imgError)
       // Continue with empty images array - table might not exist yet
@@ -4165,21 +4167,29 @@ app.post('/api/sessions/:id/images', async (c) => {
       return c.json({ success: false, error: 'Session not found' }, 404)
     }
     
+    // Store the bytes in R2 when the bucket is bound; D1 keeps only the key.
+    const imageKey = await putImageToR2(c.env, sessionId, Number(variation_index), image_data)
+    // image_data is NOT NULL in production, so R2-backed rows store ''.
+    const storedData = imageKey ? '' : image_data
+
     // Check if image already exists for this variation
     const existing = await db.prepare(
-      'SELECT id FROM generated_images WHERE session_id = ? AND variation_index = ?'
-    ).bind(sessionId, variation_index).first()
+      'SELECT id, image_key FROM generated_images WHERE session_id = ? AND variation_index = ?'
+    ).bind(sessionId, variation_index).first() as any
     
     if (existing) {
-      // Update existing
+      // Update existing (a regeneration replaces the image)
       await db.prepare(
-        'UPDATE generated_images SET image_data = ? WHERE session_id = ? AND variation_index = ?'
-      ).bind(image_data, sessionId, variation_index).run()
+        'UPDATE generated_images SET image_data = ?, image_key = ? WHERE session_id = ? AND variation_index = ?'
+      ).bind(storedData, imageKey, sessionId, variation_index).run()
+      if (existing.image_key && existing.image_key !== imageKey && c.env.IMAGES_BUCKET) {
+        c.executionCtx.waitUntil(c.env.IMAGES_BUCKET.delete(existing.image_key).catch(() => {}))
+      }
     } else {
       // Insert new
       await db.prepare(
-        'INSERT INTO generated_images (session_id, variation_type, variation_index, image_data) VALUES (?, ?, ?, ?)'
-      ).bind(sessionId, variation_type, variation_index, image_data).run()
+        'INSERT INTO generated_images (session_id, variation_type, variation_index, image_data, image_key) VALUES (?, ?, ?, ?, ?)'
+      ).bind(sessionId, variation_type, variation_index, storedData, imageKey).run()
     }
     
     return c.json({ success: true })
@@ -5632,6 +5642,68 @@ app.get('/api/billing/portal', async (c) => {
 //                            exists, is active, has the expected amount and
 //                            interval, and carries a GBP option if GBP is on
 // ============================================================================
+// IMAGE STORAGE (R2)
+// ============================================================================
+// Generated images used to be stored as base64 data URLs in D1 (173 MB in
+// generated_images by Oct 2026). New images go to the shopshot-images R2
+// bucket (binding IMAGES_BUCKET) and D1 keeps only the object key. Reads
+// turn the object back into a data URL, so API responses keep their shape
+// and no client code changes. Without the binding everything stays in D1.
+// scripts/migrate-images-to-r2.ts moves existing rows.
+
+function dataUrlToBytes(dataUrl: string): { bytes: Uint8Array; contentType: string } | null {
+  const m = /^data:([^;,]+);base64,(.*)$/s.exec(dataUrl || '');
+  if (!m) return null;
+  const bin = atob(m[2]);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return { bytes, contentType: m[1] };
+}
+
+function bytesToDataUrl(bytes: Uint8Array, contentType: string): string {
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 8192) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192) as any);
+  }
+  return `data:${contentType};base64,${btoa(binary)}`;
+}
+
+/** Stores a data-URL image in R2. Returns the key, or null to fall back to D1. */
+async function putImageToR2(env: Bindings, sessionId: string, variationIndex: number, dataUrl: string): Promise<string | null> {
+  if (!env.IMAGES_BUCKET) return null;
+  const parsed = dataUrlToBytes(dataUrl);
+  if (!parsed) return null;
+  const ext = parsed.contentType === 'image/png' ? 'png' : parsed.contentType === 'image/webp' ? 'webp' : 'jpg';
+  const key = `generated/${sessionId}/${variationIndex}-${generateId()}.${ext}`;
+  try {
+    await env.IMAGES_BUCKET.put(key, parsed.bytes, { httpMetadata: { contentType: parsed.contentType } });
+    return key;
+  } catch (e) {
+    console.error('[R2] put failed, keeping image in D1:', e);
+    return null;
+  }
+}
+
+async function getImageFromR2(env: Bindings, key: string): Promise<string | null> {
+  if (!env.IMAGES_BUCKET || !key) return null;
+  const obj = await env.IMAGES_BUCKET.get(key);
+  if (!obj) return null;
+  const bytes = new Uint8Array(await obj.arrayBuffer());
+  return bytesToDataUrl(bytes, obj.httpMetadata?.contentType || 'image/png');
+}
+
+/** Fills image_data from R2 for rows that only have an image_key. */
+async function hydrateImages(env: Bindings, rows: any[]): Promise<any[]> {
+  return Promise.all(rows.map(async r => {
+    if (!r.image_data && r.image_key) {
+      r.image_data = await getImageFromR2(env, r.image_key).catch(() => null);
+    }
+    delete r.image_key;
+    return r;
+  }));
+}
+
+// ============================================================================
 // SCHEDULED JOBS
 // ============================================================================
 // Cloudflare Pages has no cron triggers, so a tiny companion Worker
@@ -6424,10 +6496,11 @@ app.post('/api/anon/generate/:sessionId/:variationIndex', async (c) => {
     return c.json({ success: false, error: result.error, field: variation.field }, 500);
   }
 
+  const previewKey = await putImageToR2(c.env, sessionId, variationIndex, result.image || '');
   await db.prepare(`
-    INSERT INTO generated_images (session_id, variation_type, variation_index, image_data, model)
-    VALUES (?, ?, ?, ?, ?)
-  `).bind(sessionId, variation.field, variationIndex, result.image, ANON_MODEL).run();
+    INSERT INTO generated_images (session_id, variation_type, variation_index, image_data, model, image_key)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).bind(sessionId, variation.field, variationIndex, previewKey ? '' : result.image, ANON_MODEL, previewKey).run();
 
   const generated = record.images_generated + 1;
   c.executionCtx.waitUntil(trackEvent(db, {
