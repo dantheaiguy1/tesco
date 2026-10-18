@@ -2809,6 +2809,8 @@ app.get('/blog/markdown', (c) => {
     'Content-Disposition': 'inline; filename="blog-index.md"',
     'Cache-Control': 'public, max-age=3600',
     'X-Content-Type-Options': 'nosniff',
+    // Markdown copies are for AI tools; the HTML post is the indexed page.
+    'X-Robots-Tag': 'noindex',
   })
 })
 
@@ -2821,7 +2823,8 @@ app.get('/blog/:slugWithExt', (c) => {
     // Fall through to the normal blog post handler
     const page = getBlogPostPage(slugWithExt)
     if (!page) {
-      return c.redirect('/blog')
+      // A real 404 (it used to redirect to /blog, which Google reports as a soft 404)
+      return c.html(getBlogIndexPage(), 404)
     }
     return c.html(page)
   }
@@ -2833,6 +2836,7 @@ app.get('/blog/:slugWithExt', (c) => {
   if (!md) {
     return c.text('# 404 - Blog post not found\n\nThe requested blog post does not exist.\n\nSee all available posts at: https://www.shopshot.co.uk/blog/markdown', 404, {
       'Content-Type': 'text/markdown; charset=utf-8',
+      'X-Robots-Tag': 'noindex',
     })
   }
   
@@ -2841,6 +2845,9 @@ app.get('/blog/:slugWithExt', (c) => {
     'Content-Disposition': `inline; filename="${slug}.md"`,
     'Cache-Control': 'public, max-age=3600',
     'X-Content-Type-Options': 'nosniff',
+    // Duplicate of the HTML post: keep it out of the index, point at the original.
+    'X-Robots-Tag': 'noindex',
+    'Link': `<https://www.shopshot.co.uk/blog/${slug}>; rel="canonical"`,
   })
 })
 
@@ -2849,88 +2856,80 @@ app.get('/robots.txt', (c) => {
   const robotsTxt = `User-agent: *
 Allow: /
 
-# Blog Markdown for AI & Crawlers
+# Blog Markdown for AI tools. Crawlable, but each response carries
+# X-Robots-Tag: noindex so only the HTML posts are indexed. See /llms.txt.
 Allow: /blog/*.md
 Allow: /blog/markdown
 
 # Sitemap
 Sitemap: https://www.shopshot.co.uk/sitemap.xml
 
-# Block internal/API routes
+# Block internal/API routes and signed-in pages. "/app$" rather than "/app",
+# which would also block /apple-touch-icon.png.
 Disallow: /api/
-Disallow: /app
+Disallow: /app$
+Disallow: /app?
+Disallow: /dashboard
+Disallow: /account
+Disallow: /results/
 Disallow: /register
 Disallow: /login
+Disallow: /get-started
 Disallow: /reset-password
+Disallow: /forgot-password
 Disallow: /verify-email
+Disallow: /unsubscribe
 `
   return c.text(robotsTxt, 200, { 'Content-Type': 'text/plain' })
 })
 
 // SEO: sitemap.xml
+// Last real content change for each static page. Update the date when a
+// page's content changes; never generate it from the current date, which tells
+// Google every page changed on every crawl and teaches it to ignore lastmod.
+const STATIC_PAGE_LASTMOD: Array<{ url: string; lastmod: string; priority: string; changefreq: string }> = [
+  { url: '/', lastmod: '2026-10-18', priority: '1.0', changefreq: 'weekly' },
+  { url: '/pricing', lastmod: '2026-10-18', priority: '0.9', changefreq: 'monthly' },
+  { url: '/tools/remove-background', lastmod: '2026-10-18', priority: '0.8', changefreq: 'monthly' },
+  { url: '/blog', lastmod: BLOG_LATEST_DATE(), priority: '0.9', changefreq: 'weekly' },
+  { url: '/faq', lastmod: '2026-07-27', priority: '0.8', changefreq: 'monthly' },
+  { url: '/about', lastmod: '2026-07-27', priority: '0.7', changefreq: 'yearly' },
+  { url: '/contact', lastmod: '2026-07-27', priority: '0.6', changefreq: 'yearly' },
+  { url: '/privacy', lastmod: '2026-10-18', priority: '0.4', changefreq: 'yearly' },
+  { url: '/terms', lastmod: '2026-07-27', priority: '0.4', changefreq: 'yearly' },
+  { url: '/refunds', lastmod: '2026-07-27', priority: '0.4', changefreq: 'yearly' },
+  { url: '/cookies', lastmod: '2026-10-18', priority: '0.3', changefreq: 'yearly' },
+];
+
+function BLOG_LATEST_DATE(): string {
+  return getAllBlogPosts().map(p => p.publishDate).sort().pop() || '2026-02-10';
+}
+
 app.get('/sitemap.xml', (c) => {
   const baseUrl = 'https://www.shopshot.co.uk'
-  const today = new Date().toISOString().split('T')[0]
-  
-  const pages = [
-    { url: '/', priority: '1.0', changefreq: 'weekly' },
-    { url: '/pricing', priority: '0.9', changefreq: 'weekly' },
-    { url: '/blog', priority: '0.9', changefreq: 'weekly' },
-    { url: '/faq', priority: '0.8', changefreq: 'monthly' },
-    { url: '/about', priority: '0.7', changefreq: 'monthly' },
-    { url: '/contact', priority: '0.7', changefreq: 'monthly' },
-    { url: '/privacy', priority: '0.5', changefreq: 'yearly' },
-    { url: '/terms', priority: '0.5', changefreq: 'yearly' },
-    { url: '/refunds', priority: '0.5', changefreq: 'yearly' },
-    { url: '/cookies', priority: '0.3', changefreq: 'yearly' },
-  ]
-  
-  // Add blog posts dynamically
-  const blogPosts = getAllBlogPosts()
-  const blogUrls = blogPosts.map(post => ({
+
+  // HTML posts only. The .md copies and /blog/markdown are for AI tools and
+  // are served with X-Robots-Tag: noindex, so listing them here sent Google
+  // mixed signals and doubled the URL count.
+  const blogUrls = getAllBlogPosts().map(post => ({
     url: `/blog/${post.slug}`,
+    lastmod: post.publishDate,
     priority: '0.8',
-    changefreq: 'monthly',
-    lastmod: post.publishDate
+    changefreq: 'yearly'
   }))
-  
-  // Add markdown versions for AI/crawlers
-  const markdownUrls = blogPosts.map(post => ({
-    url: `/blog/${post.slug}.md`,
-    priority: '0.6',
-    changefreq: 'monthly',
-    lastmod: post.publishDate
-  }))
-  
+
+  const entries = [...STATIC_PAGE_LASTMOD, ...blogUrls]
   const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-${pages.map(p => `  <url>
-    <loc>${baseUrl}${p.url}</loc>
-    <lastmod>${today}</lastmod>
-    <changefreq>${p.changefreq}</changefreq>
-    <priority>${p.priority}</priority>
-  </url>`).join('\n')}
-${blogUrls.map(p => `  <url>
-    <loc>${baseUrl}${p.url}</loc>
-    <lastmod>${p.lastmod}</lastmod>
-    <changefreq>${p.changefreq}</changefreq>
-    <priority>${p.priority}</priority>
-  </url>`).join('\n')}
-  <url>
-    <loc>${baseUrl}/blog/markdown</loc>
-    <lastmod>${today}</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.7</priority>
-  </url>
-${markdownUrls.map(p => `  <url>
+${entries.map(p => `  <url>
     <loc>${baseUrl}${p.url}</loc>
     <lastmod>${p.lastmod}</lastmod>
     <changefreq>${p.changefreq}</changefreq>
     <priority>${p.priority}</priority>
   </url>`).join('\n')}
 </urlset>`
-  
-  return c.text(sitemap, 200, { 'Content-Type': 'application/xml' })
+
+  return c.text(sitemap, 200, { 'Content-Type': 'application/xml', 'Cache-Control': 'public, max-age=3600' })
 })
 
 // Contact Form API

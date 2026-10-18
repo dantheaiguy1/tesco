@@ -1,0 +1,61 @@
+# ShopShot
+
+> ShopShot turns one product photo into up to 10 marketplace-ready product images (white-background hero, lifestyle, flat-lay, in-use, size reference, detail and multi-angle shots) in about 25 seconds, sized for eBay, Amazon, Etsy, Depop, Shopify, Vinted and social media. Built for small online sellers. UK-based.
+
+- Each image costs one credit; users choose which shots to make.
+- Standard quality uses Google's gemini-2.5-flash-image model; Pro quality uses gemini-3-pro-image-preview.
+- Free account: 6 Standard and 2 Pro credits at signup, then 4 Standard credits every Monday for the first 4 weeks. No card required.
+- Paid plans: Starter, Standard and Pro, monthly or annual, plus one-off credit packs. Current prices: https://www.shopshot.co.uk/pricing
+- Free background remover, no account needed: https://www.shopshot.co.uk/tools/remove-background
+
+## Key pages
+
+- [Home](https://www.shopshot.co.uk/): what ShopShot does, with a free one-image preview
+- [Pricing](https://www.shopshot.co.uk/pricing): plans, annual pricing and credit packs
+- [Free background remover](https://www.shopshot.co.uk/tools/remove-background)
+- [FAQ](https://www.shopshot.co.uk/faq)
+- [About](https://www.shopshot.co.uk/about)
+- [Contact](https://www.shopshot.co.uk/contact)
+
+## Guides
+
+Each guide is also available as Markdown by adding .md to its URL. A Markdown index of every guide is at https://www.shopshot.co.uk/blog/markdown
+
+- [AI Product Photography in 2026: 10 Trends Reshaping E-Commerce Imagery](https://www.shopshot.co.uk/blog/ai-product-photography-2026-trends): Discover the top AI product photography trends for 2026 including batch processing, brand consistency, 360-degree video, and conversion-optimized imagery.
+- [How to Batch Process Product Photos with AI (Save Hours Per Week)](https://www.shopshot.co.uk/blog/batch-product-photography-guide): Learn how to batch process hundreds of product photos with AI. Step-by-step guide to scaling your product photography without hiring a photographer.
+- [How to Maintain Brand Consistency Across AI-Generated Product Photos](https://www.shopshot.co.uk/blog/brand-consistency-product-photos): Learn how to use brand colours, style presets, and AI settings to keep your product photography visually consistent across every platform and listing.
+- [How to Create 360° Product Videos with AI (From a Single Photo)](https://www.shopshot.co.uk/blog/360-product-video-ai-guide): Learn how to generate 360-degree product spin videos from a single image using AI. Boost engagement and reduce returns with interactive product views.
+- [AI Background Removal for Product Photos: Complete 2026 Guide](https://www.shopshot.co.uk/blog/ai-background-removal-guide): How to remove product photo backgrounds instantly with AI. Free tools, best practices, and how to combine background removal with AI scene generation.
+- [How Product Photography Directly Affects Your Conversion Rate (Data + Strategies)](https://www.shopshot.co.uk/blog/product-photography-conversion-optimization): Data-backed guide on how product images impact e-commerce conversion rates. Learn which image types convert best and how to optimise your product photography.
+- [AI Product Photos vs Professional Photographer: Honest 2026 Comparison](https://www.shopshot.co.uk/blog/ai-product-photos-vs-professional-photographer): An honest comparison of AI-generated product photos versus professional photography. When to use each, real cost analysis, and quality comparison.
+- [Product Photography Style Presets: How to Choose the Right Look for Your Brand](https://www.shopshot.co.uk/blog/product-photography-style-presets-guide): Guide to choosing the perfect photography style for your brand. Learn about Minimalist, Luxury, Rustic, Scandinavian, and more style presets for product photos.
+- [How Better Product Photos Reduce Returns by 25% (E-Commerce Data)](https://www.shopshot.co.uk/blog/reduce-product-returns-better-photos): Data shows that improved product photography reduces e-commerce returns by 22-25%. Learn which image types prevent returns and how to implement them.
+- [AI Product Photography for Small Businesses: How to Compete with Big Brands on a Budget](https://www.shopshot.co.uk/blog/ai-product-photography-small-business): How small businesses and solo sellers can use AI product photography to create big-brand quality imagery without the big-brand budget.
+- [How to Optimise AI Product Photos for Amazon, Etsy, eBay, and Shopify (2026 Requirements)](https://www.shopshot.co.uk/blog/ai-photography-marketplace-selling-guide): Platform-by-platform guide to product image requirements for Amazon, Etsy, eBay, and Shopify. Learn exact specs and how AI photography meets every requirement.
+- [How to Generate Product Images with AI (Tools & Workflow for 2025)](https://www.shopshot.co.uk/blog/ai-product-image-generation): Master AI product photography with this complete guide to tools, workflows, and best practices for generating professional ecommerce images in seconds.
+- [How to Make White Background Product Photos (Amazon/Etsy Requirements)](https://www.shopshot.co.uk/blog/white-background-product-photos-guide): Create perfect white background product photos that meet Amazon and Etsy requirements. Compare lightbox, Photoshop, and AI methods for pure white backgrounds.
+- [How to Create Lifestyle Product Photos (Without a Studio)](https://www.shopshot.co.uk/blog/lifestyle-product-photos-without-studio): Learn how to create lifestyle product photos that sell. Compare DIY, studio, and AI methods to generate authentic, contextual product images that boost conversions by 40%.
+- [How to Create Product Images for Instagram and TikTok Shop (Mobile-First Optimization)](https://www.shopshot.co.uk/blog/instagram-tiktok-product-images): Learn how to create scroll-stopping product images for Instagram and TikTok Shop. Master aspect ratios, mobile optimization, and AI tools to generate platform-specific visuals that convert.
+- [How to Create Product Photography for Ecommerce (Complete 2025 Guide)](https://www.shopshot.co.uk/blog/ecommerce-product-photography-guide): Complete guide to ecommerce product photography. Learn DIY methods, professional techniques, AI alternatives, and platform-specific requirements for Shopify, Amazon, and more.
+- [How to Create Multiple Product Photos from One Image (AI Photography Guide)](https://www.shopshot.co.uk/blog/multiple-product-photos-one-image): Turn one product photo into 10 professional variations instantly. Learn how to maximize a single image for multiple platforms, campaigns, and A/B testing.
+- [How to Make Product Images for Amazon (Meet Requirements Without a Photographer)](https://www.shopshot.co.uk/blog/amazon-product-images-requirements): Master Amazon product photo requirements without hiring a photographer. Learn how to create compliant white background images and optimize your Amazon listings.
+- [How to Create Bulk Product Images for Shopify (Fast & Cheap Methods)](https://www.shopshot.co.uk/blog/bulk-product-images-shopify): Discover how to create bulk product images for Shopify stores without breaking the bank. Compare traditional photography, DIY methods, and AI bulk generation.
+- [How to Create Professional Product Photos Without a Photographer (2025 Guide)](https://www.shopshot.co.uk/blog/product-photos-without-photographer): Learn how to create professional product photos without hiring a photographer. Compare DIY, AI, and traditional methods to save time and money on ecommerce photography.
+- [Shopify Product Photography: Optimise Images for Your Online Store](https://www.shopshot.co.uk/blog/shopify-product-photography): Learn how to create, optimise, and display product photography on Shopify for faster loading times and higher conversion rates.
+- [How to Create 360-Degree Product Photos (Interactive Spins)](https://www.shopshot.co.uk/blog/360-degree-product-photos): Learn how to create 360-degree product photos that boost conversions by 27%. Compare turntable setups, software, and AI tools to generate interactive product spins affordably.
+- [10 Product Photography Mistakes Killing Your Sales (And How to Fix Them)](https://www.shopshot.co.uk/blog/product-photography-mistakes): Discover the most common product photography mistakes e-commerce sellers make and learn how to fix them for higher conversion rates.
+- [Instagram Product Photography: Create Scroll-Stopping Content](https://www.shopshot.co.uk/blog/instagram-product-photography): Master Instagram product photography with techniques for feed posts, Stories, Reels, and shopping features. Create content that drives engagement and sales.
+- [Etsy Product Photography Tips: Stand Out in a Handmade Marketplace](https://www.shopshot.co.uk/blog/etsy-product-photography): Learn Etsy-specific product photography techniques to make your handmade items shine. From thumbnail impact to styling for the Etsy aesthetic.
+- [Flat Lay Product Photography: The Complete Visual Guide](https://www.shopshot.co.uk/blog/flat-lay-photography): Master the art of flat lay photography for e-commerce. Learn composition techniques, styling tips, and how AI can create perfect flat lays instantly.
+- [Product Photography Lighting: From Beginner to Pro Results](https://www.shopshot.co.uk/blog/product-photography-lighting): Master product photography lighting techniques to create stunning images. Learn about natural light, studio setups, and how AI can perfect any shot.
+- [Amazon Product Photography Requirements: Complete Seller's Guide 2025](https://www.shopshot.co.uk/blog/amazon-product-photography): Everything you need to know about Amazon product image requirements, best practices, and how to create listings that rank and convert in 2025.
+- [Lifestyle Product Photography: How to Create Images That Sell](https://www.shopshot.co.uk/blog/lifestyle-product-photography): Learn the secrets of lifestyle product photography that connects emotionally with customers and drives higher conversion rates for your online store.
+- [How to Create Perfect White Background Product Photos (With and Without AI)](https://www.shopshot.co.uk/blog/white-background-product-photos): Master white background product photography for Amazon, eBay, and your online store. Learn DIY techniques and AI shortcuts for professional results.
+- [AI Product Photography: The Complete Guide for E-commerce Sellers in 2025](https://www.shopshot.co.uk/blog/ai-product-photography-guide): Learn how AI product photography works, its benefits for online sellers, and how to create stunning product images without expensive equipment or studios.
+
+## Policies
+
+- [Privacy Policy](https://www.shopshot.co.uk/privacy)
+- [Terms of Service](https://www.shopshot.co.uk/terms)
+- [Refund Policy](https://www.shopshot.co.uk/refunds)
+- [Cookie Policy](https://www.shopshot.co.uk/cookies)
